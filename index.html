@@ -1,0 +1,1755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lumix Solar Estimator – Multi Mode</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f3f4f6;
+      color: #111827;
+    }
+    .app {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    header h1 {
+      font-size: 20px;
+      margin: 0;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      margin-bottom: 16px;
+    }
+    .step-title {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+    .field {
+      margin-bottom: 12px;
+    }
+    .field label {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+    .field input[type="text"],
+    .field input[type="number"],
+    .field select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      border-radius: 4px;
+      border: 1px solid #d1d5db;
+      font-size: 14px;
+    }
+    .inline {
+      display: flex;
+      gap: 8px;
+    }
+    .inline .field {
+      flex: 1;
+    }
+    .button-row {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+    button {
+      padding: 8px 16px;
+      font-size: 14px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      background: #2563eb;
+      color: #fff;
+    }
+    button[disabled] {
+      background: #9ca3af;
+      cursor: default;
+    }
+    .secondary {
+      background: #e5e7eb;
+      color: #111827;
+    }
+    .progress {
+      height: 6px;
+      background: #e5e7eb;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .progress-inner {
+      height: 100%;
+      background: #2563eb;
+      width: 0%;
+      transition: width 0.2s ease;
+    }
+    h3 {
+      margin-top: 0;
+    }
+    .output-section {
+      margin-top: 8px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 4px 6px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+    }
+    th {
+      background: #f9fafb;
+    }
+    .small-note {
+      font-size: 12px;
+      color: #6b7280;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #e5e7eb;
+      margin: 8px 0;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Lumix Solar Estimator</h1>
+    <div class="small-note">Prototype – multi-mode (Guided / Manual / Load)</div>
+  </header>
+
+  <div class="progress">
+    <div id="progress-inner" class="progress-inner"></div>
+  </div>
+
+  <div id="steps-container">
+
+    <!-- Step 1: Mode & Site Info -->
+    <div class="card step" data-step="1">
+      <div class="step-title">Step 1 – Mode & Site Info</div>
+
+      <div class="field">
+        <label>Mode</label>
+        <select id="quote-mode">
+          <option value="guided">Guided system quote</option>
+          <option value="manual">Manual system builder</option>
+          <option value="load">Load & inverter sizing</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Property type</label>
+        <select id="property-type">
+          <option value="house">House (residential)</option>
+          <option value="business">Business / Shop</option>
+          <option value="school">School</option>
+          <option value="supermarket">Supermarket / Cold storage</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Parish</label>
+        <select id="parish">
+          <option value="">Select parish</option>
+          <option>Kingston</option>
+          <option>St. Andrew</option>
+          <option>St. Catherine</option>
+          <option>Clarendon</option>
+          <option>Manchester</option>
+          <option>St. Elizabeth</option>
+          <option>Westmoreland</option>
+          <option>Hanover</option>
+          <option>St. James</option>
+          <option>Trelawny</option>
+          <option>St. Ann</option>
+          <option>St. Mary</option>
+          <option>Portland</option>
+          <option>St. Thomas</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Nearest town</label>
+        <input list="town-list" type="text" id="nearest-town" placeholder="Start typing nearest town..." />
+        <datalist id="town-list"></datalist>
+        <div class="small-note">Used for delivery & internal records.</div>
+      </div>
+
+      <div class="field">
+        <label>System type (new / upgrade)</label>
+        <select id="system-type">
+          <option value="new">New installation</option>
+          <option value="upgrade">Upgrade / Expansion</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Solar system mode</label>
+        <select id="system-mode">
+          <option value="hybrid">Hybrid (with batteries)</option>
+          <option value="offgrid">Off-grid</option>
+          <option value="gridtie">Grid-tie (no batteries)</option>
+        </select>
+      </div>
+
+      <div class="field guided-only">
+        <label>JPS rate type (for guided mode)</label>
+        <select id="jps-rate">
+          <option value="residential">Residential</option>
+          <option value="commercial">Commercial / Business</option>
+          <option value="unknown">Not sure</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Step 2: Roof & Mounting -->
+    <div class="card step" data-step="2" style="display:none;">
+      <div class="step-title">Step 2 – Roof & Mounting</div>
+
+      <div class="field">
+        <label>Roof type</label>
+        <select id="roof-type">
+          <option value="zinc">Zinc / metal roof</option>
+          <option value="slab">Concrete slab roof</option>
+          <option value="shingle">Shingle / Other</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Building height</label>
+        <select id="storeys">
+          <option value="1">1 storey</option>
+          <option value="2plus">2 or more storeys</option>
+        </select>
+      </div>
+
+      <div class="field" id="zinc-center-rail-field">
+        <label>Zinc roofs: use center rail (3 rails per row)?</label>
+        <select id="zinc-center-rail">
+          <option value="yes">Yes – 3 rails per row</option>
+          <option value="no">No – 2 rails per row</option>
+        </select>
+        <div class="small-note">Slab roofs always use 3 rails/row and expansion bolts, especially 550W+.</div>
+      </div>
+    </div>
+
+    <!-- Step 3: Loads -->
+    <div class="card step" data-step="3" style="display:none;">
+      <div class="step-title">Step 3 – Loads (AC & Heavy Appliances)</div>
+
+      <div class="field">
+        <label>Do you have AC units?</label>
+        <select id="has-ac">
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+      </div>
+
+      <div id="ac-section" style="display:none;">
+        <div class="field">
+          <label>AC units by size (BTU) – quantity</label>
+          <div class="inline">
+            <div class="field">
+              <label>9,000 BTU</label>
+              <input type="number" id="ac-9000" min="0" value="0" />
+            </div>
+            <div class="field">
+              <label>12,000 BTU</label>
+              <input type="number" id="ac-12000" min="0" value="0" />
+            </div>
+          </div>
+          <div class="inline">
+            <div class="field">
+              <label>18,000 BTU</label>
+              <input type="number" id="ac-18000" min="0" value="0" />
+            </div>
+            <div class="field">
+              <label>24,000 BTU</label>
+              <input type="number" id="ac-24000" min="0" value="0" />
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>AC hours per day</label>
+          <select id="ac-hours-mode">
+            <option value="standard">Use standard 4 hours/day</option>
+            <option value="custom">Enter custom hours</option>
+          </select>
+        </div>
+        <div class="field" id="ac-hours-custom-field" style="display:none;">
+          <label>Custom AC hours per day (all units)</label>
+          <input type="number" id="ac-hours-custom" min="0" step="0.5" value="4" />
+        </div>
+      </div>
+
+      <hr />
+
+      <div class="field">
+        <label>Refrigerators</label>
+        <div class="inline">
+          <div class="field">
+            <label>Quantity</label>
+            <input type="number" id="fridge-qty" min="0" value="1" />
+          </div>
+          <div class="field">
+            <label>Hours/day</label>
+            <input type="number" id="fridge-hours" min="0" value="24" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Deep Freezers</label>
+        <div class="inline">
+          <div class="field">
+            <label>Quantity</label>
+            <input type="number" id="freezer-qty" min="0" value="0" />
+          </div>
+          <div class="field">
+            <label>Hours/day</label>
+            <input type="number" id="freezer-hours" min="0" value="24" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Fans</label>
+        <div class="inline">
+          <div class="field">
+            <label>Quantity</label>
+            <input type="number" id="fan-qty" min="0" value="0" />
+          </div>
+          <div class="field">
+            <label>Hours/day</label>
+            <input type="number" id="fan-hours" min="0" value="0" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Irons</label>
+        <div class="inline">
+          <div class="field">
+            <label>Quantity</label>
+            <input type="number" id="iron-qty" min="0" value="0" />
+          </div>
+          <div class="field">
+            <label>Hours/day</label>
+            <input type="number" id="iron-hours" min="0" value="0" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Microwaves</label>
+        <div class="inline">
+          <div class="field">
+            <label>Quantity</label>
+            <input type="number" id="mw-qty" min="0" value="0" />
+          </div>
+          <div class="field">
+            <label>Hours/day</label>
+            <input type="number" id="mw-hours" min="0" value="0" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Washers</label>
+        <div class="inline">
+          <div class="field">
+            <label>Quantity</label>
+            <input type="number" id="washer-qty" min="0" value="0" />
+          </div>
+          <div class="field">
+            <label>Hours/day</label>
+            <input type="number" id="washer-hours" min="0" value="0" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Dryers</label>
+        <div class="inline">
+          <div class="field">
+            <label>Quantity</label>
+            <input type="number" id="dryer-qty" min="0" value="0" />
+          </div>
+          <div class="field">
+            <label>Hours/day</label>
+            <input type="number" id="dryer-hours" min="0" value="0" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>TVs</label>
+        <div class="inline">
+          <div class="field">
+            <label>Quantity</label>
+            <input type="number" id="tv-qty" min="0" value="0" />
+          </div>
+          <div class="field">
+            <label>Hours/day</label>
+            <input type="number" id="tv-hours" min="0" value="0" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Other loads – total watts & hours/day</label>
+        <div class="inline">
+          <div class="field">
+            <label>Total watts</label>
+            <input type="number" id="other-watts" min="0" value="0" />
+          </div>
+          <div class="field">
+            <label>Hours/day</label>
+            <input type="number" id="other-hours" min="0" value="0" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4: Bill / Usage -->
+    <div class="card step" data-step="4" style="display:none;">
+      <div class="step-title">Step 4 – JPS Bill / Usage (Guided)</div>
+
+      <div class="field guided-only">
+        <label>How will you enter usage?</label>
+        <select id="usage-mode">
+          <option value="bill">Average JPS bill (J$)</option>
+          <option value="kwh">Average monthly kWh</option>
+          <option value="unknown">Not sure</option>
+        </select>
+      </div>
+
+      <div class="field guided-only" id="bill-field">
+        <label>Average JPS bill (last 3 months, J$)</label>
+        <input type="number" id="avg-bill" min="0" value="50000" />
+      </div>
+
+      <div class="field guided-only" id="kwh-field" style="display:none;">
+        <label>Average monthly usage (kWh)</label>
+        <input type="number" id="avg-kwh" min="0" value="0" />
+      </div>
+
+      <div class="small-note guided-only">
+        If “Not sure”, the system will lean more on the load information & backup time.
+      </div>
+    </div>
+
+    <!-- Step 5: Backup -->
+    <div class="card step" data-step="5" style="display:none;">
+      <div class="step-title">Step 5 – Backup Requirements</div>
+
+      <div class="field">
+        <label>Backup duration in a power cut</label>
+        <select id="backup-mode">
+          <option value="4">4 hours</option>
+          <option value="8">8 hours</option>
+          <option value="12">12 hours</option>
+          <option value="24">24 hours</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+
+      <div class="field" id="backup-custom-field" style="display:none;">
+        <label>Custom backup time (hours)</label>
+        <input type="number" id="backup-hours-custom" min="1" value="6" />
+      </div>
+
+      <div class="field">
+        <label>Backup coverage</label>
+        <select id="backup-coverage">
+          <option value="essentials">Essentials only (fridge, lights, fans, some plugs)</option>
+          <option value="full">Most loads / full house or business</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Step 6: Manual-specific hardware selection -->
+    <div class="card step" data-step="6" style="display:none;">
+      <div class="step-title">Step 6 – Manual System Builder</div>
+
+      <div class="field">
+        <label>Manual mode type</label>
+        <select id="manual-mode-type">
+          <option value="battery-led">Battery-led (you set inverter & battery → system sets panels)</option>
+          <option value="panel-led">Panel-led (you set inverter & panels → system sets battery)</option>
+          <option value="full-manual">Full manual (you set panels, inverter & battery)</option>
+        </select>
+      </div>
+
+      <hr />
+
+      <div class="field">
+        <label>Manual inverter (optional – leave blank for auto)</label>
+        <select id="manual-inverter-id">
+          <option value="">Let system choose inverter</option>
+          <!-- Hybrid -->
+          <option value="hyb3k">3000W Hybrid 110V (no AC)</option>
+          <option value="hyb6k">6000W Hybrid 110/220V</option>
+          <option value="hyb8k">8000W Hybrid 110/220V</option>
+          <option value="hyb10k">10000W Hybrid 110/220V DEYE</option>
+          <option value="hyb12k">12000W Hybrid 110/220V DEYE</option>
+          <!-- Off-grid -->
+          <option value="off3k72">3000W Off-grid 12V (72k)</option>
+          <option value="off3k78">3000W Off-grid 12V (78k)</option>
+          <option value="off3_2k">3200W Off-grid PowMr 24V</option>
+          <!-- Grid-tie -->
+          <option value="grid15k">15000W Grid-tie 3-phase</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Manual panel selection (optional – leave count 0 for auto)</label>
+        <div class="inline">
+          <div class="field">
+            <label>Panel wattage</label>
+            <select id="manual-panel-watts">
+              <option value="415">415 W</option>
+              <option value="550">550 W</option>
+              <option value="595">595 W</option>
+              <option value="600">600 W</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Number of panels</label>
+            <input type="number" id="manual-panel-count" min="0" value="0" />
+          </div>
+        </div>
+        <div class="small-note">
+          In all modes the app will round up and enforce an <strong>even</strong> number of panels.
+        </div>
+      </div>
+
+      <div class="field manual-hybrid-only">
+        <label>Hybrid battery selection (LiFePO₄, optional – leave 0 for auto)</label>
+        <div class="inline">
+          <div class="field">
+            <label>5 kWh count</label>
+            <input type="number" id="manual-batt-5k" min="0" value="0" />
+          </div>
+          <div class="field">
+            <label>10 kWh count</label>
+            <input type="number" id="manual-batt-10k" min="0" value="0" />
+          </div>
+        </div>
+        <div class="inline">
+          <div class="field">
+            <label>15 kWh count</label>
+            <input type="number" id="manual-batt-15k" min="0" value="0" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field manual-offgrid-only">
+        <label>Off-grid AGM 12V battery count (optional – leave 0 for auto)</label>
+        <input type="number" id="manual-agm-count" min="0" value="0" />
+        <div class="small-note">Each AGM module treated as ~2.4 kWh for sizing.</div>
+      </div>
+
+      <div class="field manual-offgrid-only" id="manual-offgrid-transfer-field">
+        <label>Off-grid: add automatic transfer switch?</label>
+        <select id="manual-offgrid-transfer">
+          <option value="yes">Yes – use automatic transfer switch</option>
+          <option value="no">No – use off-grid changeover switch</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Step 7: Budget, Discount & Customer + Results -->
+    <div class="card step" data-step="7" style="display:none;">
+      <div class="step-title">Step 7 – Pricing, Discount & Results</div>
+
+      <div class="field">
+        <label>Budget range (optional, guided only)</label>
+        <select id="budget-band">
+          <option value="none">No fixed budget – show ideal</option>
+          <option value="under500">Under $500,000</option>
+          <option value="500-800">$500,000 – $800,000</option>
+          <option value="800-1200">$800,000 – $1,200,000</option>
+          <option value="1200-2000">$1,200,000 – $2,000,000</option>
+          <option value="over2000">Above $2,000,000</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Delivery / Transport charge (J$)</label>
+        <input type="number" id="delivery-charge" min="0" value="0" />
+      </div>
+
+      <div class="field">
+        <label>Use discount price list?</label>
+        <select id="discount-enabled">
+          <option value="no">No – use regular prices</option>
+          <option value="yes">Yes – use discount prices</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Extra discount type</label>
+        <select id="discount-type">
+          <option value="none">No extra discount</option>
+          <option value="percent">Percent (%)</option>
+          <option value="fixed">Fixed amount (J$)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Extra discount value</label>
+        <input type="number" id="discount-value" min="0" value="0" />
+        <div class="small-note">
+          If percent is selected, this is % off the total (materials + 15% service + delivery).
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Customer name (optional)</label>
+        <input type="text" id="customer-name" placeholder="e.g. Ms. Allen" />
+      </div>
+
+      <div class="field">
+        <label>Customer contact (phone or email)</label>
+        <input type="text" id="customer-contact" placeholder="e.g. 876-XXX-XXXX" />
+      </div>
+
+      <div class="field">
+        <label>Save this quote locally on this device?</label>
+        <select id="save-quote-flag">
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+      </div>
+
+      <button id="calculate-btn">Calculate</button>
+
+      <div id="results" class="output-section" style="display:none; margin-top:12px;">
+        <h3>System Summary</h3>
+        <div id="summary-text"></div>
+
+        <h3>Internal Breakdown</h3>
+        <div id="internal-breakdown"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="button-row">
+    <button id="prev-btn" class="secondary" disabled>Back</button>
+    <button id="next-btn">Next</button>
+  </div>
+</div>
+
+<script>
+  // ---------- PRICE LISTS ----------
+  const regularPrices = {
+    // HYBRID INVERTERS
+    inverterHybrid3k: 135000,
+    inverterHybrid6k: 300000,
+    inverterHybrid8k: 400000,
+    inverterHybrid10k: 450000,
+    inverterHybrid12k: 540000,
+
+    // GRID-TIE
+    inverterGridTie15k: 450000,
+
+    // OFF-GRID
+    inverterOffgrid3k_72: 72000,
+    inverterOffgrid3k_78: 78000,
+    inverterOffgrid3_2kPowmr: 100000,
+    chargeController80A: 35000,
+
+    // LITHIUM (HYBRID)
+    batteryLFP5k: 215000,
+    batteryLFP10k: 420000,
+    batteryLFP15k: 520000,
+
+    // LEAD / AGM (OFF-GRID)
+    batteryAGM12V: 45000,
+
+    // PANELS
+    panel415W: 17500,
+    panel550W: 19500,
+    panel595W: 20500,
+    panel600W: 23000,
+
+    // FIXTURES
+    mountingRail16ft: 4500,
+    midClamp: 200,
+    endClamp: 200,
+    lFoot: 500,
+    backLeg: 2000,
+    frontLeg: 800,
+    m6m8Bolt: 100,
+    mc4Pair: 500,
+    weebClip: 400,
+
+    // WIRE
+    pvWirePerFt: 120,
+    ac10mmPerFt: 150,
+    ac6mmPerFt: 100,
+    battCablePerFt: 1500,
+    battLug: 250,
+
+    // BOXES & PROTECTION
+    dinRailBox5Way: 4000,
+    dinRailBox8Way: 8000,
+    dcSurge: 18000,
+    acSurge: 18000,
+    pvDisconnect32A: 12000,
+    dcBatteryBreaker100A: 16000,
+    trunking: 12000,
+    transferSwitch: 27000,
+    changeOverSwitchOffgrid: 18000,
+    earthRod: 1500,
+    db8Way: 5000,
+    drawBox: 2000,
+    pvcConduitHalfBundle: 4800,
+    pvcConduitOneBundle: 10000
+  };
+
+  // for now discountPrices = regularPrices (you can tweak later)
+  const discountPrices = { ...regularPrices };
+
+  const hybridInvertersDef = [
+    { name: "3000W Hybrid", kw: 3, priceKey: "inverterHybrid3k" },
+    { name: "6000W Hybrid", kw: 6, priceKey: "inverterHybrid6k" },
+    { name: "8000W Hybrid", kw: 8, priceKey: "inverterHybrid8k" },
+    { name: "10000W Hybrid DEYE", kw: 10, priceKey: "inverterHybrid10k" },
+    { name: "12000W Hybrid DEYE", kw: 12, priceKey: "inverterHybrid12k" }
+  ];
+
+  const offgridInvertersDef = [
+    { name: "3000W Off-grid (78k)", kw: 3, priceKey: "inverterOffgrid3k_78" },
+    { name: "3000W Off-grid (72k)", kw: 3, priceKey: "inverterOffgrid3k_72" },
+    { name: "3200W Off-grid PowMr", kw: 3.2, priceKey: "inverterOffgrid3_2kPowmr" }
+  ];
+
+  const gridtieInvertersDef = [
+    { name: "15000W Grid-tie 3-phase", kw: 15, priceKey: "inverterGridTie15k" }
+  ];
+
+  const manualInvertersDef = {
+    hyb3k:  { mode: "hybrid", name: "3000W Hybrid 110V (no AC)", kw: 3,   priceKey: "inverterHybrid3k" },
+    hyb6k:  { mode: "hybrid", name: "6000W Hybrid 110/220V",     kw: 6,   priceKey: "inverterHybrid6k" },
+    hyb8k:  { mode: "hybrid", name: "8000W Hybrid 110/220V",     kw: 8,   priceKey: "inverterHybrid8k" },
+    hyb10k: { mode: "hybrid", name: "10000W Hybrid DEYE",        kw: 10,  priceKey: "inverterHybrid10k" },
+    hyb12k: { mode: "hybrid", name: "12000W Hybrid DEYE",        kw: 12,  priceKey: "inverterHybrid12k" },
+
+    off3k72: { mode: "offgrid", name: "3000W Off-grid 12V (72k)",   kw: 3,   priceKey: "inverterOffgrid3k_72" },
+    off3k78: { mode: "offgrid", name: "3000W Off-grid 12V (78k)",   kw: 3,   priceKey: "inverterOffgrid3k_78" },
+    off3_2k: { mode: "offgrid", name: "3200W Off-grid PowMr 24V",   kw: 3.2, priceKey: "inverterOffgrid3_2kPowmr" },
+
+    grid15k: { mode: "gridtie", name: "15000W Grid-tie 3-phase",    kw: 15,  priceKey: "inverterGridTie15k" }
+  };
+
+  // ---------- PARISH → TOWN ----------
+  const parishTowns = {
+    "Kingston": ["Kingston", "Port Royal", "Harbour View"],
+    "St. Andrew": ["Half Way Tree", "Constant Spring", "Stony Hill", "Bull Bay", "Mona", "Liguanea"],
+    "St. Catherine": ["Spanish Town", "Portmore", "Old Harbour", "Linstead", "Bog Walk", "Ewarton"],
+    "Clarendon": ["May Pen", "Chapelton", "Lionel Town", "Rocky Point", "Four Paths", "Milk River"],
+    "Manchester": ["Mandeville", "Christiana", "Porus", "Spalding", "Mile Gully", "Newport"],
+    "St. Elizabeth": ["Santa Cruz", "Black River", "Lacovia", "Balaclava", "Junction", "Southfield", "Siloah", "Maggotty"],
+    "Westmoreland": ["Savanna-la-Mar", "Negril", "Little London", "Frome", "Petersfield"],
+    "Hanover": ["Lucea", "Hopewell", "Green Island", "Sandy Bay"],
+    "St. James": ["Montego Bay", "Anchovy", "Cambridge"],
+    "Trelawny": ["Falmouth", "Duncans", "Wakefield", "Albert Town", "Clark's Town"],
+    "St. Ann": ["Ocho Rios", "St Ann's Bay", "Runaway Bay", "Brown's Town", "Alexandria"],
+    "St. Mary": ["Port Maria", "Annotto Bay", "Highgate", "Oracabessa", "Gayle"],
+    "Portland": ["Port Antonio", "Buff Bay", "Hope Bay", "Manchioneal"],
+    "St. Thomas": ["Morant Bay", "Yallahs", "Seaforth", "Port Morant", "Bath"]
+  };
+
+  // ---------- DOM HOOKS ----------
+  const parishEl = document.getElementById('parish');
+  const townDatalist = document.getElementById('town-list');
+  const quoteModeEl = document.getElementById('quote-mode');
+  const usageModeEl = document.getElementById('usage-mode');
+  const systemModeEl = document.getElementById('system-mode');
+  const roofTypeEl = document.getElementById('roof-type');
+  const zincCenterRailField = document.getElementById('zinc-center-rail-field');
+  const zincCenterRailSelect = document.getElementById('zinc-center-rail');
+  const hasAcEl = document.getElementById('has-ac');
+  const acSection = document.getElementById('ac-section');
+  const acHoursMode = document.getElementById('ac-hours-mode');
+  const acHoursCustomField = document.getElementById('ac-hours-custom-field');
+  const backupModeEl = document.getElementById('backup-mode');
+  const backupCustomField = document.getElementById('backup-custom-field');
+  const manualModeTypeEl = document.getElementById('manual-mode-type');
+  const manualHybridOnly = document.querySelectorAll('.manual-hybrid-only');
+  const manualOffgridOnly = document.querySelectorAll('.manual-offgrid-only');
+  const manualOffgridTransferField = document.getElementById('manual-offgrid-transfer-field');
+
+  const steps = document.querySelectorAll('.step');
+  const prevBtn = document.getElementById('prev-btn');
+  const nextBtn = document.getElementById('next-btn');
+  const progressInner = document.getElementById('progress-inner');
+  const calcBtn = document.getElementById('calculate-btn');
+  const resultsEl = document.getElementById('results');
+  const summaryTextEl = document.getElementById('summary-text');
+  const internalBreakdownEl = document.getElementById('internal-breakdown');
+
+  // ---------- PARISH → TOWN AUTOCOMPLETE ----------
+  if (parishEl && townDatalist) {
+    parishEl.addEventListener('change', () => {
+      const parishName = parishEl.value;
+      const list = parishTowns[parishName] || [];
+      townDatalist.innerHTML = "";
+      list.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        townDatalist.appendChild(opt);
+      });
+    });
+  }
+
+  // ---------- WIZARD NAV ----------
+  let currentStep = 1;
+  const totalSteps = 7;
+
+  function updateManualBatteryVisibility() {
+    const mode = systemModeEl.value;
+    manualHybridOnly.forEach(el => el.style.display = (mode === 'hybrid') ? 'block' : 'none');
+    manualOffgridOnly.forEach(el => el.style.display = (mode === 'offgrid') ? 'block' : 'none');
+  }
+
+  function updateManualOffgridTransferVisibility() {
+    const mode = systemModeEl.value;
+    const qMode = quoteModeEl.value;
+    if (mode === 'offgrid' && qMode === 'manual') {
+      manualOffgridTransferField.style.display = 'block';
+    } else {
+      manualOffgridTransferField.style.display = 'none';
+    }
+  }
+
+  function updateVisibleForMode() {
+    const mode = quoteModeEl.value;
+    const guidedOnlyElems = document.querySelectorAll('.guided-only');
+    guidedOnlyElems.forEach(el => {
+      el.style.display = (mode === 'guided') ? 'block' : 'none';
+    });
+
+    const step4 = document.querySelector('[data-step="4"]');
+    const manualStep = document.querySelector('[data-step="6"]');
+
+    if (mode === 'load' && step4) {
+      if (currentStep === 4) step4.style.display = 'none';
+    }
+    if (mode === 'manual' && manualStep) {
+      if (currentStep === 6) manualStep.style.display = 'block';
+    }
+
+    updateManualBatteryVisibility();
+    updateManualOffgridTransferVisibility();
+  }
+
+  function updateStep() {
+    steps.forEach(step => {
+      const stepNum = parseInt(step.getAttribute('data-step'), 10);
+      step.style.display = (stepNum === currentStep) ? 'block' : 'none';
+    });
+    prevBtn.disabled = currentStep === 1;
+    nextBtn.style.display = currentStep === totalSteps ? 'none' : 'inline-block';
+    progressInner.style.width = ((currentStep - 1) / (totalSteps - 1)) * 100 + '%';
+    updateVisibleForMode();
+  }
+
+  prevBtn.addEventListener('click', () => {
+    if (currentStep > 1) {
+      currentStep--;
+      updateStep();
+    }
+  });
+
+  nextBtn.addEventListener('click', () => {
+    if (currentStep < totalSteps) {
+      currentStep++;
+      updateStep();
+    }
+  });
+
+  quoteModeEl.addEventListener('change', updateVisibleForMode);
+  updateStep();
+
+  // ---------- CONDITIONAL FIELDS ----------
+  roofTypeEl.addEventListener('change', () => {
+    if (roofTypeEl.value === 'zinc') {
+      zincCenterRailField.style.display = 'block';
+    } else {
+      zincCenterRailField.style.display = 'none';
+    }
+  });
+
+  hasAcEl.addEventListener('change', () => {
+    acSection.style.display = hasAcEl.value === 'yes' ? 'block' : 'none';
+  });
+
+  acHoursMode.addEventListener('change', () => {
+    acHoursCustomField.style.display = acHoursMode.value === 'custom' ? 'block' : 'none';
+  });
+
+  if (usageModeEl) {
+    const billField = document.getElementById('bill-field');
+    const kwhField = document.getElementById('kwh-field');
+    usageModeEl.addEventListener('change', () => {
+      if (usageModeEl.value === 'bill') {
+        billField.style.display = 'block';
+        kwhField.style.display = 'none';
+      } else if (usageModeEl.value === 'kwh') {
+        billField.style.display = 'none';
+        kwhField.style.display = 'block';
+      } else {
+        billField.style.display = 'none';
+        kwhField.style.display = 'none';
+      }
+    });
+  }
+
+  backupModeEl.addEventListener('change', () => {
+    backupCustomField.style.display = backupModeEl.value === 'custom' ? 'block' : 'none';
+  });
+
+  systemModeEl.addEventListener('change', () => {
+    updateManualBatteryVisibility();
+    updateManualOffgridTransferVisibility();
+  });
+
+  updateManualBatteryVisibility();
+  updateManualOffgridTransferVisibility();
+
+  // ---------- CORE HELPERS ----------
+  function calculateLoadsKwhAndPeak(data) {
+    const fridgeW = 150;
+    const freezerW = 200;
+    const fanW = 60;
+    const ironW = 1200;
+    const mwW = 1200;
+    const washerW = 600;
+    const dryerW = 1500;
+    const tvW = 80;
+    const acBTUtoW = (btu) => btu / 10;
+
+    let dailyKwh = 0;
+    let peakWatts = 0;
+
+    if (data.hasAC && data.acHours > 0) {
+      [9000, 12000, 18000, 24000].forEach(size => {
+        const count = data.acCount[String(size)] || 0;
+        if (count > 0) {
+          const w = acBTUtoW(size);
+          dailyKwh += (w * data.acHours * count) / 1000;
+          peakWatts += w * count;
+        }
+      });
+    }
+
+    dailyKwh += (fridgeW * data.fridgeHours * data.fridgeQty) / 1000;
+    peakWatts += fridgeW * data.fridgeQty;
+
+    dailyKwh += (freezerW * data.freezerHours * data.freezerQty) / 1000;
+    peakWatts += freezerW * data.freezerQty;
+
+    dailyKwh += (fanW * data.fanHours * data.fanQty) / 1000;
+    peakWatts += fanW * data.fanQty;
+
+    dailyKwh += (ironW * data.ironHours * data.ironQty) / 1000;
+    peakWatts += ironW * data.ironQty;
+
+    dailyKwh += (mwW * data.mwHours * data.mwQty) / 1000;
+    peakWatts += mwW * data.mwQty;
+
+    dailyKwh += (washerW * data.washerHours * data.washerQty) / 1000;
+    peakWatts += washerW * data.washerQty;
+
+    dailyKwh += (dryerW * data.dryerHours * data.dryerQty) / 1000;
+    peakWatts += dryerW * data.dryerQty;
+
+    dailyKwh += (tvW * data.tvHours * data.tvQty) / 1000;
+    peakWatts += tvW * data.tvQty;
+
+    dailyKwh += (data.otherWatts * data.otherHours) / 1000;
+    peakWatts += data.otherWatts;
+
+    return { dailyKwh, peakWatts };
+  }
+
+  function enforceEvenPanels(count) {
+    if (count <= 0) return 0;
+    let c = Math.ceil(count);
+    if (c % 2 === 1) c += 1;
+    return c;
+  }
+
+  function formatCurrency(num) {
+    try {
+      return "J$" + Number(num || 0).toLocaleString('en-JM', { maximumFractionDigits: 0 });
+    } catch (e) {
+      return "J$" + Math.round(num || 0);
+    }
+  }
+
+  // ---------- COLLECT INPUTS ----------
+  function collectInputs() {
+    const quoteMode = quoteModeEl.value;
+    const propertyType = document.getElementById('property-type').value;
+    const parish = parishEl.value;
+    const nearestTown = document.getElementById('nearest-town').value;
+    const systemType = document.getElementById('system-type').value;
+    const systemMode = systemModeEl.value;
+    const jpsRate = document.getElementById('jps-rate').value;
+
+    const roofType = roofTypeEl.value;
+    const storeys = document.getElementById('storeys').value;
+    const zincCenterRail = zincCenterRailSelect.value;
+
+    const hasAC = hasAcEl.value === 'yes';
+    const acCount = {
+      "9000": Number(document.getElementById('ac-9000').value || 0),
+      "12000": Number(document.getElementById('ac-12000').value || 0),
+      "18000": Number(document.getElementById('ac-18000').value || 0),
+      "24000": Number(document.getElementById('ac-24000').value || 0)
+    };
+    let acHours = 0;
+    if (hasAC) {
+      if (acHoursMode.value === 'standard') {
+        acHours = 4;
+      } else {
+        acHours = Number(document.getElementById('ac-hours-custom').value || 0);
+      }
+    }
+
+    const fridgeQty = Number(document.getElementById('fridge-qty').value || 0);
+    const fridgeHours = Number(document.getElementById('fridge-hours').value || 0);
+    const freezerQty = Number(document.getElementById('freezer-qty').value || 0);
+    const freezerHours = Number(document.getElementById('freezer-hours').value || 0);
+    const fanQty = Number(document.getElementById('fan-qty').value || 0);
+    const fanHours = Number(document.getElementById('fan-hours').value || 0);
+    const ironQty = Number(document.getElementById('iron-qty').value || 0);
+    const ironHours = Number(document.getElementById('iron-hours').value || 0);
+    const mwQty = Number(document.getElementById('mw-qty').value || 0);
+    const mwHours = Number(document.getElementById('mw-hours').value || 0);
+    const washerQty = Number(document.getElementById('washer-qty').value || 0);
+    const washerHours = Number(document.getElementById('washer-hours').value || 0);
+    const dryerQty = Number(document.getElementById('dryer-qty').value || 0);
+    const dryerHours = Number(document.getElementById('dryer-hours').value || 0);
+    const tvQty = Number(document.getElementById('tv-qty').value || 0);
+    const tvHours = Number(document.getElementById('tv-hours').value || 0);
+    const otherWatts = Number(document.getElementById('other-watts').value || 0);
+    const otherHours = Number(document.getElementById('other-hours').value || 0);
+
+    const usageMode = usageModeEl ? usageModeEl.value : 'unknown';
+    const avgBillEl = document.getElementById('avg-bill');
+    const avgKwhEl = document.getElementById('avg-kwh');
+    const avgBill = avgBillEl ? Number(avgBillEl.value || 0) : 0;
+    const avgKwh = avgKwhEl ? Number(avgKwhEl.value || 0) : 0;
+
+    let backupHours;
+    if (backupModeEl.value === 'custom') {
+      backupHours = Number(document.getElementById('backup-hours-custom').value || 0);
+    } else {
+      backupHours = Number(backupModeEl.value);
+    }
+    const backupCoverage = document.getElementById('backup-coverage').value;
+
+    const manualModeType = manualModeTypeEl.value;
+    const manualInverterId = document.getElementById('manual-inverter-id').value;
+    const manualPanelWatts = Number(document.getElementById('manual-panel-watts').value || 0);
+    const manualPanelCount = Number(document.getElementById('manual-panel-count').value || 0);
+    const manualBatt5k = Number(document.getElementById('manual-batt-5k').value || 0);
+    const manualBatt10k = Number(document.getElementById('manual-batt-10k').value || 0);
+    const manualBatt15k = Number(document.getElementById('manual-batt-15k').value || 0);
+    const manualAgmCount = Number(document.getElementById('manual-agm-count').value || 0);
+    const manualOffgridTransfer = document.getElementById('manual-offgrid-transfer').value;
+
+    const budgetBand = document.getElementById('budget-band').value;
+    const deliveryCharge = Number(document.getElementById('delivery-charge').value || 0);
+    const discountEnabled = document.getElementById('discount-enabled').value;
+    const discountType = document.getElementById('discount-type').value;
+    const discountValue = Number(document.getElementById('discount-value').value || 0);
+
+    const customerName = document.getElementById('customer-name').value || "";
+    const customerContact = document.getElementById('customer-contact').value || "";
+    const saveQuoteFlag = document.getElementById('save-quote-flag').value;
+
+    return {
+      quoteMode, propertyType, parish, nearestTown, systemType, systemMode, jpsRate,
+      roofType, storeys, zincCenterRail,
+      hasAC, acCount, acHours,
+      fridgeQty, fridgeHours,
+      freezerQty, freezerHours,
+      fanQty, fanHours,
+      ironQty, ironHours,
+      mwQty, mwHours,
+      washerQty, washerHours,
+      dryerQty, dryerHours,
+      tvQty, tvHours,
+      otherWatts, otherHours,
+      usageMode, avgBill, avgKwh,
+      backupHours, backupCoverage,
+      manualModeType, manualInverterId,
+      manualPanelWatts, manualPanelCount,
+      manualBatt5k, manualBatt10k, manualBatt15k,
+      manualAgmCount, manualOffgridTransfer,
+      budgetBand, deliveryCharge,
+      discountEnabled, discountType, discountValue,
+      customerName, customerContact, saveQuoteFlag
+    };
+  }
+
+  // ---------- MAIN CALC ----------
+  function calculateSystem(data) {
+    const PSH = 6;
+    const BATTERY_DOD = 0.8;
+    const blendedTariff = 50;
+
+    const priceTable = data.discountEnabled === 'yes' ? discountPrices : regularPrices;
+
+    const loadRes = calculateLoadsKwhAndPeak(data);
+    let dailyKwhLoads = loadRes.dailyKwh;
+    let peakWatts = loadRes.peakWatts;
+
+    let approxKwhFromBill = 0;
+    if (data.quoteMode === 'guided') {
+      if (data.usageMode === 'bill' && data.avgBill > 0) {
+        approxKwhFromBill = data.avgBill / blendedTariff;
+      } else if (data.usageMode === 'kwh' && data.avgKwh > 0) {
+        approxKwhFromBill = data.avgKwh;
+      }
+    }
+
+    let designMonthlyKwh;
+    if (data.quoteMode === 'load') {
+      designMonthlyKwh = dailyKwhLoads * 30;
+    } else if (data.quoteMode === 'guided') {
+      designMonthlyKwh = Math.max(dailyKwhLoads * 30, approxKwhFromBill || 0);
+      if (designMonthlyKwh === 0) designMonthlyKwh = dailyKwhLoads * 30;
+    } else {
+      designMonthlyKwh = dailyKwhLoads > 0 ? dailyKwhLoads * 30 : 10 * 30;
+    }
+
+    const designDailyKwh = designMonthlyKwh / 30;
+    const requiredInverterKw = (peakWatts * 1.25) / 1000;
+
+    let criticalDailyKwh;
+    if (data.backupCoverage === 'essentials') {
+      criticalDailyKwh = dailyKwhLoads * 0.6;
+    } else {
+      criticalDailyKwh = dailyKwhLoads;
+    }
+    const backupFractionOfDay = data.backupHours / 24;
+    let criticalBackupKwh = criticalDailyKwh * backupFractionOfDay;
+    let batteryRequiredKwh = criticalBackupKwh / BATTERY_DOD;
+
+    let panelW = 595;
+    let panelPriceKey = 'panel595W';
+    let panelCount = 0;
+    let chosenInverter = null;
+    let chosenBattery = null;
+    let batteryModuleCount = 0;
+    let totalBatteryKwh = 0;
+
+    const hybridBatteries = [
+      { name: "5kWh LiFePO4", kwh: 5, priceKey: "batteryLFP5k" },
+      { name: "10kWh LiFePO4", kwh: 10, priceKey: "batteryLFP10k" },
+      { name: "15kWh LiFePO4", kwh: 15, priceKey: "batteryLFP15k" }
+    ];
+
+    // ---- SIZING MODES ----
+    if (data.quoteMode === 'guided' || data.quoteMode === 'load') {
+      if (data.systemMode === 'offgrid') {
+        panelW = 550;
+        panelPriceKey = 'panel550W';
+      } else {
+        panelW = 595;
+        panelPriceKey = 'panel595W';
+      }
+
+      let pvKwFromEnergy = designDailyKwh / PSH;
+      let pvKw = pvKwFromEnergy;
+
+      if (data.systemMode === 'hybrid') {
+        const inv = hybridInvertersDef.find(i => i.kw >= requiredInverterKw) || hybridInvertersDef[hybridInvertersDef.length - 1];
+        chosenInverter = { ...inv, price: priceTable[inv.priceKey] };
+      } else if (data.systemMode === 'offgrid') {
+        const inv = offgridInvertersDef.find(i => i.kw >= requiredInverterKw) || offgridInvertersDef[offgridInvertersDef.length - 1];
+        chosenInverter = { ...inv, price: priceTable[inv.priceKey] };
+      } else {
+        const inv = gridtieInvertersDef[0];
+        chosenInverter = { ...inv, price: priceTable[inv.priceKey] };
+      }
+
+      if (data.systemMode === 'hybrid') {
+        if (batteryRequiredKwh <= 5) {
+          chosenBattery = hybridBatteries[0];
+          batteryModuleCount = 1;
+        } else if (batteryRequiredKwh <= 10) {
+          chosenBattery = hybridBatteries[1];
+          batteryModuleCount = 1;
+        } else if (batteryRequiredKwh <= 15) {
+          chosenBattery = hybridBatteries[2];
+          batteryModuleCount = 1;
+        } else {
+          chosenBattery = hybridBatteries[1];
+          batteryModuleCount = Math.ceil(batteryRequiredKwh / 10);
+        }
+        totalBatteryKwh = chosenBattery.kwh * batteryModuleCount;
+      } else if (data.systemMode === 'offgrid') {
+        const moduleKwh = 2.4;
+        if (batteryRequiredKwh > 0) {
+          batteryModuleCount = Math.max(1, Math.ceil(batteryRequiredKwh / moduleKwh));
+          chosenBattery = { name: "12V AGM (approx 2.4kWh)", kwh: moduleKwh, priceKey: "batteryAGM12V" };
+          totalBatteryKwh = batteryModuleCount * moduleKwh;
+        }
+      } else {
+        chosenBattery = null;
+        batteryModuleCount = 0;
+        totalBatteryKwh = 0;
+        batteryRequiredKwh = 0;
+        criticalBackupKwh = 0;
+      }
+
+      if (totalBatteryKwh > 0) {
+        const pvKwForBattery = totalBatteryKwh / 4;
+        pvKw = Math.max(pvKw, pvKwForBattery);
+      }
+
+      let rawPanelCount = (pvKw * 1000) / panelW;
+      panelCount = enforceEvenPanels(rawPanelCount);
+
+      if (data.systemMode === 'offgrid') {
+        panelCount = Math.min(panelCount, 4);
+      }
+
+    } else if (data.quoteMode === 'manual') {
+      // MANUAL LOGIC (kept same as before, just a bit safer)
+      let invDef = null;
+      if (data.manualInverterId) {
+        invDef = manualInvertersDef[data.manualInverterId] || null;
+        if (invDef) {
+          data.systemMode = invDef.mode;
+          chosenInverter = { ...invDef, price: priceTable[invDef.priceKey] };
+          systemModeEl.value = invDef.mode;
+          updateManualBatteryVisibility();
+          updateManualOffgridTransferVisibility();
+        }
+      } else {
+        let invPool = [];
+        if (data.systemMode === 'hybrid') invPool = hybridInvertersDef;
+        else if (data.systemMode === 'offgrid') invPool = offgridInvertersDef;
+        else invPool = gridtieInvertersDef;
+        const inv = invPool.find(i => i.kw >= requiredInverterKw) || invPool[invPool.length - 1];
+        chosenInverter = { ...inv, price: priceTable[inv.priceKey] };
+      }
+
+      panelW = data.manualPanelWatts || (data.systemMode === 'offgrid' ? 550 : 595);
+      panelPriceKey =
+        panelW === 415 ? 'panel415W' :
+        panelW === 550 ? 'panel550W' :
+        panelW === 600 ? 'panel600W' :
+        'panel595W';
+
+      if (data.systemMode === 'hybrid') {
+        const total5 = data.manualBatt5k * 5;
+        const total10 = data.manualBatt10k * 10;
+        const total15 = data.manualBatt15k * 15;
+        totalBatteryKwh = total5 + total10 + total15;
+        batteryModuleCount = data.manualBatt5k + data.manualBatt10k + data.manualBatt15k;
+        if (batteryModuleCount > 0) {
+          chosenBattery = { name: "Hybrid LiFePO₄ mix", kwh: totalBatteryKwh / batteryModuleCount, priceKey: null };
+        }
+      } else if (data.systemMode === 'offgrid') {
+        const moduleKwh = 2.4;
+        totalBatteryKwh = data.manualAgmCount * moduleKwh;
+        batteryModuleCount = data.manualAgmCount;
+        if (batteryModuleCount > 0) {
+          chosenBattery = { name: "12V AGM (approx 2.4kWh)", kwh: moduleKwh, priceKey: "batteryAGM12V" };
+        }
+      } else {
+        totalBatteryKwh = 0;
+        batteryModuleCount = 0;
+      }
+
+      if (data.manualModeType === 'battery-led') {
+        const pvKwForBattery = totalBatteryKwh > 0 ? totalBatteryKwh / 4 : designDailyKwh / PSH;
+        let rawPanels = (pvKwForBattery * 1000) / panelW;
+        panelCount = enforceEvenPanels(rawPanels);
+      } else if (data.manualModeType === 'panel-led') {
+        panelCount = enforceEvenPanels(data.manualPanelCount || 0);
+        const pvKw = (panelCount * panelW) / 1000;
+        if (totalBatteryKwh === 0 && (data.systemMode === 'hybrid' || data.systemMode === 'offgrid')) {
+          totalBatteryKwh = Math.max(batteryRequiredKwh, pvKw * 4);
+          if (data.systemMode === 'hybrid') {
+            if (totalBatteryKwh <= 5) {
+              chosenBattery = hybridBatteries[0];
+              batteryModuleCount = 1;
+              totalBatteryKwh = chosenBattery.kwh;
+            } else if (totalBatteryKwh <= 10) {
+              chosenBattery = hybridBatteries[1];
+              batteryModuleCount = 1;
+              totalBatteryKwh = chosenBattery.kwh;
+            } else if (totalBatteryKwh <= 15) {
+              chosenBattery = hybridBatteries[2];
+              batteryModuleCount = 1;
+              totalBatteryKwh = chosenBattery.kwh;
+            } else {
+              chosenBattery = hybridBatteries[1];
+              batteryModuleCount = Math.ceil(totalBatteryKwh / 10);
+              totalBatteryKwh = chosenBattery.kwh * batteryModuleCount;
+            }
+          } else if (data.systemMode === 'offgrid') {
+            const moduleKwh = 2.4;
+            batteryModuleCount = Math.ceil(totalBatteryKwh / moduleKwh);
+            chosenBattery = { name: "12V AGM (approx 2.4kWh)", kwh: moduleKwh, priceKey: "batteryAGM12V" };
+            totalBatteryKwh = batteryModuleCount * moduleKwh;
+          }
+        }
+      } else {
+        panelCount = enforceEvenPanels(data.manualPanelCount || 0);
+        if (totalBatteryKwh > 0) {
+          const pvKwForBattery = totalBatteryKwh / 4;
+          const currentPvKw = (panelCount * panelW) / 1000;
+          if (currentPvKw < pvKwForBattery) {
+            let neededPanels = (pvKwForBattery * 1000) / panelW;
+            panelCount = enforceEvenPanels(neededPanels);
+          }
+        }
+      }
+
+      if (data.systemMode === 'offgrid' && panelW <= 550) {
+        panelCount = Math.min(panelCount, 4);
+      }
+    }
+
+    // CHARGE CONTROLLER (OFF-GRID)
+    let chargeControllerCount = 0;
+    if (data.systemMode === 'offgrid') {
+      const pvWatts = panelCount * panelW;
+      if (pvWatts > 0) {
+        chargeControllerCount = pvWatts <= 3800 ? 1 : 2;
+      }
+    }
+
+    // COSTING
+    const panelCost = panelCount * regularPrices[panelPriceKey];
+    const inverterCost = chosenInverter ? chosenInverter.price : 0;
+    let batteryCost = 0;
+
+    if (data.quoteMode === 'guided' || data.quoteMode === 'load') {
+      if (chosenBattery && batteryModuleCount > 0) {
+        if (data.systemMode === 'hybrid') {
+          if (chosenBattery.kwh === 5) batteryCost = regularPrices.batteryLFP5k * batteryModuleCount;
+          else if (chosenBattery.kwh === 10) batteryCost = regularPrices.batteryLFP10k * batteryModuleCount;
+          else if (chosenBattery.kwh === 15) batteryCost = regularPrices.batteryLFP15k * batteryModuleCount;
+        } else if (data.systemMode === 'offgrid') {
+          batteryCost = regularPrices.batteryAGM12V * batteryModuleCount;
+        }
+      }
+    } else if (data.quoteMode === 'manual') {
+      if (data.systemMode === 'hybrid') {
+        batteryCost =
+          data.manualBatt5k * regularPrices.batteryLFP5k +
+          data.manualBatt10k * regularPrices.batteryLFP10k +
+          data.manualBatt15k * regularPrices.batteryLFP15k;
+      } else if (data.systemMode === 'offgrid') {
+        batteryCost = data.manualAgmCount * regularPrices.batteryAGM12V;
+      }
+    }
+
+    const baseCostForWireRule = panelCost + inverterCost + batteryCost;
+    const bigSystem = baseCostForWireRule > 750000;
+
+    const panelsPerRow = 4;
+    const rows = panelCount > 0 ? Math.ceil(panelCount / panelsPerRow) : 0;
+    let railsPerRow;
+    if (data.roofType === 'slab') railsPerRow = 3;
+    else if (data.roofType === 'zinc') railsPerRow = data.zincCenterRail === 'yes' ? 3 : 2;
+    else railsPerRow = 3;
+
+    const totalRails = railsPerRow * rows;
+    const midClampsPerRow = railsPerRow === 3 ? 9 : 6;
+    const endClampsPerRow = 4;
+    const totalMidClamps = midClampsPerRow * rows;
+    const totalEndClamps = endClampsPerRow * rows;
+
+    let totalBackLegs = 0;
+    let totalFrontLegs = 0;
+    let totalBolts = 0;
+    let totalLFoot = 0;
+
+    if (data.roofType === 'slab') {
+      const backLegsPerRow = 6;
+      const frontLegsPerRow = 3;
+      totalBackLegs = backLegsPerRow * rows;
+      totalFrontLegs = frontLegsPerRow * rows;
+      totalBolts = (backLegsPerRow + frontLegsPerRow) * rows * 2;
+    }
+    if (data.roofType === 'zinc') {
+      const lFeetPerRail = 4;
+      totalLFoot = totalRails * lFeetPerRail;
+    }
+
+    let pvWireFt, wire10mmFt, wire6mmFt, battCableFt, battLugCount;
+    let drawBoxCount, pvcHalfBundleCount, pvcOneBundleCount;
+    let mc4CountPairs, weebCount;
+    let dcSurgeCount = 1;
+    let acSurgeCount = 1;
+    let db8WayCount = 1;
+    let din5Count = 1;
+    let din8Count = 1;
+    let trunkingCount = 1;
+    let earthRodCount = 1;
+    let dcBattBreakerCount = 0;
+    let pvDisconnectCount = 0;
+
+    mc4CountPairs = (data.systemMode === 'offgrid') ? 4 : 6;
+    weebCount = Math.max(1, Math.ceil(panelCount / 4));
+
+    if (data.systemMode === 'offgrid') {
+      pvWireFt = 80;
+      battCableFt = 18;
+      wire6mmFt = 50;
+      wire10mmFt = 0;
+      drawBoxCount = 4;
+      pvcHalfBundleCount = 1;
+      pvcOneBundleCount = 0;
+      battLugCount = 6;
+      dcBattBreakerCount = batteryModuleCount > 0 ? 1 : 0;
+      pvDisconnectCount = 1;
+    } else {
+      pvWireFt = bigSystem ? 120 : 80;
+      wire10mmFt = bigSystem ? 150 : 60;
+      wire6mmFt = bigSystem ? 0 : 80;
+      drawBoxCount = 6;
+      pvcHalfBundleCount = 0;
+      pvcOneBundleCount = 1;
+      battCableFt = (data.systemMode === 'hybrid' && batteryModuleCount > 0) ? 10 : 0;
+      battLugCount = (data.systemMode === 'hybrid' && batteryModuleCount > 0) ? 8 : 0;
+      dcBattBreakerCount = (data.systemMode === 'hybrid' && batteryModuleCount > 0) ? 1 : 0;
+      pvDisconnectCount = panelCount > 0 ? 1 : 0;
+    }
+
+    // MATERIAL LIST
+    const materials = [];
+
+    if (panelCount > 0) {
+      materials.push({ name: `${panelW}W PV panel`, qty: panelCount, unitPrice: regularPrices[panelPriceKey] });
+    }
+
+    if (chosenInverter) {
+      materials.push({ name: chosenInverter.name, qty: 1, unitPrice: chosenInverter.price });
+    }
+
+    if (data.quoteMode === 'guided' || data.quoteMode === 'load') {
+      if (data.systemMode === 'hybrid' && batteryModuleCount > 0 && chosenBattery) {
+        if (chosenBattery.kwh === 5) {
+          materials.push({ name: "5kWh LiFePO4", qty: batteryModuleCount, unitPrice: regularPrices.batteryLFP5k });
+        } else if (chosenBattery.kwh === 10) {
+          materials.push({ name: "10kWh LiFePO4", qty: batteryModuleCount, unitPrice: regularPrices.batteryLFP10k });
+        } else if (chosenBattery.kwh === 15) {
+          materials.push({ name: "15kWh LiFePO4", qty: batteryModuleCount, unitPrice: regularPrices.batteryLFP15k });
+        }
+      } else if (data.systemMode === 'offgrid' && batteryModuleCount > 0) {
+        materials.push({ name: "12V AGM battery", qty: batteryModuleCount, unitPrice: regularPrices.batteryAGM12V });
+      }
+    } else if (data.quoteMode === 'manual') {
+      if (data.systemMode === 'hybrid') {
+        if (data.manualBatt5k > 0) materials.push({ name: "5kWh LiFePO4", qty: data.manualBatt5k, unitPrice: regularPrices.batteryLFP5k });
+        if (data.manualBatt10k > 0) materials.push({ name: "10kWh LiFePO4", qty: data.manualBatt10k, unitPrice: regularPrices.batteryLFP10k });
+        if (data.manualBatt15k > 0) materials.push({ name: "15kWh LiFePO4", qty: data.manualBatt15k, unitPrice: regularPrices.batteryLFP15k });
+      } else if (data.systemMode === 'offgrid' && data.manualAgmCount > 0) {
+        materials.push({ name: "12V AGM battery", qty: data.manualAgmCount, unitPrice: regularPrices.batteryAGM12V });
+      }
+    }
+
+    if (data.systemMode === 'offgrid' && chargeControllerCount > 0) {
+      materials.push({ name: "80A MPPT charge controller", qty: chargeControllerCount, unitPrice: regularPrices.chargeController80A });
+    }
+
+    if (totalRails > 0) materials.push({ name: "Mounting rail 16ft", qty: totalRails, unitPrice: regularPrices.mountingRail16ft });
+    if (totalMidClamps > 0) materials.push({ name: "Mid clamp", qty: totalMidClamps, unitPrice: regularPrices.midClamp });
+    if (totalEndClamps > 0) materials.push({ name: "End clamp", qty: totalEndClamps, unitPrice: regularPrices.endClamp });
+    if (data.roofType === 'slab') {
+      if (totalBackLegs > 0) materials.push({ name: "Adjustable back leg", qty: totalBackLegs, unitPrice: regularPrices.backLeg });
+      if (totalFrontLegs > 0) materials.push({ name: "Front leg", qty: totalFrontLegs, unitPrice: regularPrices.frontLeg });
+      if (totalBolts > 0) materials.push({ name: "Expansion bolt M6/M8", qty: totalBolts, unitPrice: regularPrices.m6m8Bolt });
+    }
+    if (data.roofType === 'zinc' && totalLFoot > 0) {
+      materials.push({ name: "L-FOOT bracket", qty: totalLFoot, unitPrice: regularPrices.lFoot });
+    }
+
+    if (mc4CountPairs > 0) materials.push({ name: "MC4 connector pair", qty: mc4CountPairs, unitPrice: regularPrices.mc4Pair });
+    if (weebCount > 0) materials.push({ name: "WEEB clip", qty: weebCount, unitPrice: regularPrices.weebClip });
+
+    if (pvWireFt > 0) materials.push({ name: "AWG10 PV wire (ft)", qty: pvWireFt, unitPrice: regularPrices.pvWirePerFt });
+    if (wire10mmFt > 0) materials.push({ name: "10mm single wire (ft)", qty: wire10mmFt, unitPrice: regularPrices.ac10mmPerFt });
+    if (wire6mmFt > 0) materials.push({ name: "6mm single wire (ft)", qty: wire6mmFt, unitPrice: regularPrices.ac6mmPerFt });
+    if (battCableFt > 0) materials.push({ name: "#2/0 battery cable (ft)", qty: battCableFt, unitPrice: regularPrices.battCablePerFt });
+    if (battLugCount > 0) materials.push({ name: "Battery lugs", qty: battLugCount, unitPrice: regularPrices.battLug });
+
+    if (dcSurgeCount > 0) materials.push({ name: "DC 1000V surge arrestor", qty: dcSurgeCount, unitPrice: regularPrices.dcSurge });
+    if (acSurgeCount > 0) materials.push({ name: "AC 1000V surge arrestor", qty: acSurgeCount, unitPrice: regularPrices.acSurge });
+    if (dcBattBreakerCount > 0) materials.push({ name: "100A DC battery breaker", qty: dcBattBreakerCount, unitPrice: regularPrices.dcBatteryBreaker100A });
+    if (pvDisconnectCount > 0) materials.push({ name: "PV disconnect 32A", qty: pvDisconnectCount, unitPrice: regularPrices.pvDisconnect32A });
+
+    materials.push({ name: "5-way DIN-rail box", qty: din5Count, unitPrice: regularPrices.dinRailBox5Way });
+    materials.push({ name: "8-way DIN-rail box", qty: din8Count, unitPrice: regularPrices.dinRailBox8Way });
+    materials.push({ name: "8-way distribution panel", qty: db8WayCount, unitPrice: regularPrices.db8Way });
+    materials.push({ name: "Trunking", qty: trunkingCount, unitPrice: regularPrices.trunking });
+    materials.push({ name: "Earth rod with clamp", qty: earthRodCount, unitPrice: regularPrices.earthRod });
+
+    let addTransferSwitch = false;
+    let addChangeoverSwitch = false;
+
+    if (data.quoteMode === 'manual' && data.systemMode === 'offgrid') {
+      if (data.manualOffgridTransfer === 'yes') {
+        addTransferSwitch = true;
+      } else {
+        addChangeoverSwitch = true;
+      }
+    } else {
+      addTransferSwitch = true;
+    }
+
+    if (addTransferSwitch) {
+      materials.push({ name: "Transfer switch (63–125A auto/manual)", qty: 1, unitPrice: regularPrices.transferSwitch });
+    }
+    if (addChangeoverSwitch) {
+      materials.push({ name: "Off-grid changeover switch", qty: 1, unitPrice: regularPrices.changeOverSwitchOffgrid });
+    }
+
+    if (drawBoxCount > 0) materials.push({ name: "Draw box", qty: drawBoxCount, unitPrice: regularPrices.drawBox });
+    if (pvcHalfBundleCount > 0) materials.push({ name: 'PVC conduit 1/2" bundle', qty: pvcHalfBundleCount, unitPrice: regularPrices.pvcConduitHalfBundle });
+    if (pvcOneBundleCount > 0) materials.push({ name: 'PVC conduit 1" bundle', qty: pvcOneBundleCount, unitPrice: regularPrices.pvcConduitOneBundle });
+
+    let materialsTotal = 0;
+    materials.forEach(m => {
+      m.subtotal = m.qty * m.unitPrice;
+      materialsTotal += m.subtotal;
+    });
+
+    const serviceCharge = materialsTotal * 0.15;
+    const preDiscountTotal = materialsTotal + serviceCharge + data.deliveryCharge;
+
+    let discountAmount = 0;
+    if (data.discountType === 'percent') {
+      discountAmount = preDiscountTotal * (data.discountValue / 100);
+    } else if (data.discountType === 'fixed') {
+      discountAmount = data.discountValue;
+    }
+    if (discountAmount < 0) discountAmount = 0;
+    if (discountAmount > preDiscountTotal) discountAmount = preDiscountTotal;
+
+    const grandTotal = preDiscountTotal - discountAmount;
+
+    return {
+      PSH,
+      blendedTariff,
+      dailyKwhLoads,
+      designDailyKwh,
+      panelCount,
+      panelW,
+      chosenInverter,
+      peakWatts,
+      batteryRequiredKwh,
+      batteryModuleCount,
+      chosenBattery,
+      totalBatteryKwh,
+      rows,
+      railsPerRow,
+      totalRails,
+      totalMidClamps,
+      totalEndClamps,
+      totalBackLegs,
+      totalFrontLegs,
+      totalBolts,
+      totalLFoot,
+      pvWireFt,
+      wire10mmFt,
+      wire6mmFt,
+      battCableFt,
+      battLugCount,
+      drawBoxCount,
+      pvcHalfBundleCount,
+      pvcOneBundleCount,
+      mc4CountPairs,
+      weebCount,
+      materials,
+      materialsTotal,
+      serviceCharge,
+      preDiscountTotal,
+      discountAmount,
+      grandTotal,
+      criticalBackupKwh
+    };
+  }
+
+  // ---------- RENDER ----------
+  function renderResults(data, calc) {
+    const modeLabel =
+      data.quoteMode === 'guided' ? 'Guided system quote' :
+      data.quoteMode === 'manual' ? 'Manual system builder' :
+      'Load & inverter sizing';
+
+    const systemModeLabel =
+      data.systemMode === 'offgrid' ? 'off-grid' :
+      data.systemMode === 'gridtie' ? 'grid-tie' :
+      'hybrid';
+
+    const locationText =
+      (data.parish || data.nearestTown)
+        ? `${data.nearestTown ? data.nearestTown + ", " : ""}${data.parish || ""}`
+        : "Location not set";
+
+    const batteryLine =
+      data.systemMode === 'gridtie' || calc.totalBatteryKwh === 0
+        ? `Configuration shown without battery bank.`
+        : `Battery: <strong>${calc.totalBatteryKwh.toFixed(1)} kWh</strong> total (≈ backup <strong>${data.backupHours} hours</strong> at 80% DOD).`;
+
+    const systemDesc = `
+      <p>
+        <strong>Mode:</strong> ${modeLabel}<br/>
+        <strong>System:</strong> ${systemModeLabel} for <strong>${data.propertyType}</strong> at <strong>${locationText}</strong>.
+      </p>
+      <p>
+        PV array: <strong>${calc.panelCount} × ${calc.panelW} W</strong>
+        (${(calc.panelCount * calc.panelW / 1000).toFixed(2)} kW).<br/>
+        Inverter: <strong>${calc.chosenInverter ? calc.chosenInverter.name : "N/A"}</strong>.
+      </p>
+      <p>${batteryLine}</p>
+      <p>
+        <strong>Estimated total:</strong> ${formatCurrency(calc.grandTotal)}<br/>
+        <span class="small-note">
+          Materials: ${formatCurrency(calc.materialsTotal)} + Service (15%): ${formatCurrency(calc.serviceCharge)}
+          + Delivery: ${formatCurrency(data.deliveryCharge)} − Extra discount: ${formatCurrency(calc.discountAmount)}
+        </span>
+      </p>
+    `;
+    summaryTextEl.innerHTML = systemDesc;
+
+    let html = "";
+    html += `<h4>Key Sizing</h4>`;
+    html += `<ul class="small-note">
+      <li>Mode: ${modeLabel}</li>
+      <li>System mode: ${systemModeLabel}</li>
+      <li>Design daily kWh: ${calc.designDailyKwh.toFixed(1)} kWh/day</li>
+      <li>Panels: ${calc.panelCount} × ${calc.panelW} W (≈ ${(calc.panelCount * calc.panelW / 1000).toFixed(2)} kW)</li>
+      <li>Inverter: ${calc.chosenInverter ? calc.chosenInverter.name : "N/A"} (≈ ${calc.chosenInverter ? calc.chosenInverter.kw : "?"} kW)</li>
+      <li>Peak load (approx): ${calc.peakWatts.toFixed(0)} W</li>
+      <li>Battery required (theoretical): ${calc.batteryRequiredKwh.toFixed(1)} kWh; installed: ${calc.totalBatteryKwh.toFixed(1)} kWh</li>
+    </ul>`;
+
+    html += `<h4>Mounting Hardware</h4>`;
+    html += `<ul class="small-note">
+      <li>Rows (4 panels/row assumption): ${calc.rows}</li>
+      <li>Rails per row: ${calc.railsPerRow} → total rails: ${calc.totalRails}</li>
+      <li>Mid clamps: ${calc.totalMidClamps}</li>
+      <li>End clamps: ${calc.totalEndClamps}</li>
+      ${data.roofType === 'slab' ? `
+        <li>Back legs: ${calc.totalBackLegs}</li>
+        <li>Front legs: ${calc.totalFrontLegs}</li>
+        <li>Expansion bolts: ${calc.totalBolts}</li>
+      ` : ""}
+      ${data.roofType === 'zinc' ? `
+        <li>L-FOOT brackets: ${calc.totalLFoot}</li>
+      ` : ""}
+    </ul>`;
+
+    html += `<h4>Material Cost Breakdown</h4>`;
+    html += `<table>
+      <thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Subtotal</th></tr></thead><tbody>`;
+    calc.materials.forEach(m => {
+      html += `<tr>
+        <td>${m.name}</td>
+        <td>${m.qty}</td>
+        <td>${formatCurrency(m.unitPrice)}</td>
+        <td>${formatCurrency(m.subtotal)}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+
+    html += `<p class="small-note">
+      Materials total: <strong>${formatCurrency(calc.materialsTotal)}</strong><br/>
+      Service charge (15%): <strong>${formatCurrency(calc.serviceCharge)}</strong><br/>
+      Delivery: <strong>${formatCurrency(data.deliveryCharge)}</strong><br/>
+      Extra discount: <strong>−${formatCurrency(calc.discountAmount)}</strong><br/>
+      <strong>Grand Total: ${formatCurrency(calc.grandTotal)}</strong>
+    </p>`;
+
+    internalBreakdownEl.innerHTML = html;
+  }
+
+  // ---------- LOCAL SAVE ----------
+  function saveQuote(data, calc) {
+    let quotes = [];
+    const stored = localStorage.getItem('lumix_quotes');
+    if (stored) {
+      try {
+        quotes = JSON.parse(stored);
+      } catch (e) {
+        quotes = [];
+      }
+    }
+
+    const record = {
+      timestamp: new Date().toISOString(),
+      mode: data.quoteMode,
+      systemMode: data.systemMode,
+      customerName: data.customerName,
+      customerContact: data.customerContact,
+      parish: data.parish,
+      nearestTown: data.nearestTown,
+      propertyType: data.propertyType,
+      pvKw: (calc.panelCount * calc.panelW / 1000),
+      panelCount: calc.panelCount,
+      inverterName: calc.chosenInverter ? calc.chosenInverter.name : "",
+      batteryKwh: calc.totalBatteryKwh,
+      totalCost: calc.grandTotal
+    };
+
+    quotes.push(record);
+    localStorage.setItem('lumix_quotes', JSON.stringify(quotes));
+    alert('Quote saved locally on this device.');
+  }
+
+  // ---------- CALCULATE BUTTON ----------
+  if (calcBtn) {
+    calcBtn.addEventListener('click', () => {
+      try {
+        const data = collectInputs();
+        const calc = calculateSystem(data);
+        renderResults(data, calc);
+        resultsEl.style.display = 'block';
+        if (data.saveQuoteFlag === 'yes') {
+          saveQuote(data, calc);
+        }
+      } catch (e) {
+        alert("Error during calculation: " + e.message);
+        console.error(e);
+      }
+    });
+  }
+</script>
