@@ -1,0 +1,13 @@
+{
+  "name": "lumix-solar-simulator",
+  "version": "1.0.0",
+  "description": "Full-stack solar and electrical training simulator brief builder.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
