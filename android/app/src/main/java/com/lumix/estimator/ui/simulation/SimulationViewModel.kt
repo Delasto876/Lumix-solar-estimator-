@@ -55,7 +55,7 @@ class SimulationViewModel(
     fun load(quoteId: Long) {
         viewModelScope.launch {
             val saved = quoteRepository.getSavedQuote(quoteId) ?: return@launch
-            val config = SimSystemConfig.from(saved.result)
+            val config = SimSystemConfig.from(saved.result, saved.inputs)
             val appliances = defaultApplianceStates(saved.inputs)
             val gridConnected = config.gridConnectable
             val timeline = SimulationEngine.buildDayTimeline(

@@ -214,7 +214,7 @@ transparent layers above it change. Built in four phases:
   path start/end/length sanity for all four paths; and `daylightProgress()` bounds at
   midnight/noon/sunrise. Plus a full import-completeness sweep across the module.
 
-## Solar Site (Phases 1–6, in progress)
+## Solar Site (Phases 1–7, in progress)
 
 A new major module (a **Site** tab alongside Home/Estimate/Systems/Savings/Profile) letting a
 homeowner or installer map a customer's actual roof and turn it into a real system estimate,
@@ -408,6 +408,50 @@ estimator recommends.
   `isRoofConstrained=true`, and the capped `panelCount` never exceeds the roof's real limit; the
   same quote against a 200-panel roof (not actually binding) correctly reports
   `isRoofConstrained=false` and leaves the panel count completely unchanged.
+
+**Phase 7 — wire site data into the digital-twin simulation
+(`domain/simulation/SimSystemConfig.kt`, `domain/simulation/SimulationEngine.kt`,
+`ui/simulation/SimulationScreen.kt`, `ui/nav/LumixNavHost.kt`):**
+
+The digital-twin simulator (the "Interactive Solar Home Simulation" from earlier phases) gets a
+real, physically-grounded solar model when a quote came from Solar Site's "Use This Roof" flow,
+instead of always falling back to the generic time-of-day bell curve.
+
+- `RoofConstraint` gained `latitude`/`longitude` (default `0.0`, for backward-compatible decoding
+  of quotes saved before these fields existed — harmless, since the site-aware path is gated on
+  azimuth/pitch being non-null, not on the coordinates alone), threaded through from
+  `LumixNavHost`'s "Use This Roof" wiring, which now reads the source site's stored location.
+- `SimSystemConfig` gained optional `siteLatitude`/`siteLongitude`/`roofAzimuthDegrees`/
+  `roofPitchDegrees` (all default `null`) and a computed `isSiteAware` flag, true only when every
+  one of the four is present. `SimSystemConfig.from` now takes the full `QuoteInputs` (not just
+  the `QuoteResult`) so it can read `roofConstraint`.
+- `SimulationEngine.sitePlaneOfArrayFactor` computes the real sun position for **today's actual
+  date** (a live digital twin should reflect the current day, not a fixed reference date) at the
+  simulated hour, via the Phase 2 `SolarPositionCalculator`, then runs it through the Phase 2
+  `SolarIrradianceModel.planeOfArrayFactor` against the roof's real azimuth/pitch. `buildDayTimeline`
+  multiplies this factor into the existing PV calculation only when `config.isSiteAware`; site-
+  unaware quotes are completely unaffected (factor implicitly 1.0), so the original simulator
+  behavior is preserved byte-for-byte for every quote that didn't come through Solar Site.
+- A well-oriented roof (south-facing, pitch matching latitude) was deliberately designed to *not*
+  be penalized relative to the old generic model: at solar noon its plane-of-array factor peaks
+  near 1.0, matching the generic bell curve's own peak, so "Use This Roof" never makes a good
+  roof look worse than a hand-entered quote would have.
+- `SimulationScreen` shows a new "Sun & Roof" card (only when `config.isSiteAware`) with the live
+  sun azimuth/elevation for the currently-scrubbed hour (using `CompassMath.compassLabel` for the
+  8-point label, reusing the Phase 4 compass math) next to the roof's fixed azimuth/pitch — this
+  is the "live compass" idea from the original spec, brought into the digital twin.
+- Verified standalone: `isSiteAware` is correctly `false` with no roof constraint, `false` when
+  azimuth/pitch are unconfirmed even with lat/lon present, and `true` only when fully specified;
+  `sitePlaneOfArrayFactor` matches a by-hand computation through `sitePosition` +
+  `SolarIrradianceModel.planeOfArrayFactor` exactly; a south-facing, latitude-tilt roof's factor
+  is `>0.95` at today's solar noon; at a fixed December-solstice morning (a date-independent,
+  unambiguous case — chosen because at 18°N in mid-August the sun's declination sits close enough
+  to the latitude that the sunrise azimuth actually swings north of due east, letting a
+  north-facing roof legitimately out-produce south-facing during some morning hours on *today's*
+  real date, which is correct low-latitude solar geometry rather than a bug) a north-facing roof's
+  factor (0.279) is meaningfully below a south-facing roof's (0.634); and full day-timeline
+  simulations for both a south-facing and a north-facing site-aware config still respect every
+  existing PV/SOC/load-flow bound.
 
 ## Fixed vs. the original prototype
 

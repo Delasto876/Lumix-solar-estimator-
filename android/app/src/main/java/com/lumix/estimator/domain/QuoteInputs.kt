@@ -64,6 +64,11 @@ data class AcLoad(
  * recommended system can be capped at what the roof can actually hold rather than only what
  * the electricity usage calls for. [maxPanelCount] comes from
  * `PanelLayoutOptimizer` — real geometric placement, not `usableArea / panelArea`.
+ *
+ * [latitude]/[longitude] (the site's location, carried over so the digital-twin simulation can
+ * compute real sun position later without a separate lookup) default to 0.0 for quotes saved
+ * before these fields existed — harmless, since [azimuthDegrees]/[pitchDegrees] being non-null
+ * is what actually gates the site-aware simulation path, not the coordinates alone.
  */
 @Serializable
 data class RoofConstraint(
@@ -73,7 +78,9 @@ data class RoofConstraint(
     val maxPanelCount: Int,
     val panelWattage: Int,
     val azimuthDegrees: Double?,
-    val pitchDegrees: Double?
+    val pitchDegrees: Double?,
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0
 ) {
     val maxCapacityKw: Double get() = maxPanelCount * panelWattage / 1000.0
 }

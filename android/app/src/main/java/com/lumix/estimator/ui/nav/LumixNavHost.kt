@@ -208,6 +208,7 @@ fun LumixNavHost(app: LumixApp) {
                     viewModel = siteViewModel,
                     siteId = siteId,
                     onUseRoof = { plane ->
+                        val site = siteViewModel.getSite(siteId)
                         wizardViewModel.startWithRoofConstraint(
                             RoofConstraint(
                                 sourceSiteId = siteId,
@@ -216,7 +217,9 @@ fun LumixNavHost(app: LumixApp) {
                                 maxPanelCount = plane.panelLayout?.panelCount ?: 0,
                                 panelWattage = plane.panelLayout?.panelWattage?.toInt() ?: 0,
                                 azimuthDegrees = plane.azimuthDegrees ?: plane.suggestedAzimuthDegrees,
-                                pitchDegrees = plane.pitchDegrees
+                                pitchDegrees = plane.pitchDegrees,
+                                latitude = site?.latitude ?: 0.0,
+                                longitude = site?.longitude ?: 0.0
                             )
                         )
                         navController.navigate(ROUTE_WIZARD)
