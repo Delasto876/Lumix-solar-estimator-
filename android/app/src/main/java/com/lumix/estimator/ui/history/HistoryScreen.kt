@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -47,6 +48,7 @@ private val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefaul
 fun HistoryScreen(
     quoteRepository: QuoteRepository,
     onOpenQuote: (Long) -> Unit,
+    onSimulate: (Long) -> Unit = {},
     onStartQuote: () -> Unit = {},
     onBack: (() -> Unit)? = null
 ) {
@@ -98,6 +100,7 @@ fun HistoryScreen(
                 QuoteRow(
                     quote = quote,
                     onClick = { onOpenQuote(quote.id) },
+                    onSimulate = { onSimulate(quote.id) },
                     onDelete = { scope.launch { quoteRepository.delete(quote) } }
                 )
             }
@@ -106,7 +109,7 @@ fun HistoryScreen(
 }
 
 @Composable
-private fun QuoteRow(quote: QuoteEntity, onClick: () -> Unit, onDelete: () -> Unit) {
+private fun QuoteRow(quote: QuoteEntity, onClick: () -> Unit, onSimulate: () -> Unit, onDelete: () -> Unit) {
     val palette = LocalLumixPalette.current
     SurfaceCard(modifier = Modifier.clickable(onClick = onClick)) {
         Row(
@@ -125,6 +128,9 @@ private fun QuoteRow(quote: QuoteEntity, onClick: () -> Unit, onDelete: () -> Un
                 Text(dateFormat.format(Date(quote.timestamp)), style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
                 Text("${quote.panelCount} panels · ${quote.inverterName}", style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
                 Text(formatCurrency(quote.grandTotal), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.solarYellowText)
+            }
+            IconButton(onClick = onSimulate) {
+                Icon(Icons.Default.Bolt, contentDescription = "Simulate this system", tint = palette.solarYellowText)
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete quote", tint = palette.textSecondary)

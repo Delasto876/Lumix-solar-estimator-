@@ -28,6 +28,8 @@ import com.lumix.estimator.ui.home.HomeScreen
 import com.lumix.estimator.ui.results.ResultsScreen
 import com.lumix.estimator.ui.savings.SavingsScreen
 import com.lumix.estimator.ui.settings.PriceSettingsScreen
+import com.lumix.estimator.ui.simulation.SimulationScreen
+import com.lumix.estimator.ui.simulation.SimulationViewModel
 import com.lumix.estimator.ui.wizard.WizardScreen
 import com.lumix.estimator.ui.wizard.WizardViewModel
 
@@ -35,6 +37,7 @@ private const val ROUTE_HOME = "home"
 private const val ROUTE_ESTIMATE = "estimate"
 private const val ROUTE_WIZARD = "wizard"
 private const val ROUTE_RESULTS = "results/{quoteId}"
+private const val ROUTE_SIMULATION = "simulation/{quoteId}"
 private const val ROUTE_SYSTEMS = "systems"
 private const val ROUTE_SAVINGS = "savings"
 private const val ROUTE_PROFILE = "profile"
@@ -130,7 +133,23 @@ fun LumixNavHost(app: LumixApp) {
                             popUpTo(ROUTE_HOME)
                         }
                     },
-                    onBackToHome = { navController.popBackStack(ROUTE_HOME, inclusive = false) }
+                    onBackToHome = { navController.popBackStack(ROUTE_HOME, inclusive = false) },
+                    onSimulate = { id -> navController.navigate("simulation/$id") }
+                )
+            }
+
+            composable(
+                ROUTE_SIMULATION,
+                arguments = listOf(navArgument("quoteId") { type = NavType.LongType })
+            ) { entry ->
+                val quoteId = entry.arguments?.getLong("quoteId") ?: 0L
+                val simulationViewModel: SimulationViewModel = viewModel(
+                    factory = SimulationViewModel.factory(app.quoteRepository)
+                )
+                SimulationScreen(
+                    quoteId = quoteId,
+                    viewModel = simulationViewModel,
+                    onBack = { navController.popBackStack() }
                 )
             }
 
@@ -138,6 +157,7 @@ fun LumixNavHost(app: LumixApp) {
                 HistoryScreen(
                     quoteRepository = app.quoteRepository,
                     onOpenQuote = { id -> navController.navigate("results/$id") },
+                    onSimulate = { id -> navController.navigate("simulation/$id") },
                     onStartQuote = {
                         wizardViewModel.reset()
                         navController.navigate(ROUTE_WIZARD)

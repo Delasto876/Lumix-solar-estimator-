@@ -55,6 +55,49 @@ tab shell.
 - **PDF export & share** — `pdf/QuotePdfGenerator.kt` renders a shareable PDF quote via
   Android's `PdfDocument` API and the system share sheet.
 
+## Digital twin simulator (Phase 1 of 4)
+
+Reachable via **⚡ Explore Your Energy** on the Results screen, or the bolt icon on any
+saved quote in **Systems** — never a separate fake demo, always driven by that quote's
+real calculated PV/inverter/battery/load numbers (`domain/simulation/SimSystemConfig.kt`).
+
+- **`domain/simulation/SimulationEngine.kt`** — a pure, UI-independent engine. It
+  precomputes a full 24-hour timeline (5-minute resolution) once per quote: a deterministic
+  bell-curve solar model (clipped to the real inverter's kW rating), a shaped daily house-
+  load curve (scaled to the quote's real average daily kWh, capped at its real peak watts),
+  and battery SOC physics (efficiency, min/max SOC, a C/2 charge/discharge rate cap) — then
+  applies the solar→house→battery→grid priority routing from the spec at every step,
+  including a `POWER_LIMITED` state when demand exceeds solar+battery and the grid is
+  unavailable. Dragging the time dial is then a cheap lookup + linear interpolation into
+  that timeline — no live re-simulation needed, which keeps scrubbing instant.
+- **`ui/simulation/`** — `TimeDial` (drag-anywhere 24h dial with a highlighted daylight
+  arc), `HouseSimulationVisual` (an isometric house/roof/panels/inverter/battery/grid-pole
+  illustration with animated particle flow along every active connector, intensity scaled
+  to real flow magnitude), live Solar/Grid/Home/Battery readouts, a status pill, and a
+  floating play/pause/speed transport bar (1x plays a simulated day in real-time proportion
+  per the spec: 1 sim-minute per real-second).
+- Verified the same way as the other calculators: `SimulationEngine` was run standalone
+  against real calculated quotes (hybrid+grid, hybrid+cloudy, hybrid+outage, off-grid,
+  grid-tie-no-battery, and a deliberately undersized battery) asserting energy balance,
+  SOC bounds, zero unmet load whenever grid-connected, and `POWER_LIMITED` correctly
+  appearing when battery + grid can't cover demand — see the scenario output in this
+  session's history for the numbers.
+
+**What's deferred to later phases** (per the spec's own 40-section breakdown, scoped down
+with the user before building): appliance on/off toggles and the load-driven consequences,
+the weather/cloud dial, a live JPS grid connect/disconnect toggle and outage/what-if quick
+actions, tap-to-inspect bottom sheets on each house component, the 24h energy graph, battery
+full-time estimation, and the Basic/Technical mode split. The engine already accepts
+`cloudMultiplier` and `gridConnected` parameters so these mostly wire up existing capability
+rather than requiring new engine work.
+
+**House visual note**: the brief's reference images are photoreal-rendered art; this sandbox
+has no image-generation or asset-sourcing capability, so the house is the most detailed
+version achievable as a hand-drawn Compose `Canvas` vector illustration (layered shading,
+individual panel cells, a battery fill gauge, status LEDs) rather than actual bitmap/3D
+artwork — the spec's own fallback guidance ("a polished stylized 3D/isometric technical
+visualization is preferred" over full photorealism) is what's implemented.
+
 ## Fixed vs. the original prototype
 
 The original web app always priced panels, batteries, and mounting/wiring hardware from

@@ -65,7 +65,8 @@ fun ResultsScreen(
     quoteId: Long,
     quoteRepository: QuoteRepository,
     onNewQuote: () -> Unit,
-    onBackToHome: () -> Unit
+    onBackToHome: () -> Unit,
+    onSimulate: (Long) -> Unit
 ) {
     var saved by remember(quoteId) { mutableStateOf<SavedQuote?>(null) }
     val context = LocalContext.current
@@ -135,6 +136,11 @@ fun ResultsScreen(
                         if (result.totalBatteryKwh > 0) {
                             Text("${"%.1f".format(result.totalBatteryKwh)} kWh Battery", style = MaterialTheme.typography.bodyMedium)
                         }
+                        LumixPrimaryButton(
+                            text = "⚡ Explore Your Energy",
+                            onClick = { onSimulate(quoteId) },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                        )
                     }
                 }
 
