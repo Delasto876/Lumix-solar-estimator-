@@ -187,7 +187,10 @@ fun LumixNavHost(app: LumixApp) {
                 SolarSiteMapScreen(
                     viewModel = siteViewModel,
                     onSaved = { id -> navController.navigate("site/detail/$id") { popUpTo(ROUTE_SITE) } },
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onSwitchToManual = {
+                        navController.navigate(ROUTE_SITE_MANUAL) { popUpTo(ROUTE_SITE_MAP) { inclusive = true } }
+                    }
                 )
             }
 

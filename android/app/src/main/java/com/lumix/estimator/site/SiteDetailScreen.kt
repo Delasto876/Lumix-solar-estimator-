@@ -86,6 +86,7 @@ fun SiteDetailScreen(
                     SolarPotentialCard(
                         plane = plane,
                         latitude = site.latitude,
+                        longitude = site.longitude,
                         onUseThisRoof = onUseRoof?.let { callback -> { callback(plane) } }
                     )
                 }

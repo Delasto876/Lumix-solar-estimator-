@@ -214,7 +214,7 @@ transparent layers above it change. Built in four phases:
   path start/end/length sanity for all four paths; and `daylightProgress()` bounds at
   midnight/noon/sunrise. Plus a full import-completeness sweep across the module.
 
-## Solar Site (Phases 1–7, in progress)
+## Solar Site (Phases 1–8, complete)
 
 A new major module (a **Site** tab alongside Home/Estimate/Systems/Savings/Profile) letting a
 homeowner or installer map a customer's actual roof and turn it into a real system estimate,
@@ -452,6 +452,49 @@ instead of always falling back to the generic time-of-day bell curve.
   factor (0.279) is meaningfully below a south-facing roof's (0.634); and full day-timeline
   simulations for both a south-facing and a north-facing site-aware config still respect every
   existing PV/SOC/load-flow bound.
+
+**Phase 8 — polish: sun path visualization, monthly PSH estimate, 3D map view, offline handling
+(`solar/SolarPathSampler.kt`, `solar/ClearSkyPshEstimator.kt`, `site/SunPathDiagram.kt`,
+`site/MonthlyPshChart.kt`, `site/map/MapController.kt`, `site/map/SolarSiteMapScreen.kt`,
+`network/NetworkConnectivityObserver.kt`):**
+
+The last item on the original 8-phase plan — four smaller, independent additions rather than one
+big feature.
+
+- **Sun path diagram.** `SolarPathSampler` samples `SolarPositionCalculator` across a full day for
+  an explicit date (unlike the simulation engine's deliberate `LocalDate.now()` usage, this takes
+  the date as a parameter so it's independently testable and reusable for any reference day).
+  `SunPathDiagram` plots today's daylight arc — azimuth (x) vs. elevation (y) — as a `Canvas`
+  curve, with sunrise/sunset endpoints, the solar-noon peak, and the roof's own facing direction
+  overlaid as a dashed vertical line, so it's visually obvious whether the sun's arc actually
+  crosses the roof's orientation. Added to `SolarPotentialCard`, so every roof plane's summary
+  (map-traced or manually entered — both paths converge on the same card) now shows it.
+- **Monthly Peak Sun Hours.** `ClearSkyPshEstimator` integrates `sin(elevation)` — the standard
+  clear-sky horizontal-irradiance proxy — over daylight hours for a representative day of each
+  month, scaled by a fixed 0.75 clearness index so the numbers land in a believable range rather
+  than the un-attenuated geometric maximum. This is **not** real irradiance/weather data — that
+  stays `SolarResourceProvider`'s honestly-`null` job until a live dataset is wired in — so
+  `MonthlyPshChart`'s 12-bar chart carries an explicit "clear-sky geometry only... not measured
+  weather data" disclaimer rather than ever being mistaken for a real PSH dataset.
+- **3D map view.** `MapController` gained an `is3D` toggle; the map screen's new 3D button
+  animates the `GoogleMap` camera's tilt between 0° and 55° (`CameraPosition.Builder` copying the
+  existing target/zoom/bearing), giving a closer, more roof-eye view when zoomed in to trace —
+  using the Maps SDK's own tilt support already included in the existing dependency, not a new
+  rendering path.
+- **Offline handling.** `NetworkConnectivityObserver` wraps `ConnectivityManager` (new
+  `ACCESS_NETWORK_STATE` manifest permission — a normal permission, no runtime prompt) as a
+  `Flow<Boolean>`. The map screen — the one part of Solar Site that genuinely needs a live
+  connection, since satellite tiles and address search both require it, unlike the rest of the
+  module's pure local math — now shows an explicit "You're offline" banner with a one-tap "Manual
+  Entry" button (wired through `LumixNavHost`) the moment connectivity drops, instead of leaving
+  the user staring at a silently blank map with no explanation.
+- Verified standalone: `SolarPathSampler.sampleDay` returns the exact expected sample count for
+  its step size; `sampleDaylightPath` never includes a below-horizon sample; June 21 at 18°N shows
+  a near-overhead max elevation (>80°, matching the ~84.5° found via Phase 2's own hourly
+  sampling) with a longer daylight sample count than December 21 (~48.5° max elevation) — correct
+  northern-hemisphere seasonal shape; `ClearSkyPshEstimator.estimateMonthlyPsh` returns exactly 12
+  values, all within a believable 2–9 hour range, with June's estimate higher than December's at
+  this latitude (Jamaica: roughly 4.0–6.2 hours across the year in this geometry-only model).
 
 ## Fixed vs. the original prototype
 

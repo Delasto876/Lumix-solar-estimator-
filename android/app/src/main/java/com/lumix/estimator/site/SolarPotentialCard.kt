@@ -31,6 +31,7 @@ import com.lumix.estimator.ui.theme.LocalLumixPalette
 fun SolarPotentialCard(
     plane: RoofPlane,
     latitude: Double,
+    longitude: Double,
     onUseThisRoof: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -67,6 +68,11 @@ fun SolarPotentialCard(
         StatRow("Solar Exposure", "${(plane.shadingFactor * 100).toInt()}%", "", "")
 
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("SUN PATH", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = palette.textSecondary)
+            SunPathDiagram(latitude = latitude, longitude = longitude, roofAzimuthDegrees = azimuth)
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("ROOF SCORE", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = palette.textSecondary)
                 Text(
@@ -81,6 +87,11 @@ fun SolarPotentialCard(
             ScoreBar("Pitch", score.pitchScore)
             ScoreBar("Usable space", score.usableSpaceScore)
             ScoreBar("Shading", score.shadingScore)
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("MONTHLY PEAK SUN HOURS", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = palette.textSecondary)
+            MonthlyPshChart(latitude = latitude, longitude = longitude)
         }
 
         Text(

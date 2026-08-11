@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ThreeDRotation
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -55,6 +57,7 @@ import com.google.maps.android.compose.Polygon
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberMarkerState
 import com.lumix.estimator.location.DeviceLocationManager
+import com.lumix.estimator.network.NetworkConnectivityObserver
 import com.lumix.estimator.sensors.CompassManager
 import com.lumix.estimator.site.GeoPoint
 import com.lumix.estimator.site.ShadeAndExclusionSection
@@ -90,7 +93,8 @@ private val jamaicaDefault = LatLng(18.1096, -77.2975)
 fun SolarSiteMapScreen(
     viewModel: SolarSiteViewModel,
     onSaved: (String) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onSwitchToManual: (() -> Unit)? = null
 ) {
     val palette = LocalLumixPalette.current
     val context = LocalContext.current
@@ -102,6 +106,8 @@ fun SolarSiteMapScreen(
     val locationManager = remember { DeviceLocationManager(context) }
     val compassManager = remember { CompassManager(context) }
     val compassState by compassManager.state.collectAsState()
+    val connectivityObserver = remember { NetworkConnectivityObserver(context) }
+    val isOnline by connectivityObserver.observe().collectAsState(initial = connectivityObserver.isOnline())
 
     val initialLatLng = remember {
         val lat = state.draftLatitude
@@ -241,6 +247,9 @@ fun SolarSiteMapScreen(
                     modifier = Modifier.padding(start = 4.dp)
                 )
             }
+            if (!isOnline) {
+                OfflineBanner(onSwitchToManual = onSwitchToManual)
+            }
         }
 
         // Right-side floating controls: zoom, layers, my location.
@@ -263,6 +272,27 @@ fun SolarSiteMapScreen(
                     }
                 )
             }) { Icon(Icons.Default.Layers, contentDescription = "Map type") }
+            LumixIconButtonSurface(onClick = {
+                mapController.toggle3D()
+                val target = mapController.selectedLocation ?: cameraPositionState.position.target
+                val newTilt = if (mapController.is3D) MapController.TILT_3D_DEGREES else MapController.TILT_FLAT_DEGREES
+                scope.launch {
+                    cameraPositionState.animate(
+                        CameraUpdateFactory.newCameraPosition(
+                            CameraPosition.Builder(cameraPositionState.position)
+                                .target(target)
+                                .tilt(newTilt)
+                                .build()
+                        )
+                    )
+                }
+            }) {
+                Icon(
+                    Icons.Default.ThreeDRotation,
+                    contentDescription = "Toggle 3D view",
+                    tint = if (mapController.is3D) palette.solarYellowText else palette.textPrimary
+                )
+            }
             LumixIconButtonSurface(onClick = {
                 if (locationManager.hasPermission()) {
                     moveToDeviceLocation()
@@ -326,6 +356,37 @@ fun SolarSiteMapScreen(
                 },
                 onCancel = { roofFormVertices = null }
             )
+        }
+    }
+}
+
+/**
+ * Shown whenever [NetworkConnectivityObserver] reports no internet — the one thing this screen
+ * cannot function without (satellite tiles + address search both need a live connection), unlike
+ * the rest of Solar Site, which is pure local math. Points straight at the always-available
+ * escape hatch rather than leaving the user staring at blank map tiles with no explanation.
+ */
+@Composable
+private fun OfflineBanner(onSwitchToManual: (() -> Unit)?) {
+    val palette = LocalLumixPalette.current
+    GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(Icons.Default.WifiOff, contentDescription = null, tint = palette.warningRedText)
+            Column(modifier = Modifier.weight(1f)) {
+                Text("You're offline", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                Text(
+                    "Map tiles and address search need a connection. Roof tracing still works once tiles are loaded, or switch to typed dimensions.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary
+                )
+            }
+            if (onSwitchToManual != null) {
+                LumixSecondaryButton(text = "Manual Entry", onClick = onSwitchToManual)
+            }
         }
     }
 }
