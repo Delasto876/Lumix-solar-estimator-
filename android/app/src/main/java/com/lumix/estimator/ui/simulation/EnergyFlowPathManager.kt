@@ -88,11 +88,20 @@ object EnergyFlowPathManager {
         return points.last()
     }
 
-    /** [t] values, evenly spaced, for a given particle count — reversed for REVERSE flow direction. */
-    fun particleOffsets(count: Int, reversed: Boolean): List<Float> {
+    /**
+     * [t] spawn offsets, evenly spaced, for a given particle count. Travel direction is not
+     * baked in here — the renderer advances (or retreats) these offsets over time depending
+     * on the flow's [com.lumix.estimator.domain.simulation.FlowDirection].
+     */
+    fun particleOffsets(count: Int): List<Float> {
         if (count <= 0) return emptyList()
-        val offsets = (0 until count).map { i -> i.toFloat() / count }
-        return if (reversed) offsets.map { 1f - it } else offsets
+        return (0 until count).map { i -> i.toFloat() / count }
+    }
+
+    /** Wraps [value] into 0f..1f, e.g. for animated phase accumulation. */
+    fun wrapUnit(value: Float): Float {
+        val wrapped = value % 1f
+        return if (wrapped < 0f) wrapped + 1f else wrapped
     }
 
     private fun segmentLength(a: NormalizedPoint, b: NormalizedPoint): Float =
