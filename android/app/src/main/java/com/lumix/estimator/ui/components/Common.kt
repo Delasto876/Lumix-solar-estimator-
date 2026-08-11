@@ -5,16 +5,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -25,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.lumix.estimator.ui.theme.LocalLumixPalette
+import com.lumix.estimator.ui.theme.LumixRadius
 
 @Composable
 fun SectionCard(
@@ -32,19 +34,33 @@ fun SectionCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    SurfaceCard(modifier = modifier, shape = RoundedCornerShape(LumixRadius.lg)) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (title.isNotBlank()) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = LocalLumixPalette.current.textPrimary
+                )
             }
             content()
         }
     }
 }
+
+@Composable
+private fun lumixFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = LocalLumixPalette.current.solarYellow,
+    unfocusedBorderColor = LocalLumixPalette.current.outline,
+    focusedLabelColor = LocalLumixPalette.current.solarYellowText,
+    unfocusedLabelColor = LocalLumixPalette.current.textSecondary,
+    cursorColor = LocalLumixPalette.current.solarYellow,
+    focusedTextColor = LocalLumixPalette.current.textPrimary,
+    unfocusedTextColor = LocalLumixPalette.current.textPrimary,
+    focusedSupportingTextColor = LocalLumixPalette.current.textSecondary,
+    unfocusedSupportingTextColor = LocalLumixPalette.current.textSecondary
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +82,8 @@ fun <T> LabeledDropdown(
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             supportingText = supportingText?.let { { Text(it) } },
+            shape = RoundedCornerShape(LumixRadius.sm),
+            colors = lumixFieldColors(),
             modifier = Modifier
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable, true)
                 .fillMaxWidth()
@@ -112,6 +130,8 @@ fun NumberField(
         singleLine = true,
         isError = isError,
         supportingText = supportingText?.let { { Text(it) } },
+        shape = RoundedCornerShape(LumixRadius.sm),
+        colors = lumixFieldColors(),
         keyboardOptions = KeyboardOptions(
             keyboardType = if (allowDecimal) KeyboardType.Decimal else KeyboardType.Number
         ),

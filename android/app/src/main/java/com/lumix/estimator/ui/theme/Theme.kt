@@ -1,84 +1,80 @@
 package com.lumix.estimator.ui.theme
 
 import android.app.Activity
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
-private val LightColors = lightColorScheme(
-    primary = LumixBlue,
-    onPrimary = Color.White,
-    secondary = LumixAmber,
-    background = LumixBackgroundLight,
-    surface = LumixSurfaceLight,
-    onBackground = LumixOnSurfaceLight,
-    onSurface = LumixOnSurfaceLight,
-    outline = LumixOutlineLight,
-    error = LumixError
+private val DarkColorScheme = darkColorScheme(
+    primary = LumixColors.SolarYellow,
+    onPrimary = Color(0xFF221A00),
+    secondary = LumixColors.EnergyGreen,
+    onSecondary = Color(0xFF00210F),
+    tertiary = LumixColors.TechnicalCyan,
+    onTertiary = Color(0xFF00223A),
+    background = LumixColors.BackgroundDark,
+    onBackground = LumixColors.TextPrimaryDark,
+    surface = LumixColors.SurfaceDark,
+    onSurface = LumixColors.TextPrimaryDark,
+    surfaceVariant = LumixColors.SurfaceElevatedDark,
+    onSurfaceVariant = LumixColors.TextSecondaryDark,
+    outline = LumixColors.OutlineDark,
+    error = LumixColors.WarningRed,
+    onError = Color(0xFF2A0A08)
 )
 
-private val DarkColors = darkColorScheme(
-    primary = LumixBlueDark,
+private val LightColorScheme = lightColorScheme(
+    primary = LumixColors.SolarYellowOnLight,
     onPrimary = Color.White,
-    secondary = LumixAmber,
-    background = LumixBackgroundDark,
-    surface = LumixSurfaceDark,
-    onBackground = LumixOnSurfaceDark,
-    onSurface = LumixOnSurfaceDark,
-    outline = LumixOutlineDark,
-    error = LumixError
-)
-
-private val LumixTypography = Typography(
-    titleLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 22.sp),
-    titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 18.sp),
-    bodyLarge = TextStyle(fontSize = 16.sp),
-    bodyMedium = TextStyle(fontSize = 14.sp),
-    labelSmall = TextStyle(fontSize = 12.sp)
+    secondary = LumixColors.EnergyGreenOnLight,
+    onSecondary = Color.White,
+    tertiary = LumixColors.TechnicalCyanOnLight,
+    onTertiary = Color.White,
+    background = LumixColors.BackgroundLight,
+    onBackground = LumixColors.TextPrimaryLight,
+    surface = LumixColors.SurfaceLight,
+    onSurface = LumixColors.TextPrimaryLight,
+    surfaceVariant = LumixColors.SurfaceElevatedLight,
+    onSurfaceVariant = LumixColors.TextSecondaryLight,
+    outline = LumixColors.OutlineLight,
+    error = LumixColors.WarningRedOnLight,
+    onError = Color.White
 )
 
 @Composable
 fun LumixTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkColors
-        else -> LightColors
-    }
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val palette = if (darkTheme) LumixDarkPalette else LumixLightPalette
 
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
+            window.statusBarColor = palette.background.toArgb()
+            window.navigationBarColor = palette.background.toArgb()
+            val controller = WindowCompat.getInsetsController(window, view)
+            controller.isAppearanceLightStatusBars = !darkTheme
+            controller.isAppearanceLightNavigationBars = !darkTheme
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = LumixTypography,
-        content = content
-    )
+    CompositionLocalProvider(LocalLumixPalette provides palette) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = LumixTypography,
+            shapes = LumixShapes,
+            content = content
+        )
+    }
 }

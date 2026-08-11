@@ -10,16 +10,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,14 +32,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SavedQuote
-import com.lumix.estimator.domain.QuoteMode
+import com.lumix.estimator.domain.QuoteInputs
+import com.lumix.estimator.domain.QuoteResult
+import com.lumix.estimator.domain.SavingsCalculator
+import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.domain.SystemMode
 import com.lumix.estimator.domain.formatCurrency
 import com.lumix.estimator.domain.formatQty
 import com.lumix.estimator.pdf.QuotePdfGenerator
+import com.lumix.estimator.ui.components.AnimatedCounterText
+import com.lumix.estimator.ui.components.EnergyFlowDiagram
+import com.lumix.estimator.ui.components.FlowNode
+import com.lumix.estimator.ui.components.LumixPrimaryButton
+import com.lumix.estimator.ui.components.LumixSecondaryButton
+import com.lumix.estimator.ui.components.RingGauge
+import com.lumix.estimator.ui.components.RoofPanelVisualization
+import com.lumix.estimator.ui.components.SavingsGraph
 import com.lumix.estimator.ui.components.SectionCard
+import com.lumix.estimator.ui.theme.LocalLumixPalette
+import com.lumix.estimator.ui.theme.LumixColors
+import com.lumix.estimator.ui.theme.numberDisplayStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -56,6 +71,8 @@ fun ResultsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var isSharing by remember { mutableStateOf(false) }
+    var selectedNode by remember { mutableStateOf<FlowNode?>(null) }
+    val palette = LocalLumixPalette.current
 
     LaunchedEffect(quoteId) {
         saved = quoteRepository.getSavedQuote(quoteId)
@@ -64,7 +81,7 @@ fun ResultsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Quote Summary") },
+                title = { Text("Solar Recommendation") },
                 navigationIcon = {
                     IconButton(onClick = onBackToHome) {
                         Text("×", style = MaterialTheme.typography.titleLarge)
@@ -83,6 +100,8 @@ fun ResultsScreen(
 
         val inputs = current.inputs
         val result = current.result
+        val projection = remember(current) { SavingsCalculator.project(inputs, result) }
+        val nodes = remember(result) { buildFlowNodes(result, inputs, projection.coveragePercent) }
 
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             LazyColumn(
@@ -91,50 +110,87 @@ fun ResultsScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 item {
-                    SectionCard(title = "System Summary") {
-                        val modeLabel = when (inputs.quoteMode) {
-                            QuoteMode.GUIDED -> "Guided system quote"
-                            QuoteMode.MANUAL -> "Manual system builder"
-                            QuoteMode.LOAD -> "Load & inverter sizing"
-                        }
-                        val systemLabel = when (result.effectiveSystemMode) {
-                            SystemMode.HYBRID -> "hybrid"
-                            SystemMode.OFFGRID -> "off-grid"
-                            SystemMode.GRIDTIE -> "grid-tie"
-                        }
-                        val location = listOf(inputs.nearestTown, inputs.parish).filter { it.isNotBlank() }.joinToString(", ")
-                            .ifBlank { "Location not set" }
-
-                        Text("Mode: $modeLabel")
-                        Text("System: $systemLabel for ${inputs.propertyType.label} at $location")
-                        Text("PV array: ${result.panelCount} x ${result.panelWatts} W (${"%.2f".format(result.pvKw)} kW)")
-                        Text("Inverter: ${result.inverterName}")
-                        if (result.totalBatteryKwh > 0) {
-                            Text("Battery: ${"%.1f".format(result.totalBatteryKwh)} kWh (~backup ${"%.0f".format(inputs.backupHours)}h at 80% DOD)")
-                        } else {
-                            Text("Configuration shown without battery bank.")
-                        }
-                        HorizontalDivider()
+                    SectionCard(title = "") {
                         Text(
-                            "Estimated total: ${formatCurrency(result.grandTotal)}",
-                            style = MaterialTheme.typography.titleMedium,
+                            "☀️ SOLAR RECOMMENDATION",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = palette.solarYellowText,
                             fontWeight = FontWeight.Bold
                         )
-                        Text(
-                            "Materials ${formatCurrency(result.materialsTotal)} + Service (15%) ${formatCurrency(result.serviceCharge)} " +
-                                "+ Delivery ${formatCurrency(result.deliveryCharge)} - Discount ${formatCurrency(result.discountAmount)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        AnimatedCounterText(
+                            targetValue = result.pvKw,
+                            format = { "%.1f kW".format(it) },
+                            style = numberDisplayStyle(size = 46.sp),
+                            color = palette.textPrimary
                         )
+                        Text(
+                            "Recommended solar system for ${inputs.propertyType.label.lowercase()}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.textSecondary
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        Text("Estimated System", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text("${result.panelCount} × ${result.panelWatts}W Panels", style = MaterialTheme.typography.bodyMedium)
+                        Text(result.inverterName, style = MaterialTheme.typography.bodyMedium)
+                        if (result.totalBatteryKwh > 0) {
+                            Text("${"%.1f".format(result.totalBatteryKwh)} kWh Battery", style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                 }
 
                 item {
-                    SectionCard(title = "Key Sizing") {
-                        Text("Design daily energy: ${"%.1f".format(result.designDailyKwh)} kWh/day")
-                        Text("Peak load (approx): ${"%.0f".format(result.peakWatts)} W")
-                        Text("Battery required (theoretical): ${"%.1f".format(result.batteryRequiredKwh)} kWh; installed: ${"%.1f".format(result.totalBatteryKwh)} kWh")
-                        Text("Rows (4 panels/row): ${result.rows}, rails/row: ${result.railsPerRow}, total rails: ${result.totalRails}")
+                    SectionCard(title = "Estimated Performance") {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            PerformanceStat(
+                                label = "☀️ Solar Production",
+                                value = "${projection.monthlyProductionKwh.toInt()} kWh/mo",
+                                modifier = Modifier.weight(1f)
+                            )
+                            PerformanceStat(
+                                label = "💰 Monthly Savings",
+                                value = formatCurrency(projection.monthlySavings),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                PerformanceStat(
+                                    label = "📉 Est. Payback",
+                                    value = projection.paybackYears?.let { "%.1f yrs".format(it) } ?: "—"
+                                )
+                            }
+                            RingGauge(
+                                percent = projection.coveragePercent,
+                                diameter = 96.dp,
+                                strokeWidth = 9.dp,
+                                label = "coverage"
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    SectionCard(title = "How the energy flows") {
+                        EnergyFlowDiagram(nodes = nodes, onNodeClick = { selectedNode = it })
+                    }
+                }
+
+                if (result.panelCount > 0) {
+                    item {
+                        SectionCard(title = "Your roof, at a glance") {
+                            RoofPanelVisualization(panelCount = result.panelCount)
+                            Text(
+                                "${result.panelCount} panels across ${result.rows} row${if (result.rows == 1) "" else "s"}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.textSecondary
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    SectionCard(title = "20-year savings") {
+                        SavingsGraph(yearly = projection.yearly)
                     }
                 }
 
@@ -154,7 +210,11 @@ fun ResultsScreen(
                             }
                         }
                         HorizontalDivider()
-                        Text("Grand Total: ${formatCurrency(result.grandTotal)}", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Grand Total: ${formatCurrency(result.grandTotal)}",
+                            fontWeight = FontWeight.Bold,
+                            color = palette.textPrimary
+                        )
                     }
                 }
             }
@@ -163,10 +223,10 @@ fun ResultsScreen(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                OutlinedButton(onClick = onNewQuote, modifier = Modifier.weight(1f)) {
-                    Text("New quote")
-                }
-                Button(
+                LumixSecondaryButton(text = "New quote", onClick = onNewQuote, modifier = Modifier.weight(1f))
+                LumixPrimaryButton(
+                    text = if (isSharing) "Preparing…" else "Share PDF",
+                    enabled = !isSharing,
                     onClick = {
                         isSharing = true
                         scope.launch {
@@ -182,12 +242,89 @@ fun ResultsScreen(
                             )
                         }
                     },
-                    enabled = !isSharing,
                     modifier = Modifier.weight(1f)
-                ) {
-                    Text(if (isSharing) "Preparing..." else "Share PDF")
+                )
+            }
+        }
+
+        val node = selectedNode
+        if (node != null) {
+            ModalBottomSheet(
+                onDismissRequest = { selectedNode = null },
+                sheetState = rememberModalBottomSheetState()
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
+                    Text(node.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(node.subtitle, style = MaterialTheme.typography.bodyLarge, color = palette.textSecondary, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
+                    Text(node.detail, style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun PerformanceStat(label: String, value: String, modifier: Modifier = Modifier) {
+    val palette = LocalLumixPalette.current
+    Column(modifier = modifier.padding(vertical = 6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+    }
+}
+
+private fun buildFlowNodes(
+    result: QuoteResult,
+    inputs: QuoteInputs,
+    coveragePercent: Float
+): List<FlowNode> {
+    val palette = LumixColors
+    val nodes = mutableListOf(
+        FlowNode(
+            id = "sun",
+            title = "Sunlight",
+            subtitle = "~${SystemCalculator.PSH.toInt()} peak sun hours/day",
+            glyph = "☀️",
+            accentColor = palette.SolarYellow,
+            detail = "Kingston-area sites average around ${SystemCalculator.PSH.toInt()} peak sun hours a day. Panel and battery sizing throughout this quote is based on that average."
+        ),
+        FlowNode(
+            id = "panels",
+            title = "${result.panelCount} × ${result.panelWatts}W Panels",
+            subtitle = "${"%.2f".format(result.pvKw)} kW array",
+            glyph = "🟦",
+            accentColor = palette.TechnicalCyan,
+            detail = "Sunlight hits the array and is converted to DC electricity. This system uses ${result.panelCount} panels across ${result.rows} row(s)."
+        ),
+        FlowNode(
+            id = "inverter",
+            title = result.inverterName,
+            subtitle = "${result.inverterKw} kW capacity",
+            glyph = "⚡",
+            accentColor = palette.TechnicalCyan,
+            detail = "The inverter converts the panels' DC output into the AC electricity your home actually uses, sized above your estimated peak load with headroom."
+        )
+    )
+    if (result.totalBatteryKwh > 0) {
+        nodes += FlowNode(
+            id = "battery",
+            title = result.batteryName ?: "Battery bank",
+            subtitle = "${"%.1f".format(result.totalBatteryKwh)} kWh installed",
+            glyph = "🔋",
+            accentColor = palette.EnergyGreen,
+            detail = "Estimated backup: roughly ${inputs.backupHours.toInt()} hours, depending on which loads stay on during an outage."
+        )
+    }
+    nodes += FlowNode(
+        id = "home",
+        title = "Your Home",
+        subtitle = "${coveragePercent.toInt()}% of usage covered",
+        glyph = "🏠",
+        accentColor = palette.SolarAmber,
+        detail = if (result.effectiveSystemMode == SystemMode.GRIDTIE) {
+            "Any shortfall is drawn from the grid; any surplus flows back to it, depending on your JPS billing arrangement."
+        } else {
+            "Essential loads draw from solar first, then battery, then the grid — keeping the lights on even when JPS power is out."
+        }
+    )
+    return nodes
 }

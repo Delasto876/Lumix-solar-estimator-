@@ -1,24 +1,59 @@
 # Lumix Solar Estimator (Android)
 
-Native Android rewrite of the original single-file `index.html` prototype, built with
-Kotlin + Jetpack Compose (Material 3).
+Native Android app built with Kotlin + Jetpack Compose (Material 3), redesigned as a
+premium, dark-first energy-tech product on top of the original quoting logic.
+
+## Design system
+
+- **Palette** (`ui/theme/Color.kt`, `Palette.kt`) — midnight background, graphite
+  surfaces, solar-yellow primary accent, with energy-green, technical-cyan, and
+  solar-amber used sparingly as functional accents. Full dark and light themes share the
+  same accent hues; `LocalLumixPalette` exposes tokens beyond Material3's default roles.
+- **Motion** (`ui/theme/Motion.kt`) — shared spring specs (snappy/gentle/responsive) used
+  for button press feedback, counters, ring gauges, and the bottom-nav indicator. Looping
+  decorative animation is skipped when the system's "Remove animations" accessibility
+  setting is on (`ui/theme/Accessibility.kt`).
+- **Components** (`ui/components/`) — `LumixPrimaryButton`/`LumixSecondaryButton` (spring
+  press-scale), `SurfaceCard`/`GlassSurface`, `AnimatedCounterText` (numbers ease toward
+  new values instead of snapping), `RingGauge`, `SavingsGraph` (custom Canvas, drag-to-
+  scrub 20-year projection), `EnergyFlowDiagram` (tappable Sun→Panels→Inverter→Battery→
+  Home nodes with an animated connector pulse), `RoofPanelVisualization` (panels fill in
+  one by one), `SolarHeroVisual` (ambient Home-screen illustration), `FloatingBottomNav`.
+
+## Navigation
+
+A tabbed shell (`ui/nav/LumixNavHost.kt`) with a floating pill bottom nav — **Home**,
+**Estimate**, **Systems**, **Savings**, **Profile**. Starting a quote pushes the wizard
+and results as a focused full-screen flow with the nav bar hidden, then returns to the
+tab shell.
 
 ## What's here
 
-- **Wizard** — the same 7-step quote flow (mode & site info, roof & mounting, loads,
-  JPS usage, backup, manual builder, pricing) as native Compose screens with inline
-  validation instead of raw HTML `<select>`/`<input>` elements.
+- **Home** — a greeting, an ambient interactive solar illustration reacting to your last
+  quote's coverage %, and a quick energy snapshot (bill / solar size / savings).
+- **Estimate → Wizard** — the same 7-step quote flow (mode & site info, roof & mounting,
+  loads, JPS usage, backup, manual builder, pricing) as native Compose screens with
+  inline validation, restyled with the design system. Tapping *Calculate* plays a short
+  staged sequence ("Analyzing your energy usage… → Finding your best system…") before
+  landing on Results.
+- **Results** — an animated kW hero counter, a performance stat grid (production,
+  coverage ring, savings, payback), the tappable energy-flow diagram, an animated roof/
+  panel visualization, a drag-scrub 20-year savings graph, and the restyled material
+  breakdown.
+- **Systems** — saved quote history (Room), each with its full input/result snapshot so
+  past quotes stay reproducible even after prices change.
+- **Savings** — the latest quote's coverage, monthly savings, payback, and 20-year
+  projection, reachable independent of a fresh calculation.
+- **Profile** — the editable regular/discount price lists (DataStore Preferences) with
+  reset-to-default.
 - **Sizing engine** — `domain/SystemCalculator.kt` is a line-for-line Kotlin port of the
   original `calculateSystem`/`calculateLoadsKwhAndPeak` logic (same PSH, DOD, tariff
-  constants and panel/inverter/battery selection rules).
-- **Quote history** — every calculated quote is saved to a local Room database
-  (`data/QuoteEntity.kt`, `data/AppDatabase.kt`) with its full input/result snapshot, so
-  past quotes stay reproducible even if prices later change.
-- **Editable price list** — `ui/settings/PriceSettingsScreen.kt` lets you edit every
-  material/inverter/battery price (regular and discount lists separately), persisted via
-  DataStore Preferences, with a "reset to default" action.
-- **PDF export & share** — `pdf/QuotePdfGenerator.kt` renders a shareable PDF quote from
-  any saved quote via Android's `PdfDocument` API and the system share sheet.
+  constants and panel/inverter/battery selection rules). `domain/SavingsCalculator.kt` is
+  new: it derives solar coverage %, monthly savings, payback, and a 20-year cost
+  projection from the existing sizing output (documented escalation/degradation
+  assumptions — these are new, honestly-labeled estimates, not part of the original app).
+- **PDF export & share** — `pdf/QuotePdfGenerator.kt` renders a shareable PDF quote via
+  Android's `PdfDocument` API and the system share sheet.
 
 ## Fixed vs. the original prototype
 
@@ -26,6 +61,17 @@ The original web app always priced panels, batteries, and mounting/wiring hardwa
 `regularPrices`, even when "use discount price list" was toggled on — only the inverter
 line actually respected the toggle. `SystemCalculator.calculate` now applies the selected
 price list (`regular` or `discount`) consistently across every material line.
+
+## Scope notes
+
+- The wizard keeps its original 3-mode structure (Guided / Manual / Load-based) rather
+  than being replaced by a simplified consumer-only flow — the detailed appliance-level
+  and manual-builder capability is preserved, just restyled.
+- The "circular coverage dial" is implemented as an animated read-only ring gauge (a
+  derived output, not a draggable input) since there's no corresponding input field in
+  the kept flow to drag against.
+- Charts are hand-drawn on Compose `Canvas` rather than a charting library, to avoid an
+  unverified new dependency in an environment that can't reach Google's Maven repo.
 
 ## Building
 
@@ -36,12 +82,12 @@ verified here:
 
 - The pure-Kotlin `domain` package (no Android dependencies) was compiled and run
   standalone against `kotlinx-serialization` from Maven Central across several guided /
-  manual / load-based scenarios (hybrid, off-grid, grid-tie) with no exceptions and
-  sane, correctly-clamped output.
-- Every Gradle/Compose file was manually checked for import completeness and API usage
-  against the pinned library versions (a couple of real issues — missing `Modifier.weight`
-  imports and a color-initialization-order bug in `Theme.kt` — were found this way and
-  fixed).
+  manual / load-based scenarios (hybrid, off-grid, grid-tie), including the new savings
+  projection, with no exceptions and sane, correctly-clamped output.
+- Every Gradle/Compose file was manually audited for import completeness and API usage
+  against the pinned library versions. This pass caught and fixed several real issues:
+  missing `Modifier.weight`/`getValue` imports, a color-initialization-order bug in
+  `Theme.kt`, and a nullable-`String` `in Set<String>` type error in the nav host.
 
 To build for real, open the `android/` folder in **Android Studio (Koala or newer)** with
 network access to Google's Maven repo, or from the CLI:

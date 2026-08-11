@@ -1,0 +1,67 @@
+package com.lumix.estimator.ui.estimate
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.lumix.estimator.ui.components.LumixPrimaryButton
+import com.lumix.estimator.ui.components.SectionCard
+import com.lumix.estimator.ui.theme.LocalLumixPalette
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EstimateLandingScreen(onStartQuote: () -> Unit) {
+    val palette = LocalLumixPalette.current
+
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("Estimate") }) }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                "A guided walkthrough of your site, usage, and backup needs — we'll size the panels, inverter, and battery for you.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = palette.textSecondary
+            )
+
+            SectionCard(title = "What you'll need") {
+                BulletLine("Your average JPS bill, or a recent kWh reading")
+                BulletLine("Roof type and how many storeys")
+                BulletLine("Any AC units or heavy appliances")
+                BulletLine("How long you'd like backup during an outage")
+            }
+
+            LumixPrimaryButton(
+                text = "Start new quote",
+                onClick = onStartQuote,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun BulletLine(text: String) {
+    val palette = LocalLumixPalette.current
+    Text(
+        "•  $text",
+        style = MaterialTheme.typography.bodyMedium,
+        color = palette.textPrimary,
+        fontWeight = FontWeight.Normal
+    )
+}

@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -33,12 +32,15 @@ import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.PriceRepository
 import com.lumix.estimator.domain.PriceFields
 import com.lumix.estimator.domain.PriceList
+import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.components.NumberField
+import com.lumix.estimator.ui.theme.LocalLumixPalette
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PriceSettingsScreen(priceRepository: PriceRepository, onBack: () -> Unit) {
+fun PriceSettingsScreen(priceRepository: PriceRepository, onBack: (() -> Unit)? = null) {
+    val palette = LocalLumixPalette.current
     var editingDiscount by remember { mutableStateOf(false) }
     val regular by priceRepository.regularPrices.collectAsState(initial = PriceList.DEFAULT)
     val discount by priceRepository.discountPrices.collectAsState(initial = PriceList.DEFAULT)
@@ -48,16 +50,32 @@ fun PriceSettingsScreen(priceRepository: PriceRepository, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Price List Settings") },
+                title = { Text("Profile") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Text("×", style = MaterialTheme.typography.titleLarge)
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Text("×", style = MaterialTheme.typography.titleLarge)
+                        }
                     }
                 }
             )
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            Text(
+                "Price list",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = palette.textPrimary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+            Text(
+                "These prices feed every quote across the app.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.textSecondary,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                 listOf(false, true).forEachIndexed { index, isDiscount ->
                     SegmentedButton(
@@ -79,8 +97,9 @@ fun PriceSettingsScreen(priceRepository: PriceRepository, onBack: () -> Unit) {
                     item(key = "header_$group") {
                         Text(
                             group,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
+                            color = palette.textPrimary,
                             modifier = Modifier.padding(top = 8.dp)
                         )
                     }
@@ -100,13 +119,14 @@ fun PriceSettingsScreen(priceRepository: PriceRepository, onBack: () -> Unit) {
                 }
                 item(key = "reset_button") {
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
-                        OutlinedButton(onClick = {
-                            scope.launch {
-                                if (editingDiscount) priceRepository.resetDiscountToDefault() else priceRepository.resetRegularToDefault()
+                        LumixSecondaryButton(
+                            text = "Reset ${if (editingDiscount) "discount" else "regular"} prices to default",
+                            onClick = {
+                                scope.launch {
+                                    if (editingDiscount) priceRepository.resetDiscountToDefault() else priceRepository.resetRegularToDefault()
+                                }
                             }
-                        }) {
-                            Text("Reset ${if (editingDiscount) "discount" else "regular"} prices to default")
-                        }
+                        )
                     }
                 }
             }

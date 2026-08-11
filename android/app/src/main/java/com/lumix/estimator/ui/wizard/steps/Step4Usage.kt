@@ -8,7 +8,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.UsageMode
+import com.lumix.estimator.domain.formatCurrency
 import com.lumix.estimator.ui.components.LabeledDropdown
+import com.lumix.estimator.ui.components.LumixValueSlider
 import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.components.SectionCard
 
@@ -31,10 +33,12 @@ fun Step4Usage(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> 
             )
 
             when (inputs.usageMode) {
-                UsageMode.BILL -> NumberField(
-                    label = "Average JPS bill (last 3 months, J$)",
-                    value = inputs.avgBill,
-                    onValueChange = { v -> onUpdate { it.copy(avgBill = v) } }
+                UsageMode.BILL -> LumixValueSlider(
+                    value = inputs.avgBill.toFloat(),
+                    onValueChange = { v -> onUpdate { it.copy(avgBill = v.toDouble()) } },
+                    valueRange = 5_000f..150_000f,
+                    format = { formatCurrency(it.toDouble()) },
+                    label = "Average JPS bill (last 3 months)"
                 )
                 UsageMode.KWH -> NumberField(
                     label = "Average monthly usage (kWh)",

@@ -14,8 +14,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +32,9 @@ import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.QuoteEntity
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.domain.formatCurrency
+import com.lumix.estimator.ui.components.LumixPrimaryButton
+import com.lumix.estimator.ui.components.SurfaceCard
+import com.lumix.estimator.ui.theme.LocalLumixPalette
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -46,26 +47,44 @@ private val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefaul
 fun HistoryScreen(
     quoteRepository: QuoteRepository,
     onOpenQuote: (Long) -> Unit,
-    onBack: () -> Unit
+    onStartQuote: () -> Unit = {},
+    onBack: (() -> Unit)? = null
 ) {
+    val palette = LocalLumixPalette.current
     val quotes by quoteRepository.observeAll().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Quote History") },
+                title = { Text("Systems") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Text("×", style = MaterialTheme.typography.titleLarge)
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Text("×", style = MaterialTheme.typography.titleLarge)
+                        }
                     }
                 }
             )
         }
     ) { padding ->
         if (quotes.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("No saved quotes yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "Your energy story starts here.",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = palette.textPrimary
+                    )
+                    Text(
+                        "Every system you size gets saved here, so you can revisit or share it later.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.textSecondary,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 20.dp)
+                    )
+                    LumixPrimaryButton(text = "Start your estimate", onClick = onStartQuote)
+                }
             }
             return@Scaffold
         }
@@ -88,29 +107,27 @@ fun HistoryScreen(
 
 @Composable
 private fun QuoteRow(quote: QuoteEntity, onClick: () -> Unit, onDelete: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
+    val palette = LocalLumixPalette.current
+    SurfaceCard(modifier = Modifier.clickable(onClick = onClick)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 val title = quote.customerName.ifBlank { "Unnamed customer" }
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
                 Text(
                     listOfNotNull(quote.nearestTown.ifBlank { null }, quote.parish.ifBlank { null }).joinToString(", ")
                         .ifBlank { "No location" },
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = palette.textSecondary
                 )
-                Text(dateFormat.format(Date(quote.timestamp)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("${quote.panelCount} panels - ${quote.inverterName}", style = MaterialTheme.typography.bodyMedium)
-                Text(formatCurrency(quote.grandTotal), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(dateFormat.format(Date(quote.timestamp)), style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+                Text("${quote.panelCount} panels · ${quote.inverterName}", style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
+                Text(formatCurrency(quote.grandTotal), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.solarYellowText)
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete quote")
+                Icon(Icons.Default.Delete, contentDescription = "Delete quote", tint = palette.textSecondary)
             }
         }
     }
