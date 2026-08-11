@@ -55,7 +55,7 @@ tab shell.
 - **PDF export & share** — `pdf/QuotePdfGenerator.kt` renders a shareable PDF quote via
   Android's `PdfDocument` API and the system share sheet.
 
-## Digital twin simulator (Phase 1 of 4)
+## Digital twin simulator (Phases 1–2 of 4)
 
 Reachable via **⚡ Explore Your Energy** on the Results screen, or the bolt icon on any
 saved quote in **Systems** — never a separate fake demo, always driven by that quote's
@@ -83,13 +83,38 @@ real calculated PV/inverter/battery/load numbers (`domain/simulation/SimSystemCo
   appearing when battery + grid can't cover demand — see the scenario output in this
   session's history for the numbers.
 
-**What's deferred to later phases** (per the spec's own 40-section breakdown, scoped down
-with the user before building): appliance on/off toggles and the load-driven consequences,
-the weather/cloud dial, a live JPS grid connect/disconnect toggle and outage/what-if quick
-actions, tap-to-inspect bottom sheets on each house component, the 24h energy graph, battery
-full-time estimation, and the Basic/Technical mode split. The engine already accepts
-`cloudMultiplier` and `gridConnected` parameters so these mostly wire up existing capability
-rather than requiring new engine work.
+**Phase 2 additions:**
+
+- **Appliances** (`domain/simulation/SimAppliance.kt`) — a 14-item checklist (lights, TV,
+  fridge, fans, AC, microwave, washer, dryer, iron, water heater, oven, pump, computer, EV
+  charger) with realistic wattages. Default on/off state is derived from what the user
+  actually told the estimator they have (`inputs.appliances`, `inputs.ac.hasAc`) — not
+  arbitrary — so the simulator starts matching the quote. Appliances the wizard never asks
+  about default off, and turning them on is an explicit "what if." The engine's day-shaped
+  curve now represents a reduced ambient/background load, with the checklist's live total
+  added on top flat, so toggling something has an immediate, visible effect on load and on
+  which flows (solar/battery/grid) cover it — including showing `POWER_LIMITED` if you turn
+  on enough to outrun solar + battery with the grid off. Reachable via the "Appliances" row
+  under the live power readouts, which opens a bottom sheet with a live "CURRENT LOAD"
+  counter and checkboxes.
+- **Grid toggle** — a live JPS Connected/Disconnected switch (hidden for pure off-grid
+  systems, which have no grid to toggle). Disconnecting rebuilds the timeline with
+  `gridConnected = false` and shows a "⚡ JPS OUTAGE — HOME RUNNING ON BACKUP" banner.
+- **Tap-to-inspect** — a row of Panels/Inverter/Battery/Grid/Home chips under the house
+  visualization; each opens a bottom sheet with real numbers pulled from the live frame
+  (current output, load breakdown by source, battery charge/discharge + estimated backup
+  runtime, grid import/export) rather than a fixed pixel-region tap on the illustration
+  itself, which would need hit-test geometry kept in lockstep with the drawing code —
+  chips are simpler and more reliable without on-device testing.
+- Verified the same way as Phase 1: the engine was run standalone with the exact appliance
+  scenario from the spec (AC on/off swinging the load by exactly its rated 1.5 kW) and an
+  "everything on including an EV charger, grid disconnected" case, confirming `POWER_LIMITED`
+  correctly appears when a small system's battery can't cover a deliberately oversized load.
+
+**Deferred to phases 3–4**: the weather/cloud dial, outage/what-if quick-action buttons
+(cloud event, one-tap outage), the 24h energy graph, battery full-time-to-charge estimation
+on the dial, and the Basic/Technical mode split. The engine already accepts a
+`cloudMultiplier` parameter, so phase 3 mostly wires a UI control to existing capability.
 
 **House visual note**: the brief's reference images are photoreal-rendered art; this sandbox
 has no image-generation or asset-sourcing capability, so the house is the most detailed

@@ -17,6 +17,8 @@ object SimulationEngine {
     private const val BATTERY_MAX_SOC_FRACTION = 1.00
     private const val BATTERY_CHARGE_EFFICIENCY = 0.95
     private const val FLOW_EPSILON = 0.01
+    private const val BACKGROUND_LOAD_FRACTION = 0.4
+    private const val BACKGROUND_LOAD_FLOOR_KW = 0.15
 
     // Typical residential demand shape (higher morning + evening, lower overnight/midday).
     // Normalized by its own mean, so it only shapes the curve — total daily energy still
@@ -51,13 +53,18 @@ object SimulationEngine {
         cloudMultiplier: Double = 1.0,
         gridConnected: Boolean = true,
         startSocFraction: Double = 0.6,
-        resolutionMinutes: Int = 5
+        resolutionMinutes: Int = 5,
+        applianceLoadKw: Double = 0.0
     ): List<SimFrame> {
         val maxSocKwh = config.batteryCapacityKwh * BATTERY_MAX_SOC_FRACTION
         val minSocKwh = config.batteryCapacityKwh * BATTERY_MIN_SOC_FRACTION
         var batterySocKwh = (config.batteryCapacityKwh * startSocFraction).coerceIn(minSocKwh, maxSocKwh)
         val maxBatteryRateKw = if (config.hasBattery) min(config.batteryCapacityKwh * 0.5, config.inverterKw.coerceAtLeast(0.1)) else 0.0
-        val avgLoadPerHourKw = config.avgDailyLoadKwh / 24.0
+        // The day-shaped curve represents ambient/background load (standby draw, misc
+        // cycling) not covered by the explicit appliance checklist; the checklist's total
+        // is added on top, flat, so toggling an appliance has an immediate, visible effect
+        // rather than being smoothed into an average.
+        val backgroundPerHourKw = (config.avgDailyLoadKwh / 24.0 * BACKGROUND_LOAD_FRACTION).coerceAtLeast(BACKGROUND_LOAD_FLOOR_KW)
         val dt = resolutionMinutes / 60.0
 
         val steps = (24 * 60) / resolutionMinutes
@@ -68,7 +75,7 @@ object SimulationEngine {
 
             val pv = (irradianceFactor(hour) * config.pvCapacityKw * cloudMultiplier)
                 .coerceIn(0.0, config.inverterKw)
-            val load = (loadFactor(hour) * avgLoadPerHourKw).coerceIn(0.0, config.peakLoadKw)
+            val load = (loadFactor(hour) * backgroundPerHourKw + applianceLoadKw).coerceAtLeast(0.0)
 
             var solarToHouse = min(pv, load)
             var remainingPv = pv - solarToHouse

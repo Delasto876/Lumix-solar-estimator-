@@ -4,9 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.lumix.estimator.data.QuoteRepository
+import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.simulation.SimFrame
 import com.lumix.estimator.domain.simulation.SimSystemConfig
+import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.SimulationEngine
+import com.lumix.estimator.domain.simulation.defaultApplianceStates
+import com.lumix.estimator.domain.simulation.totalApplianceLoadKw
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,13 +23,18 @@ import kotlinx.coroutines.launch
 data class SimulationUiState(
     val loading: Boolean = true,
     val systemLabel: String = "Your Solar System",
+    val inputs: QuoteInputs? = null,
     val config: SimSystemConfig? = null,
     val timeline: List<SimFrame> = emptyList(),
     val currentHour: Double = 12.0,
     val currentFrame: SimFrame? = null,
     val isPlaying: Boolean = false,
-    val speed: Float = 1f
-)
+    val speed: Float = 1f,
+    val appliances: Map<SimApplianceType, Boolean> = emptyMap(),
+    val gridConnected: Boolean = true
+) {
+    val applianceLoadKw: Double get() = totalApplianceLoadKw(appliances)
+}
 
 class SimulationViewModel(
     private val quoteRepository: QuoteRepository
@@ -40,17 +49,57 @@ class SimulationViewModel(
         viewModelScope.launch {
             val saved = quoteRepository.getSavedQuote(quoteId) ?: return@launch
             val config = SimSystemConfig.from(saved.result)
-            val timeline = SimulationEngine.buildDayTimeline(config)
+            val appliances = defaultApplianceStates(saved.inputs)
+            val gridConnected = config.gridConnectable
+            val timeline = SimulationEngine.buildDayTimeline(
+                config,
+                gridConnected = gridConnected,
+                applianceLoadKw = totalApplianceLoadKw(appliances)
+            )
             val label = saved.inputs.customerName.takeIf { it.isNotBlank() } ?: "Your Solar System"
             _state.update {
                 it.copy(
                     loading = false,
                     systemLabel = label,
+                    inputs = saved.inputs,
                     config = config,
+                    appliances = appliances,
+                    gridConnected = gridConnected,
                     timeline = timeline,
                     currentFrame = SimulationEngine.frameAt(timeline, it.currentHour)
                 )
             }
+        }
+    }
+
+    fun toggleAppliance(type: SimApplianceType) {
+        val current = _state.value
+        val updated = current.appliances.toMutableMap().apply { this[type] = !(this[type] ?: false) }
+        rebuildTimeline(appliances = updated)
+    }
+
+    fun setGridConnected(connected: Boolean) {
+        rebuildTimeline(gridConnected = connected)
+    }
+
+    private fun rebuildTimeline(
+        appliances: Map<SimApplianceType, Boolean> = _state.value.appliances,
+        gridConnected: Boolean = _state.value.gridConnected
+    ) {
+        val config = _state.value.config ?: return
+        val effectiveGridConnected = gridConnected && config.gridConnectable
+        val timeline = SimulationEngine.buildDayTimeline(
+            config,
+            gridConnected = effectiveGridConnected,
+            applianceLoadKw = totalApplianceLoadKw(appliances)
+        )
+        _state.update {
+            it.copy(
+                appliances = appliances,
+                gridConnected = effectiveGridConnected,
+                timeline = timeline,
+                currentFrame = SimulationEngine.frameAt(timeline, it.currentHour)
+            )
         }
     }
 
