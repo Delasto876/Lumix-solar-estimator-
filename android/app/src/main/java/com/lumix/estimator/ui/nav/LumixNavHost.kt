@@ -34,6 +34,7 @@ import com.lumix.estimator.ui.simulation.SimulationViewModel
 import com.lumix.estimator.ui.wizard.WizardScreen
 import com.lumix.estimator.ui.wizard.WizardViewModel
 import com.lumix.estimator.site.ManualSiteScreen
+import com.lumix.estimator.site.SiteDetailScreen
 import com.lumix.estimator.site.SolarSiteEntryScreen
 import com.lumix.estimator.site.SolarSiteViewModel
 import com.lumix.estimator.site.map.SolarSiteMapScreen
@@ -49,6 +50,7 @@ private const val ROUTE_PROFILE = "profile"
 private const val ROUTE_SITE = "site"
 private const val ROUTE_SITE_MAP = "site/map"
 private const val ROUTE_SITE_MANUAL = "site/manual"
+private const val ROUTE_SITE_DETAIL = "site/detail/{siteId}"
 
 private val tabs = listOf(
     NavTab(ROUTE_HOME, "Home", Icons.Default.Home),
@@ -176,14 +178,14 @@ fun LumixNavHost(app: LumixApp) {
                         siteViewModel.startNewSite()
                         navController.navigate(ROUTE_SITE_MANUAL)
                     },
-                    onOpenSite = { /* Phase 5 will add a read-only site detail view; ignored for now. */ }
+                    onOpenSite = { id -> navController.navigate("site/detail/$id") }
                 )
             }
 
             composable(ROUTE_SITE_MAP) {
                 SolarSiteMapScreen(
                     viewModel = siteViewModel,
-                    onSaved = { navController.popBackStack(ROUTE_SITE, inclusive = false) },
+                    onSaved = { id -> navController.navigate("site/detail/$id") { popUpTo(ROUTE_SITE) } },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -191,7 +193,19 @@ fun LumixNavHost(app: LumixApp) {
             composable(ROUTE_SITE_MANUAL) {
                 ManualSiteScreen(
                     viewModel = siteViewModel,
-                    onSaved = { navController.popBackStack(ROUTE_SITE, inclusive = false) },
+                    onSaved = { id -> navController.navigate("site/detail/$id") { popUpTo(ROUTE_SITE) } },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(
+                ROUTE_SITE_DETAIL,
+                arguments = listOf(navArgument("siteId") { type = NavType.StringType })
+            ) { entry ->
+                val siteId = entry.arguments?.getString("siteId") ?: ""
+                SiteDetailScreen(
+                    viewModel = siteViewModel,
+                    siteId = siteId,
                     onBack = { navController.popBackStack() }
                 )
             }

@@ -32,6 +32,8 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
 
     val savedSites: StateFlow<List<SolarSite>> get() = repository.sites
 
+    fun getSite(id: String): SolarSite? = repository.get(id)
+
     fun startNewSite() {
         _state.value = SiteUiState()
     }
@@ -50,9 +52,11 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
         panelWidthM: Double,
         panelHeightM: Double,
         panelWattage: Double,
-        setbackMeters: Double = 0.5
+        setbackMeters: Double = 0.5,
+        excludedAreaM2: Double = 0.0,
+        shadingFactor: Double = 1.0
     ) {
-        appendRoofPlane(vertices, pitchDegrees, confirmedAzimuthDegrees, panelWidthM, panelHeightM, panelWattage, setbackMeters)
+        appendRoofPlane(vertices, pitchDegrees, confirmedAzimuthDegrees, panelWidthM, panelHeightM, panelWattage, setbackMeters, excludedAreaM2, shadingFactor)
     }
 
     /**
@@ -68,7 +72,9 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
         panelWidthM: Double,
         panelHeightM: Double,
         panelWattage: Double,
-        setbackMeters: Double = 0.5
+        setbackMeters: Double = 0.5,
+        excludedAreaM2: Double = 0.0,
+        shadingFactor: Double = 1.0
     ) {
         val lat = _state.value.draftLatitude ?: return
         val lon = _state.value.draftLongitude ?: return
@@ -81,7 +87,7 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
             halfWidth to halfLength,
             -halfWidth to halfLength
         ).map { (x, y) -> RoofGeometryEngine.toGeoPoint(x, y, reference) }
-        appendRoofPlane(corners, pitchDegrees, azimuthDegrees, panelWidthM, panelHeightM, panelWattage, setbackMeters)
+        appendRoofPlane(corners, pitchDegrees, azimuthDegrees, panelWidthM, panelHeightM, panelWattage, setbackMeters, excludedAreaM2, shadingFactor)
     }
 
     fun removeRoofPlane(id: String) {
@@ -115,12 +121,14 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
         panelWidthM: Double,
         panelHeightM: Double,
         panelWattage: Double,
-        setbackMeters: Double
+        setbackMeters: Double,
+        excludedAreaM2: Double = 0.0,
+        shadingFactor: Double = 1.0
     ) {
         val label = "Roof ${('A' + _state.value.roofPlanes.size)}"
         val horizontalArea = RoofGeometryEngine.horizontalAreaM2(vertices)
         val roofArea = RoofGeometryEngine.roofAreaM2(horizontalArea, pitchDegrees)
-        val usableArea = RoofGeometryEngine.usableAreaM2(vertices, horizontalArea, roofArea, setbackMeters, emptyList())
+        val usableArea = RoofGeometryEngine.usableAreaM2(vertices, horizontalArea, roofArea, setbackMeters, emptyList(), excludedAreaM2)
         val suggestedCandidates = RoofGeometryEngine.suggestAzimuthCandidates(vertices)
         val effectiveAzimuth = confirmedAzimuthDegrees ?: suggestedCandidates?.first ?: 0.0
 
@@ -146,6 +154,7 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
             azimuthDegrees = confirmedAzimuthDegrees,
             pitchDegrees = pitchDegrees,
             setbackMeters = setbackMeters,
+            shadingFactor = shadingFactor,
             panelLayout = panelLayout
         )
         _state.update { it.copy(roofPlanes = it.roofPlanes + roofPlane) }

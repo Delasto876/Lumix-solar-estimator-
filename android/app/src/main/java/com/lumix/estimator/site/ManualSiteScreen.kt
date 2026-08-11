@@ -29,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
+import com.lumix.estimator.site.geometry.ShadeEstimator
+import com.lumix.estimator.site.geometry.ShadeObstructionType
 import com.lumix.estimator.ui.components.LabeledDropdown
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.LumixSecondaryButton
@@ -67,6 +69,9 @@ fun ManualSiteScreen(
     var panelHeightM by remember { mutableStateOf(1.134) }
     var panelWattage by remember { mutableStateOf(600.0) }
     var setbackM by remember { mutableStateOf(0.5) }
+    var selectedObstructions by remember { mutableStateOf<Set<ShadeObstructionType>>(emptySet()) }
+    var exposurePercent by remember { mutableStateOf(100.0) }
+    var excludedAreaM2 by remember { mutableStateOf(0.0) }
 
     Scaffold(
         topBar = {
@@ -159,25 +164,46 @@ fun ManualSiteScreen(
                                 NumberField(label = "Panel height (m)", value = panelHeightM, onValueChange = { panelHeightM = it }, suffix = "m", modifier = Modifier.weight(1f))
                             }
                             NumberField(label = "Panel wattage", value = panelWattage, onValueChange = { panelWattage = it }, allowDecimal = false, suffix = "W")
-                            LumixPrimaryButton(
-                                text = "Analyze This Roof",
-                                enabled = lengthM > 0 && widthM > 0 && panelWidthM > 0 && panelHeightM > 0 && panelWattage > 0,
-                                onClick = {
-                                    viewModel.addManualRoofPlane(
-                                        lengthM = lengthM,
-                                        widthM = widthM,
-                                        azimuthDegrees = azimuthDegrees,
-                                        pitchDegrees = pitchDegrees,
-                                        panelWidthM = panelWidthM,
-                                        panelHeightM = panelHeightM,
-                                        panelWattage = panelWattage,
-                                        setbackMeters = setbackM
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            )
                         }
                     }
+                }
+
+                item {
+                    SectionCard(title = "Shading & Exclusions") {
+                        ShadeAndExclusionSection(
+                            selectedObstructions = selectedObstructions,
+                            onToggleObstruction = { type ->
+                                selectedObstructions = if (type in selectedObstructions) selectedObstructions - type else selectedObstructions + type
+                                exposurePercent = ShadeEstimator.suggestExposureFraction(selectedObstructions) * 100.0
+                            },
+                            exposurePercent = exposurePercent,
+                            onExposurePercentChange = { exposurePercent = it },
+                            excludedAreaM2 = excludedAreaM2,
+                            onExcludedAreaChange = { excludedAreaM2 = it }
+                        )
+                    }
+                }
+
+                item {
+                    LumixPrimaryButton(
+                        text = "Analyze This Roof",
+                        enabled = lengthM > 0 && widthM > 0 && panelWidthM > 0 && panelHeightM > 0 && panelWattage > 0,
+                        onClick = {
+                            viewModel.addManualRoofPlane(
+                                lengthM = lengthM,
+                                widthM = widthM,
+                                azimuthDegrees = azimuthDegrees,
+                                pitchDegrees = pitchDegrees,
+                                panelWidthM = panelWidthM,
+                                panelHeightM = panelHeightM,
+                                panelWattage = panelWattage,
+                                setbackMeters = setbackM,
+                                excludedAreaM2 = excludedAreaM2,
+                                shadingFactor = exposurePercent / 100.0
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
 
                 items(state.roofPlanes) { plane ->

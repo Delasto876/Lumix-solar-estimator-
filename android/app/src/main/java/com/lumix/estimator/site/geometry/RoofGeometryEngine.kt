@@ -163,11 +163,13 @@ object RoofGeometryEngine {
         horizontalAreaM2: Double,
         roofAreaM2: Double,
         setbackMeters: Double,
-        exclusionZones: List<List<GeoPoint>>
+        exclusionZones: List<List<GeoPoint>>,
+        /** A lump-sum obstruction area (chimney, tank, vents, ...) already in roof-surface m², for when tracing individual exclusion polygons isn't practical (e.g. manual entry with no map). */
+        additionalExclusionAreaM2: Double = 0.0
     ): Double {
         val pitchScale = if (horizontalAreaM2 > 0) roofAreaM2 / horizontalAreaM2 else 1.0
         val setbackLossM2 = perimeterMeters(vertices) * setbackMeters * pitchScale
         val exclusionAreaM2 = exclusionZones.sumOf { horizontalAreaM2(it) } * pitchScale
-        return (roofAreaM2 - setbackLossM2 - exclusionAreaM2).coerceAtLeast(0.0)
+        return (roofAreaM2 - setbackLossM2 - exclusionAreaM2 - additionalExclusionAreaM2).coerceAtLeast(0.0)
     }
 }

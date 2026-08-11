@@ -214,13 +214,13 @@ transparent layers above it change. Built in four phases:
   path start/end/length sanity for all four paths; and `daylightProgress()` bounds at
   midnight/noon/sunrise. Plus a full import-completeness sweep across the module.
 
-## Solar Site (Phases 1–4, in progress)
+## Solar Site (Phases 1–5, in progress)
 
 A new major module (a **Site** tab alongside Home/Estimate/Systems/Savings/Profile) letting a
 homeowner or installer map a customer's actual roof and turn it into a real system estimate,
 rather than a generic sizing based on electricity usage alone. Building toward 8 phases total;
-phases 5–8 (the polished roof-analysis UI, wiring the roof-constrained system into the
-estimator, and connecting site data into the digital-twin simulation) are not yet built.
+phases 6–8 (wiring the roof-constrained system into the estimator, and connecting site data
+into the digital-twin simulation) are not yet built.
 
 **Phase 1 — data model + geometry engine (`site/`, `site/geometry/`):**
 
@@ -330,6 +330,50 @@ peer path, not a fallback bolted onto the map screen:
   boundary correctly (smoothing from 350° toward 10° lands near 0°, not doubling back through
   180°) — the sensor plumbing itself (`CompassManager`, `DeviceLocationManager`) needs a real
   device and could not be tested here at all, unlike everything else in this project.
+
+**Phase 5 — roof analysis UI (`site/geometry/ShadeEstimator.kt`, `RoofScoreCalculator.kt`,
+`site/RoofPlaneDiagram.kt`, `SolarPotentialCard.kt`, `SiteDetailScreen.kt`):**
+
+- `ShadeEstimator` — nearby-obstruction checkboxes (trees, nearby building, utility pole, other)
+  suggest a starting shading estimate via documented flat percentages per type, always shown as
+  "estimated" and always directly overridable — satellite imagery has no elevation data, so real
+  ray-traced shading is out of reach, and pretending otherwise would violate the spec's "do not
+  fake accuracy" requirement.
+- `RoofScoreCalculator` — a 100-point preliminary roof-quality estimate, explicitly not a
+  certified assessment. Five independent 0–20 factors: **Area** (absolute usable m²),
+  **Orientation** (how close the confirmed or suggested azimuth is to the ideal equator-facing
+  direction for the site's hemisphere), **Pitch** (how close to the rule-of-thumb optimal tilt ≈
+  site latitude), **Usable space** (usable ÷ total roof area — how much survives setback and
+  exclusions), and **Shading** (from the exposure estimate above). This deliberately differs from
+  the spec's own illustrative breakdown, which lists "Solar exposure" and "Shading" as two
+  separate categories measuring roughly the same thing — Pitch replaces the duplicate here as an
+  independently meaningful factor. Unconfirmed azimuth/pitch get neutral half-credit (10/20)
+  rather than a false zero or a false full score.
+- `RoofGeometryEngine.usableAreaM2` gained an `additionalExclusionAreaM2` parameter (defaulted,
+  backward compatible) — a lump-sum obstruction area (chimney, tank, vents) entered directly
+  rather than traced as a polygon, since the manual-entry flow has no map to trace on. Full
+  exclusion-*zone* polygon tracing on the live map (per spec section 7's more elaborate ask) is
+  deferred; the lump-sum field covers the same underlying need (usable area accounts for
+  obstructions) without the added Maps-SDK surface area.
+- `RoofPlaneDiagram` — an actual top-down diagram of the roof outline with every packed panel
+  drawn as a rotated rectangle (not just a placement count), reusing
+  `RoofGeometryEngine.toLocalMeters` so it renders identically whether the roof came from the
+  map or from typed dimensions.
+- `SolarPotentialCard` — the polished "here's what your roof can do" summary: the diagram, area/
+  usable/panels/capacity/orientation/pitch/exposure stats, the Roof Score breakdown, an accuracy
+  disclaimer, and a "Use This Roof" button (present but not yet wired to the estimator — that's
+  Phase 6).
+- `SiteDetailScreen` — a new read-only screen (wired into `SolarSiteEntryScreen`'s previously
+  stubbed "open saved site" action, and reached automatically after saving a new site) listing
+  every roof plane's full `SolarPotentialCard`.
+- `ShadeAndExclusionSection` is shared by both the map's roof-confirm sheet and the manual-entry
+  form, so obstruction marking and the excluded-area field work identically regardless of which
+  path built the roof plane.
+- Verified standalone: `ShadeEstimator`'s per-type loss percentages sum correctly (trees + nearby
+  building + utility pole + other = 27% loss → 73% exposure); `RoofScoreCalculator` scores a
+  "perfect" roof (south-facing at 18°N, pitch matching latitude, no shading, usable area equal to
+  a 50m² reference) at exactly 100/100, a north-facing roof at 18°N (worst possible orientation)
+  at 0/20 on that factor, and unconfirmed azimuth/pitch at the neutral 10/20 each.
 
 ## Fixed vs. the original prototype
 

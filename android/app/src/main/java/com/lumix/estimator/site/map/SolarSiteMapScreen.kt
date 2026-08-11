@@ -57,9 +57,12 @@ import com.google.maps.android.compose.rememberMarkerState
 import com.lumix.estimator.location.DeviceLocationManager
 import com.lumix.estimator.sensors.CompassManager
 import com.lumix.estimator.site.GeoPoint
+import com.lumix.estimator.site.ShadeAndExclusionSection
 import com.lumix.estimator.site.SolarCompassBadge
 import com.lumix.estimator.site.SolarSiteViewModel
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
+import com.lumix.estimator.site.geometry.ShadeEstimator
+import com.lumix.estimator.site.geometry.ShadeObstructionType
 import com.lumix.estimator.ui.components.GlassSurface
 import com.lumix.estimator.ui.components.LabeledDropdown
 import com.lumix.estimator.ui.components.LumixIconButtonSurface
@@ -315,8 +318,10 @@ fun SolarSiteMapScreen(
         ) {
             RoofConfirmForm(
                 vertices = roofFormVertices!!,
-                onConfirm = { pitch, azimuth, panelWidthM, panelHeightM, panelWattage, setbackM ->
-                    viewModel.addTracedRoofPlane(roofFormVertices!!, pitch, azimuth, panelWidthM, panelHeightM, panelWattage, setbackM)
+                onConfirm = { pitch, azimuth, panelWidthM, panelHeightM, panelWattage, setbackM, excludedAreaM2, shadingFactor ->
+                    viewModel.addTracedRoofPlane(
+                        roofFormVertices!!, pitch, azimuth, panelWidthM, panelHeightM, panelWattage, setbackM, excludedAreaM2, shadingFactor
+                    )
                     roofFormVertices = null
                 },
                 onCancel = { roofFormVertices = null }
@@ -393,7 +398,16 @@ private fun SiteAnalysisPanel(
 @Composable
 private fun RoofConfirmForm(
     vertices: List<GeoPoint>,
-    onConfirm: (pitchDegrees: Double?, azimuthDegrees: Double, panelWidthM: Double, panelHeightM: Double, panelWattage: Double, setbackM: Double) -> Unit,
+    onConfirm: (
+        pitchDegrees: Double?,
+        azimuthDegrees: Double,
+        panelWidthM: Double,
+        panelHeightM: Double,
+        panelWattage: Double,
+        setbackM: Double,
+        excludedAreaM2: Double,
+        shadingFactor: Double
+    ) -> Unit,
     onCancel: () -> Unit
 ) {
     val palette = LocalLumixPalette.current
@@ -406,6 +420,9 @@ private fun RoofConfirmForm(
     var panelHeightM by remember { mutableStateOf(1.134) }
     var panelWattage by remember { mutableStateOf(600.0) }
     var setbackM by remember { mutableStateOf(0.5) }
+    var selectedObstructions by remember { mutableStateOf<Set<ShadeObstructionType>>(emptySet()) }
+    var exposurePercent by remember { mutableStateOf(100.0) }
+    var excludedAreaM2 by remember { mutableStateOf(0.0) }
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(20.dp),
@@ -445,11 +462,23 @@ private fun RoofConfirmForm(
         NumberField(label = "Panel wattage", value = panelWattage, onValueChange = { panelWattage = it }, allowDecimal = false, suffix = "W")
         NumberField(label = "Setback from edges (m)", value = setbackM, onValueChange = { setbackM = it }, suffix = "m")
 
+        ShadeAndExclusionSection(
+            selectedObstructions = selectedObstructions,
+            onToggleObstruction = { type ->
+                selectedObstructions = if (type in selectedObstructions) selectedObstructions - type else selectedObstructions + type
+                exposurePercent = ShadeEstimator.suggestExposureFraction(selectedObstructions) * 100.0
+            },
+            exposurePercent = exposurePercent,
+            onExposurePercentChange = { exposurePercent = it },
+            excludedAreaM2 = excludedAreaM2,
+            onExcludedAreaChange = { excludedAreaM2 = it }
+        )
+
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
             LumixSecondaryButton(text = "Cancel", onClick = onCancel, modifier = Modifier.weight(1f))
             LumixPrimaryButton(
                 text = "Add Roof Plane",
-                onClick = { onConfirm(pitch, azimuth, panelWidthM, panelHeightM, panelWattage, setbackM) },
+                onClick = { onConfirm(pitch, azimuth, panelWidthM, panelHeightM, panelWattage, setbackM, excludedAreaM2, exposurePercent / 100.0) },
                 modifier = Modifier.weight(1f)
             )
         }
