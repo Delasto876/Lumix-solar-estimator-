@@ -214,14 +214,13 @@ transparent layers above it change. Built in four phases:
   path start/end/length sanity for all four paths; and `daylightProgress()` bounds at
   midnight/noon/sunrise. Plus a full import-completeness sweep across the module.
 
-## Solar Site (Phases 1–3, in progress)
+## Solar Site (Phases 1–4, in progress)
 
 A new major module (a **Site** tab alongside Home/Estimate/Systems/Savings/Profile) letting a
 homeowner or installer map a customer's actual roof and turn it into a real system estimate,
 rather than a generic sizing based on electricity usage alone. Building toward 8 phases total;
-phases 4–8 (compass sensor, live location service, the polished roof-analysis UI, wiring the
-roof-constrained system into the estimator, and connecting site data into the digital-twin
-simulation) are not yet built.
+phases 5–8 (the polished roof-analysis UI, wiring the roof-constrained system into the
+estimator, and connecting site data into the digital-twin simulation) are not yet built.
 
 **Phase 1 — data model + geometry engine (`site/`, `site/geometry/`):**
 
@@ -303,6 +302,34 @@ peer path, not a fallback bolted onto the map screen:
   (import completeness, geocoding's off-main-thread + try/catch safety, permission-check
   guards) was reviewed as rigorously as every other screen in this project. Test this screen
   in Android Studio before relying on it.
+
+**Phase 4 — compass sensor + location service (`sensors/`, `location/`):**
+
+- `sensors/CompassMath.kt` — the pure heading math split out from the Android sensor plumbing
+  specifically so it's independently verifiable: `normalizeDegrees`/`shortestAngleDelta` (0°/360°
+  wraparound arithmetic), `smooth` (exponential moving average against jittery raw readings —
+  crossing the wraparound boundary the short way, not backward through 180°), and
+  `compassLabel`. `sensors/CompassManager.kt` is the actual `TYPE_ROTATION_VECTOR` sensor
+  wrapper — registers/unregisters a listener, converts the rotation vector to a heading via
+  `SensorManager.getOrientation`, and corrects magnetic heading to **true north** using
+  `GeomagneticField` (declination depends on location, so `updateLocation()` should be called
+  whenever the working site coordinates are known). Solar orientation is measured against true
+  north, never magnetic, per spec — the two differ by several degrees depending on where you
+  are, enough to matter for panel-facing accuracy.
+- `location/DeviceLocationManager.kt` — wraps `FusedLocationProviderClient` with a permission
+  check baked into every entry point (`hasPermission()`, a one-shot `lastKnownLocation()`, and a
+  continuous `locationUpdates()` `Flow`), so a caller can never crash from a missing-permission
+  call. Every caller still has manual entry as a fully independent path — permission being
+  denied never blocks the app, per spec.
+- `site/SolarCompassBadge.kt` — a compact "fixed dial, rotating needle" compass widget (N/E/S/W
+  stay upright, the needle rotates to point toward true north) wired into
+  `SolarSiteMapScreen`'s top-left corner, live off `CompassManager.state`. The map screen's ad
+  hoc Phase-3 location fetch was also replaced with `DeviceLocationManager` for consistency.
+- Verified standalone: `CompassMath`'s wraparound arithmetic (`shortestAngleDelta(350°, 10°) =
+  +20°`, the short way through 0°/360°, not −340°) and the smoothing function crossing that same
+  boundary correctly (smoothing from 350° toward 10° lands near 0°, not doubling back through
+  180°) — the sensor plumbing itself (`CompassManager`, `DeviceLocationManager`) needs a real
+  device and could not be tested here at all, unlike everything else in this project.
 
 ## Fixed vs. the original prototype
 

@@ -1,9 +1,7 @@
 package com.lumix.estimator.site.map
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Context
-import android.content.pm.PackageManager
 import android.location.Geocoder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,6 +29,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,8 +43,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
@@ -56,7 +54,10 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.Polygon
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberMarkerState
+import com.lumix.estimator.location.DeviceLocationManager
+import com.lumix.estimator.sensors.CompassManager
 import com.lumix.estimator.site.GeoPoint
+import com.lumix.estimator.site.SolarCompassBadge
 import com.lumix.estimator.site.SolarSiteViewModel
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
 import com.lumix.estimator.ui.components.GlassSurface
@@ -95,6 +96,9 @@ fun SolarSiteMapScreen(
 
     val mapController = remember { MapController() }
     val roofController = remember { RoofDrawingController() }
+    val locationManager = remember { DeviceLocationManager(context) }
+    val compassManager = remember { CompassManager(context) }
+    val compassState by compassManager.state.collectAsState()
 
     val initialLatLng = remember {
         val lat = state.draftLatitude
@@ -109,13 +113,30 @@ fun SolarSiteMapScreen(
     var searchError by remember { mutableStateOf(false) }
     var roofFormVertices by remember { mutableStateOf<List<GeoPoint>?>(null) }
 
-    val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) {
-            fetchDeviceLocation(context) { latLng ->
+    DisposableEffect(Unit) {
+        compassManager.start()
+        onDispose { compassManager.stop() }
+    }
+
+    // Declination depends on where on Earth you are; keep it current as the site location is set.
+    LaunchedEffect(state.draftLatitude, state.draftLongitude) {
+        val lat = state.draftLatitude
+        val lon = state.draftLongitude
+        if (lat != null && lon != null) compassManager.updateLocation(lat, lon)
+    }
+
+    fun moveToDeviceLocation() {
+        scope.launch {
+            locationManager.lastKnownLocation()?.let { location ->
+                val latLng = LatLng(location.latitude, location.longitude)
                 mapController.selectLocation(latLng)
-                scope.launch { cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(latLng, 18f)) }
+                cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
             }
         }
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) moveToDeviceLocation()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -240,15 +261,19 @@ fun SolarSiteMapScreen(
                 )
             }) { Icon(Icons.Default.Layers, contentDescription = "Map type") }
             LumixIconButtonSurface(onClick = {
-                if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                    fetchDeviceLocation(context) { latLng ->
-                        mapController.selectLocation(latLng)
-                        scope.launch { cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(latLng, 18f)) }
-                    }
+                if (locationManager.hasPermission()) {
+                    moveToDeviceLocation()
                 } else {
                     locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                 }
             }) { Icon(Icons.Default.MyLocation, contentDescription = "My location") }
+        }
+
+        if (compassManager.isAvailable) {
+            SolarCompassBadge(
+                headingDegrees = compassState.trueHeadingDegrees,
+                modifier = Modifier.align(Alignment.TopStart).padding(top = 84.dp, start = 16.dp)
+            )
         }
 
         // Bottom panel.
@@ -429,14 +454,6 @@ private fun RoofConfirmForm(
             )
         }
     }
-}
-
-@SuppressLint("MissingPermission")
-private fun fetchDeviceLocation(context: Context, onLocation: (LatLng) -> Unit) {
-    LocationServices.getFusedLocationProviderClient(context).lastLocation
-        .addOnSuccessListener { location ->
-            location?.let { onLocation(LatLng(it.latitude, it.longitude)) }
-        }
 }
 
 /** Blocking Geocoder call moved off the main thread; returns null (never throws) on any failure — no network, bad query, or no results. */
