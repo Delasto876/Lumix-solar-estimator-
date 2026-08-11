@@ -28,6 +28,27 @@ object QuotePdfGenerator {
     private val bodyPaint = Paint().apply { textSize = 10.5f; color = 0xFF111827.toInt() }
     private val mutedPaint = Paint().apply { textSize = 9f; color = 0xFF6B7280.toInt() }
     private val linePaint = Paint().apply { color = 0xFFE5E7EB.toInt(); strokeWidth = 1f }
+    // Matches ui.theme.LumixColors.SolarAmberOnLight — the same amber ResultsScreen's
+    // RoofConstraintBanner uses, so a roof-constrained quote reads consistently on-screen and on paper.
+    private val warningPaint = Paint().apply { textSize = 11f; isFakeBoldText = true; color = 0xFF9A5A12.toInt() }
+
+    /** Greedy word-wrap so a paragraph fits within [maxWidth] on this Paint's own font metrics. */
+    private fun wrapText(text: String, paint: Paint, maxWidth: Float): List<String> {
+        val words = text.split(" ")
+        val lines = mutableListOf<String>()
+        var current = StringBuilder()
+        for (word in words) {
+            val candidate = if (current.isEmpty()) word else "$current $word"
+            if (paint.measureText(candidate) > maxWidth && current.isNotEmpty()) {
+                lines += current.toString()
+                current = StringBuilder(word)
+            } else {
+                current = StringBuilder(candidate)
+            }
+        }
+        if (current.isNotEmpty()) lines += current.toString()
+        return lines
+    }
 
     fun generate(context: Context, inputs: QuoteInputs, result: QuoteResult, timestamp: Long): File {
         val document = PdfDocument()
@@ -78,6 +99,25 @@ object QuotePdfGenerator {
         }
         y += 6f
         canvas.drawText("Estimated Total: ${formatCurrency(result.grandTotal)}", MARGIN, y, headingPaint); y += 18f
+
+        if (result.isRoofConstrained) {
+            y += 4f
+            ensureSpace(14f)
+            canvas.drawText("Roof-Constrained System", MARGIN, y, warningPaint); y += 15f
+            val roofLabel = inputs.roofConstraint?.roofLabel ?: "your traced roof"
+            val explanation = "Your electricity usage calls for about %.1f kW, but %s can physically fit about %.1f kW (%d panels). Showing the roof-constrained system below."
+                .format(result.energyOptimalPvKw, roofLabel, result.pvKw, result.panelCount)
+            wrapText(explanation, bodyPaint, PAGE_WIDTH - 2 * MARGIN).forEach { line ->
+                ensureSpace(13f)
+                canvas.drawText(line, MARGIN, y, bodyPaint); y += 13f
+            }
+            val suggestion = "Consider tracing additional roof area, adding a second roof plane, or ground mounting to close the gap."
+            wrapText(suggestion, mutedPaint, PAGE_WIDTH - 2 * MARGIN).forEach { line ->
+                ensureSpace(12f)
+                canvas.drawText(line, MARGIN, y, mutedPaint); y += 12f
+            }
+            y += 8f
+        }
 
         canvas.drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, linePaint); y += 16f
 
