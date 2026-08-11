@@ -184,4 +184,23 @@ object SimulationEngine {
     )
 
     private fun lerp(a: Double, b: Double, t: Double) = a + (b - a) * t
+
+    /**
+     * Scans forward from [fromHour] (wrapping once past midnight) for the next frame at or
+     * above ~full charge. Returns null if the battery never reaches full within the day, or
+     * if it isn't currently charging (turning the marker off rather than showing a stale
+     * estimate from an earlier charge cycle).
+     */
+    fun nextBatteryFullHour(timeline: List<SimFrame>, fromHour: Double): Double? {
+        if (timeline.isEmpty()) return null
+        val current = frameAt(timeline, fromHour)
+        if (current.batteryPowerKw <= FLOW_EPSILON || current.batterySocPercent >= 99.5f) return null
+
+        val startIdx = timeline.indexOfFirst { it.hour >= fromHour }.let { if (it < 0) 0 else it }
+        for (i in 0 until timeline.size) {
+            val frame = timeline[(startIdx + i) % timeline.size]
+            if (frame.batterySocPercent >= 99.5f) return frame.hour
+        }
+        return null
+    }
 }

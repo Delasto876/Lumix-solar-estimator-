@@ -57,7 +57,9 @@ fun TimeDial(
     hour: Double,
     onScrub: (Double) -> Unit,
     modifier: Modifier = Modifier,
-    diameter: Dp = 240.dp
+    diameter: Dp = 240.dp,
+    markerHour: Double? = null,
+    markerColor: Color = LumixColors.EnergyGreen
 ) {
     val palette = LocalLumixPalette.current
 
@@ -108,6 +110,12 @@ fun TimeDial(
             tickHours.forEach { h ->
                 val pos = angleToOffset(hourToAngleDeg(h.toDouble()), ringRadius, center)
                 drawCircle(palette.textSecondary.copy(alpha = 0.5f), radius = 2.dp.toPx(), center = pos)
+            }
+
+            if (markerHour != null) {
+                val markerPos = angleToOffset(hourToAngleDeg(markerHour), ringRadius, center)
+                drawCircle(markerColor.copy(alpha = 0.3f), radius = 9.dp.toPx(), center = markerPos)
+                drawCircle(markerColor, radius = 4.5.dp.toPx(), center = markerPos)
             }
 
             // Handle line + dot

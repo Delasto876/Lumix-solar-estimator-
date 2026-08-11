@@ -1,5 +1,10 @@
 package com.lumix.estimator.ui.simulation
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -59,6 +64,7 @@ fun SimulationScreen(
     val state by viewModel.state.collectAsState()
     var showAppliances by remember { mutableStateOf(false) }
     var inspectTarget by remember { mutableStateOf<InspectTarget?>(null) }
+    var showGraph by remember { mutableStateOf(false) }
 
     LaunchedEffect(quoteId) {
         viewModel.load(quoteId)
@@ -173,11 +179,84 @@ fun SimulationScreen(
             }
 
             item {
+                SectionCard(title = "Weather") {
+                    WeatherSelector(selected = state.weather, onSelect = viewModel::setWeather)
+                    WhatIfRow(
+                        actions = buildList {
+                            add(
+                                WhatIfAction(
+                                    glyph = "☁️",
+                                    label = if (state.cloudEventActive) "Clouds rolling in…" else "Cloud Event",
+                                    enabled = !state.cloudEventActive,
+                                    onClick = viewModel::triggerCloudEvent
+                                )
+                            )
+                            if (config.gridConnectable) {
+                                add(
+                                    WhatIfAction(
+                                        glyph = "⚡",
+                                        label = "Simulate Outage",
+                                        enabled = state.gridConnected,
+                                        onClick = { viewModel.setGridConnected(false) }
+                                    )
+                                )
+                            }
+                            if (config.hasBattery) {
+                                add(
+                                    WhatIfAction(
+                                        glyph = "🪫",
+                                        label = "Low Battery (20%)",
+                                        onClick = { viewModel.setStartSocFraction(0.2) }
+                                    )
+                                )
+                            }
+                        },
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                }
+            }
+
+            item {
                 SectionCard(title = "") {
                     Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                         TimeDial(
                             hour = state.currentHour,
-                            onScrub = viewModel::scrubTo
+                            onScrub = viewModel::scrubTo,
+                            markerHour = state.batteryFullHour
+                        )
+                    }
+                    if (state.batteryFullHour != null) {
+                        Text(
+                            "🔋 Battery full at ${formatSimTime(state.batteryFullHour!!)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = palette.energyGreenText,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                }
+            }
+
+            item {
+                SectionCard(title = "") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { showGraph = !showGraph },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Energy Graph", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                        Text(if (showGraph) "▾" else "▸", style = MaterialTheme.typography.titleMedium, color = palette.textSecondary)
+                    }
+                    AnimatedVisibility(
+                        visible = showGraph,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        EnergyGraph(
+                            timeline = state.timeline,
+                            currentFrame = frame,
+                            onScrub = viewModel::scrubTo,
+                            modifier = Modifier.padding(top = 16.dp)
                         )
                     }
                 }

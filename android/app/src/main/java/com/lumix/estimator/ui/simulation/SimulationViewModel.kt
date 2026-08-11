@@ -5,10 +5,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.domain.QuoteInputs
+import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.SimFrame
 import com.lumix.estimator.domain.simulation.SimSystemConfig
-import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.SimulationEngine
+import com.lumix.estimator.domain.simulation.WeatherState
 import com.lumix.estimator.domain.simulation.defaultApplianceStates
 import com.lumix.estimator.domain.simulation.totalApplianceLoadKw
 import kotlinx.coroutines.Job
@@ -31,7 +32,11 @@ data class SimulationUiState(
     val isPlaying: Boolean = false,
     val speed: Float = 1f,
     val appliances: Map<SimApplianceType, Boolean> = emptyMap(),
-    val gridConnected: Boolean = true
+    val gridConnected: Boolean = true,
+    val weather: WeatherState = WeatherState.CLEAR,
+    val startSocFraction: Double = 0.6,
+    val cloudEventActive: Boolean = false,
+    val batteryFullHour: Double? = null
 ) {
     val applianceLoadKw: Double get() = totalApplianceLoadKw(appliances)
 }
@@ -44,6 +49,7 @@ class SimulationViewModel(
     val state: StateFlow<SimulationUiState> = _state.asStateFlow()
 
     private var playJob: Job? = null
+    private var cloudEventJob: Job? = null
 
     fun load(quoteId: Long) {
         viewModelScope.launch {
@@ -66,15 +72,15 @@ class SimulationViewModel(
                     appliances = appliances,
                     gridConnected = gridConnected,
                     timeline = timeline,
-                    currentFrame = SimulationEngine.frameAt(timeline, it.currentHour)
+                    currentFrame = SimulationEngine.frameAt(timeline, it.currentHour),
+                    batteryFullHour = SimulationEngine.nextBatteryFullHour(timeline, it.currentHour)
                 )
             }
         }
     }
 
     fun toggleAppliance(type: SimApplianceType) {
-        val current = _state.value
-        val updated = current.appliances.toMutableMap().apply { this[type] = !(this[type] ?: false) }
+        val updated = _state.value.appliances.toMutableMap().apply { this[type] = !(this[type] ?: false) }
         rebuildTimeline(appliances = updated)
     }
 
@@ -82,23 +88,51 @@ class SimulationViewModel(
         rebuildTimeline(gridConnected = connected)
     }
 
+    fun setWeather(weather: WeatherState) {
+        rebuildTimeline(weather = weather)
+    }
+
+    fun setStartSocFraction(fraction: Double) {
+        rebuildTimeline(startSocFraction = fraction.coerceIn(0.1, 1.0))
+    }
+
+    /** A brief, self-reverting dip in weather — clouds roll in, production drops, then clears. */
+    fun triggerCloudEvent() {
+        if (cloudEventJob?.isActive == true) return
+        val previousWeather = _state.value.weather
+        cloudEventJob = viewModelScope.launch {
+            _state.update { it.copy(cloudEventActive = true) }
+            setWeather(WeatherState.STORM)
+            delay(3500)
+            setWeather(previousWeather)
+            _state.update { it.copy(cloudEventActive = false) }
+        }
+    }
+
     private fun rebuildTimeline(
         appliances: Map<SimApplianceType, Boolean> = _state.value.appliances,
-        gridConnected: Boolean = _state.value.gridConnected
+        gridConnected: Boolean = _state.value.gridConnected,
+        weather: WeatherState = _state.value.weather,
+        startSocFraction: Double = _state.value.startSocFraction
     ) {
         val config = _state.value.config ?: return
         val effectiveGridConnected = gridConnected && config.gridConnectable
         val timeline = SimulationEngine.buildDayTimeline(
             config,
+            cloudMultiplier = weather.multiplier,
             gridConnected = effectiveGridConnected,
+            startSocFraction = startSocFraction,
             applianceLoadKw = totalApplianceLoadKw(appliances)
         )
         _state.update {
             it.copy(
                 appliances = appliances,
                 gridConnected = effectiveGridConnected,
+                weather = weather,
+                startSocFraction = startSocFraction,
                 timeline = timeline,
-                currentFrame = SimulationEngine.frameAt(timeline, it.currentHour)
+                currentFrame = SimulationEngine.frameAt(timeline, it.currentHour),
+                batteryFullHour = SimulationEngine.nextBatteryFullHour(timeline, it.currentHour)
             )
         }
     }
@@ -143,13 +177,15 @@ class SimulationViewModel(
     private fun setHourInternal(hour: Double) {
         _state.update { s ->
             val frame = if (s.timeline.isNotEmpty()) SimulationEngine.frameAt(s.timeline, hour) else s.currentFrame
-            s.copy(currentHour = hour, currentFrame = frame)
+            val fullHour = if (s.timeline.isNotEmpty()) SimulationEngine.nextBatteryFullHour(s.timeline, hour) else null
+            s.copy(currentHour = hour, currentFrame = frame, batteryFullHour = fullHour)
         }
     }
 
     override fun onCleared() {
         super.onCleared()
         playJob?.cancel()
+        cloudEventJob?.cancel()
     }
 
     companion object {

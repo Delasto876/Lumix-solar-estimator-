@@ -55,7 +55,7 @@ tab shell.
 - **PDF export & share** — `pdf/QuotePdfGenerator.kt` renders a shareable PDF quote via
   Android's `PdfDocument` API and the system share sheet.
 
-## Digital twin simulator (Phases 1–2 of 4)
+## Digital twin simulator (Phases 1–3 of 4)
 
 Reachable via **⚡ Explore Your Energy** on the Results screen, or the bolt icon on any
 saved quote in **Systems** — never a separate fake demo, always driven by that quote's
@@ -111,10 +111,35 @@ real calculated PV/inverter/battery/load numbers (`domain/simulation/SimSystemCo
   "everything on including an EV charger, grid disconnected" case, confirming `POWER_LIMITED`
   correctly appears when a small system's battery can't cover a deliberately oversized load.
 
-**Deferred to phases 3–4**: the weather/cloud dial, outage/what-if quick-action buttons
-(cloud event, one-tap outage), the 24h energy graph, battery full-time-to-charge estimation
-on the dial, and the Basic/Technical mode split. The engine already accepts a
-`cloudMultiplier` parameter, so phase 3 mostly wires a UI control to existing capability.
+**Phase 3 additions:**
+
+- **Weather/cloud control** (`domain/simulation/WeatherState.kt`) — Clear/Partly Cloudy/
+  Cloudy/Heavy Cloud/Storm at the spec's own 100/70/40/15/5% multipliers, wired straight into
+  the engine's existing `cloudMultiplier` parameter. Selecting one rebuilds the timeline —
+  confirmed standalone that Storm produces far less noon output than Clear, and that partial
+  cloud still correctly respects inverter clipping (a hybrid system's 3 kW inverter caps
+  output identically at Clear and Partly Cloudy once raw PV exceeds it either way).
+- **What-If row** — one-tap experiments under the weather selector: **Cloud Event** (a
+  temporary ~3.5s dip to Storm that self-reverts to whatever weather was selected, driven by
+  a cancellable coroutine so re-tapping mid-event is a no-op), **Simulate Outage** (disconnects
+  the grid, same effect as the toggle but framed as a suggestion), and **Low Battery (20%)**
+  (rebuilds the timeline from a 20% starting SOC instead of the default 60%). Outage and
+  battery actions only appear when relevant to the system (hidden for off-grid or
+  batteryless configs).
+- **24h energy graph** (`ui/simulation/EnergyGraph.kt`) — a collapsible Canvas chart plotting
+  Solar and Consumption across the full precomputed timeline, plus a dashed Battery-% line,
+  with a TIME/SOLAR/LOAD/BATTERY/GRID text readout for whatever instant is scrubbed. Dragging
+  the graph calls the same `scrubTo` the time dial uses, so both stay in sync.
+- **Battery full-time estimate** — `SimulationEngine.nextBatteryFullHour` scans the
+  precomputed timeline forward from the current hour for the next ~100% SOC frame, returning
+  null if the battery isn't currently charging or is already full (so the estimate doesn't
+  show a stale marker). Surfaced as text ("🔋 Battery full at 9:00 AM") and a small marker on
+  the time dial's ring. Verified standalone: starting a charge cycle at 30% SOC correctly
+  finds a same-day full time, and querying from an hour when the battery is already full
+  correctly returns no marker.
+
+**Deferred to phase 4**: the Basic/Technical mode split (voltage/current/frequency-style
+readouts), plus general visual polish.
 
 **House visual note**: the brief's reference images are photoreal-rendered art; this sandbox
 has no image-generation or asset-sourcing capability, so the house is the most detailed
