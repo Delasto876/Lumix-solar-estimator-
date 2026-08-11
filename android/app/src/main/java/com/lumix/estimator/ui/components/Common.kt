@@ -111,6 +111,7 @@ fun NumberField(
     onValueChange: (Double) -> Unit,
     modifier: Modifier = Modifier,
     allowDecimal: Boolean = true,
+    allowNegative: Boolean = false,
     suffix: String? = null,
     isError: Boolean = false,
     supportingText: String? = null
@@ -119,10 +120,8 @@ fun NumberField(
     OutlinedTextField(
         value = text,
         onValueChange = { input ->
-            val sanitized = if (allowDecimal) {
-                input.filter { it.isDigit() || it == '.' }
-            } else {
-                input.filter { it.isDigit() }
+            val sanitized = input.filterIndexed { index, c ->
+                c.isDigit() || (c == '.' && allowDecimal) || (c == '-' && allowNegative && index == 0)
             }
             text = sanitized
             onValueChange(sanitized.toDoubleOrNull() ?: 0.0)

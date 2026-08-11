@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.WbSunny
@@ -32,6 +33,10 @@ import com.lumix.estimator.ui.simulation.SimulationScreen
 import com.lumix.estimator.ui.simulation.SimulationViewModel
 import com.lumix.estimator.ui.wizard.WizardScreen
 import com.lumix.estimator.ui.wizard.WizardViewModel
+import com.lumix.estimator.site.ManualSiteScreen
+import com.lumix.estimator.site.SolarSiteEntryScreen
+import com.lumix.estimator.site.SolarSiteViewModel
+import com.lumix.estimator.site.map.SolarSiteMapScreen
 
 private const val ROUTE_HOME = "home"
 private const val ROUTE_ESTIMATE = "estimate"
@@ -41,10 +46,14 @@ private const val ROUTE_SIMULATION = "simulation/{quoteId}"
 private const val ROUTE_SYSTEMS = "systems"
 private const val ROUTE_SAVINGS = "savings"
 private const val ROUTE_PROFILE = "profile"
+private const val ROUTE_SITE = "site"
+private const val ROUTE_SITE_MAP = "site/map"
+private const val ROUTE_SITE_MANUAL = "site/manual"
 
 private val tabs = listOf(
     NavTab(ROUTE_HOME, "Home", Icons.Default.Home),
     NavTab(ROUTE_ESTIMATE, "Estimate", Icons.Default.WbSunny),
+    NavTab(ROUTE_SITE, "Site", Icons.Default.Map),
     NavTab(ROUTE_SYSTEMS, "Systems", Icons.Default.Layers),
     NavTab(ROUTE_SAVINGS, "Savings", Icons.Default.TrendingUp),
     NavTab(ROUTE_PROFILE, "Profile", Icons.Default.Person)
@@ -56,6 +65,9 @@ fun LumixNavHost(app: LumixApp) {
     val navController = rememberNavController()
     val wizardViewModel: WizardViewModel = viewModel(
         factory = WizardViewModel.factory(app.quoteRepository, app.priceRepository)
+    )
+    val siteViewModel: SolarSiteViewModel = viewModel(
+        factory = SolarSiteViewModel.factory(app.siteRepository)
     )
 
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -149,6 +161,37 @@ fun LumixNavHost(app: LumixApp) {
                 SimulationScreen(
                     quoteId = quoteId,
                     viewModel = simulationViewModel,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(ROUTE_SITE) {
+                SolarSiteEntryScreen(
+                    viewModel = siteViewModel,
+                    onOpenMap = {
+                        siteViewModel.startNewSite()
+                        navController.navigate(ROUTE_SITE_MAP)
+                    },
+                    onOpenManual = {
+                        siteViewModel.startNewSite()
+                        navController.navigate(ROUTE_SITE_MANUAL)
+                    },
+                    onOpenSite = { /* Phase 5 will add a read-only site detail view; ignored for now. */ }
+                )
+            }
+
+            composable(ROUTE_SITE_MAP) {
+                SolarSiteMapScreen(
+                    viewModel = siteViewModel,
+                    onSaved = { navController.popBackStack(ROUTE_SITE, inclusive = false) },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(ROUTE_SITE_MANUAL) {
+                ManualSiteScreen(
+                    viewModel = siteViewModel,
+                    onSaved = { navController.popBackStack(ROUTE_SITE, inclusive = false) },
                     onBack = { navController.popBackStack() }
                 )
             }

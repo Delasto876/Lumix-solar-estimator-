@@ -214,6 +214,96 @@ transparent layers above it change. Built in four phases:
   path start/end/length sanity for all four paths; and `daylightProgress()` bounds at
   midnight/noon/sunrise. Plus a full import-completeness sweep across the module.
 
+## Solar Site (Phases 1–3, in progress)
+
+A new major module (a **Site** tab alongside Home/Estimate/Systems/Savings/Profile) letting a
+homeowner or installer map a customer's actual roof and turn it into a real system estimate,
+rather than a generic sizing based on electricity usage alone. Building toward 8 phases total;
+phases 4–8 (compass sensor, live location service, the polished roof-analysis UI, wiring the
+roof-constrained system into the estimator, and connecting site data into the digital-twin
+simulation) are not yet built.
+
+**Phase 1 — data model + geometry engine (`site/`, `site/geometry/`):**
+
+- `SolarSite`, `RoofPlane`, `GeoPoint`, `PanelLayout` — the one shared model every later
+  piece (map, manual entry, solar position, simulation) reads from and writes to.
+- `RoofGeometryEngine` — turns a polygon of real WGS84 vertices into horizontal area (shoelace
+  formula on a local equirectangular projection), pitch-adjusted true roof area (`horizontalArea
+  / cos(pitch)`), perimeter, centroid, and an azimuth *suggestion*. Azimuth is deliberately
+  exposed as two candidates 180° apart (perpendicular to the polygon's longest edge) rather than
+  one confident answer — a flat traced shape genuinely can't say which side slopes down, and the
+  UI always asks the user to confirm rather than presenting a guess as fact.
+- `PanelLayoutOptimizer` — the direct answer to "if I draw an area and give panel dimensions and
+  a count, can it tell me if that fits?": places real panel rectangles into the polygon
+  (point-in-polygon + edge-setback distance checks, not `roofArea / panelArea`), tries portrait
+  and landscape, and keeps whichever seats more panels. `fitsPanelCount(desiredCount, layout)` is
+  the direct yes/no check.
+- Verified standalone: a known 10m × 8m rectangle's area/perimeter/centroid/azimuth all matched
+  hand computation; 2.278m × 1.134m 600W panels packed 21 landscape (cross-checked against a
+  by-hand grid count and a footprint-never-exceeds-roof-area invariant); a degenerate 1m × 1m
+  roof correctly fits zero panels without crashing. One real bug was caught this way — the
+  packing grid originally started scanning from the polygon's raw bounding box instead of the
+  setback-inset boundary, wasting the first row/column (18 vs. the correct 21 panels) — and
+  fixed before this ever reached a screen.
+
+**Phase 2 — solar position + resource provider (`solar/`):**
+
+- `SolarPositionCalculator` — sun azimuth/elevation/zenith/sunrise/solar-noon/sunset from
+  lat/lon/date-time, using the NOAA Solar Calculator's published equations (from Meeus'
+  *Astronomical Algorithms*) — a recognized method, not a fixed animation. Cheap enough to call
+  every frame as a time dial moves.
+- `SolarResourceProvider` — an interface plus `UnavailableSolarResourceProvider`, the only
+  implementation today. It returns nulls for PSH/irradiance rather than inventing a
+  plausible-looking number; the UI shows "Solar resource data unavailable" and accepts manual
+  entry. A real dataset (NASA POWER, PVGIS, Solcast, ...) can implement the same interface later
+  without touching any caller.
+- `SolarIrradianceModel` — the angle-of-incidence formula (Duffie & Beckman) connecting sun
+  position to a roof's own azimuth/pitch, the geometric link a later phase will use to make PV
+  output actually respond to roof orientation.
+- Verified standalone against real astronomical facts, not a fabricated table: at Jamaica's 18°N,
+  June-solstice noon elevation came out ≈84.1° with the sun north of zenith, December-solstice
+  ≈48.5° with the sun south — both match the `90 - |latitude - declination|` identity for the
+  known solstice declinations (±23.44°). Sunrise/sunset symmetry, the refraction-corrected
+  horizon elevation (≈-0.83°) at the calculator's own reported sunrise, and ~12h equinox day
+  length all checked out too.
+
+**Phase 3 — map screen + manual entry (`site/map/`, `site/ManualSiteScreen.kt`):**
+
+Per explicit instruction, **the map is optional, not a gate** — manual entry is a first-class
+peer path, not a fallback bolted onto the map screen:
+
+- `SolarSiteMapScreen` — Google Maps Compose satellite/hybrid/normal view, address search
+  (`Geocoder`, off the main thread, never throws), a one-shot "My Location" button (permission
+  is requested and gracefully skipped if denied — the screen stays usable either way), tap-to-
+  place a pin, tap-to-trace a roof polygon anchored to real map coordinates (not a screen
+  overlay), undo/redo/clear, and a bottom "Site Analysis" panel. Closing a traced polygon opens
+  a confirm sheet (`RoofConfirmForm`) showing the geometry engine's suggested facing direction
+  and letting the installer confirm azimuth/pitch/panel spec before it's added.
+- `ManualSiteScreen` — the same result with zero map/GPS/network dependency: typed
+  latitude/longitude, then roof length/width/azimuth/pitch/panel spec. `SolarSiteViewModel`
+  turns those typed dimensions into a synthetic rectangular polygon and runs it through the
+  *exact same* `RoofGeometryEngine`/`PanelLayoutOptimizer` pipeline a traced roof uses — manual
+  entry isn't a lesser approximation, it's the same math with a different input method.
+- `SolarSiteEntryScreen` (the new **Site** tab) presents "Use Satellite Map" and "Enter
+  Manually" as two equal-weight cards, plus a list of previously saved sites (in-memory for
+  now — `SiteRepository` isn't Room-backed yet; see Scope notes).
+- The Maps SDK requires a `MAPS_API_KEY` in `android/local.properties` (git-ignored, never
+  committed) — see `app/build.gradle.kts` for the manifest-placeholder wiring. Without a key the
+  map screen's tiles won't render, but the rest of the app, including the entire manual entry
+  path, works regardless.
+- **Caught while wiring the fields**: `NumberField` (used throughout the app for kWh/currency
+  entry) had no way to type a minus sign at all, which silently made negative longitude
+  unenterable — Jamaica sits at roughly -77°. Fixed with a backward-compatible `allowNegative`
+  flag (default `false`, so every existing call site is unaffected).
+- **Verification gap, explicitly**: this is the one part of the whole project that couldn't be
+  checked even the way the pure-math packages were — Maps Compose's exact API surface
+  (`GoogleMap`, `Polygon`, `CameraPositionState`, `MapUiSettings`, ...) was written from
+  training-knowledge confidence, not compiled or cross-referenced against live documentation,
+  since this sandbox has no Android SDK and can't reach `dl.google.com`. Everything else
+  (import completeness, geocoding's off-main-thread + try/catch safety, permission-check
+  guards) was reviewed as rigorously as every other screen in this project. Test this screen
+  in Android Studio before relying on it.
+
 ## Fixed vs. the original prototype
 
 The original web app always priced panels, batteries, and mounting/wiring hardware from
@@ -231,6 +321,9 @@ price list (`regular` or `discount`) consistently across every material line.
   the kept flow to drag against.
 - Charts are hand-drawn on Compose `Canvas` rather than a charting library, to avoid an
   unverified new dependency in an environment that can't reach Google's Maven repo.
+- `SiteRepository` (Solar Site module) is in-memory only — saved sites don't survive a process
+  restart yet. A follow-up can persist it the same way `QuoteRepository` stores quotes (one
+  JSON blob per row via kotlinx.serialization) without changing its public API.
 
 ## Building
 
@@ -258,3 +351,9 @@ cd android
 
 Requires JDK 17+, Android SDK platform 34, and Kotlin 2.0.21 (installed automatically by
 Android Studio / the Gradle wrapper).
+
+To render the Solar Site map screen's satellite tiles, add a Google Maps API key: create
+`android/local.properties` (if it doesn't already exist — Android Studio usually generates it
+with `sdk.dir` on first open) and add a line `MAPS_API_KEY=your_key_here`. The file is
+git-ignored, so the key never gets committed. Everything else in the app, including the entire
+manual site-entry flow, works with no key at all.
