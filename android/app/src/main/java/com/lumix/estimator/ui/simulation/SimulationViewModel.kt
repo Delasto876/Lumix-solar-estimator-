@@ -36,7 +36,8 @@ data class SimulationUiState(
     val weather: WeatherState = WeatherState.CLEAR,
     val startSocFraction: Double = 0.6,
     val cloudEventActive: Boolean = false,
-    val batteryFullHour: Double? = null
+    val batteryFullHour: Double? = null,
+    val technicalMode: Boolean = false
 ) {
     val applianceLoadKw: Double get() = totalApplianceLoadKw(appliances)
 }
@@ -94,6 +95,10 @@ class SimulationViewModel(
 
     fun setStartSocFraction(fraction: Double) {
         rebuildTimeline(startSocFraction = fraction.coerceIn(0.1, 1.0))
+    }
+
+    fun setTechnicalMode(enabled: Boolean) {
+        _state.update { it.copy(technicalMode = enabled) }
     }
 
     /** A brief, self-reverting dip in weather — clouds roll in, production drops, then clears. */

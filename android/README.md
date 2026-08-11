@@ -55,7 +55,7 @@ tab shell.
 - **PDF export & share** — `pdf/QuotePdfGenerator.kt` renders a shareable PDF quote via
   Android's `PdfDocument` API and the system share sheet.
 
-## Digital twin simulator (Phases 1–3 of 4)
+## Digital twin simulator (Phases 1–4 of 4)
 
 Reachable via **⚡ Explore Your Energy** on the Results screen, or the bolt icon on any
 saved quote in **Systems** — never a separate fake demo, always driven by that quote's
@@ -138,8 +138,27 @@ real calculated PV/inverter/battery/load numbers (`domain/simulation/SimSystemCo
   finds a same-day full time, and querying from an hour when the battery is already full
   correctly returns no marker.
 
-**Deferred to phase 4**: the Basic/Technical mode split (voltage/current/frequency-style
-readouts), plus general visual polish.
+**Phase 4 additions:**
+
+- **Basic/Technical mode** — a small pill toggle (`ModeToggle` in `SimulationScreen.kt`)
+  next to the status pill. Technical mode adds a "Technical" section
+  (`ui/simulation/TechnicalDetailsCard.kt`) with PV/battery/grid voltage and current,
+  inverter output, grid frequency, and energy-today/energy-this-month readouts, computed by
+  `domain/simulation/TechnicalReadout.kt`'s `TechnicalModel.compute()`. Voltage/current are
+  derived from the real live frame's kW values against plausible nominal buses (380V PV,
+  48V LiFePO4 battery scaled 46–53V by SOC, 110V/60Hz JPS grid) — explicitly labeled in the
+  UI as "modeled, not live telemetry" rather than presented as measured data, consistent
+  with how the rest of the app treats estimates. `energyTodayKwh` is a real Riemann-sum
+  integral of the precomputed timeline's solar output up to the scrubbed hour (not a fixed
+  number); `energyMonthEstKwh` is that day total × 30, labeled as an estimate. Verified
+  standalone: voltage/current/frequency stayed within their physical bounds at four times of
+  day (midnight, morning, noon, evening), and energy-today accumulated monotonically from 0
+  at midnight to a full day's total by 11:55 PM.
+- **Visual polish** — `SectionCard`/`SurfaceCard` gained an optional `accentColor` (a faint
+  5%-alpha tint) now applied to the house-visualization card, tinted by the live system
+  status color, so the card itself reflects Normal/Power-Limited/Outage state at a glance.
+  Weather chips now spring-scale up slightly (via the existing `LumixMotion` spec) when
+  selected, matching the micro-interaction language used elsewhere in the app.
 
 **House visual note**: the brief's reference images are photoreal-rendered art; this sandbox
 has no image-generation or asset-sourcing capability, so the house is the most detailed

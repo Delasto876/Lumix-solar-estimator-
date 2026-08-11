@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -32,9 +33,10 @@ import com.lumix.estimator.ui.theme.LumixRadius
 fun SectionCard(
     title: String,
     modifier: Modifier = Modifier,
+    accentColor: Color? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    SurfaceCard(modifier = modifier, shape = RoundedCornerShape(LumixRadius.lg)) {
+    SurfaceCard(modifier = modifier, shape = RoundedCornerShape(LumixRadius.lg), accentColor = accentColor) {
         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (title.isNotBlank()) {
                 Text(

@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumix.estimator.domain.simulation.SimFrame
+import com.lumix.estimator.domain.simulation.TechnicalModel
 import com.lumix.estimator.ui.components.AnimatedCounterText
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
@@ -118,7 +119,14 @@ fun SimulationScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                StatusPill(frame)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    StatusPill(frame)
+                    ModeToggle(technicalMode = state.technicalMode, onToggle = viewModel::setTechnicalMode)
+                }
             }
 
             if (config.gridConnectable && !state.gridConnected) {
@@ -126,7 +134,7 @@ fun SimulationScreen(
             }
 
             item {
-                SectionCard(title = "") {
+                SectionCard(title = "", accentColor = statusColor(frame.status)) {
                     HouseSimulationVisual(frame = frame, config = config)
                     InspectChipRow(
                         hasBattery = config.hasBattery,
@@ -138,6 +146,18 @@ fun SimulationScreen(
 
             item {
                 LivePowerRow(frame)
+            }
+
+            if (state.technicalMode) {
+                item {
+                    SectionCard(title = "Technical") {
+                        TechnicalDetailsContent(
+                            readout = remember(frame, config, state.timeline) {
+                                TechnicalModel.compute(frame, config, state.timeline)
+                            }
+                        )
+                    }
+                }
             }
 
             item {
@@ -289,6 +309,33 @@ fun SimulationScreen(
                     gridConnected = state.gridConnected
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ModeToggle(technicalMode: Boolean, onToggle: (Boolean) -> Unit) {
+    val palette = LocalLumixPalette.current
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(LumixRadius.pill))
+            .background(palette.glass)
+            .padding(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        listOf(false, true).forEach { isTechnical ->
+            val selected = isTechnical == technicalMode
+            Text(
+                if (isTechnical) "Technical" else "Basic",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) palette.solarYellowText else palette.textSecondary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(LumixRadius.pill))
+                    .background(if (selected) palette.solarYellow.copy(alpha = 0.16f) else Color.Transparent)
+                    .clickable { onToggle(isTechnical) }
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            )
         }
     }
 }
