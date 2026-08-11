@@ -144,6 +144,12 @@ fun ResultsScreen(
                     }
                 }
 
+                if (result.isRoofConstrained) {
+                    item {
+                        RoofConstraintBanner(inputs = inputs, result = result)
+                    }
+                }
+
                 item {
                     SectionCard(title = "Estimated Performance") {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -264,6 +270,36 @@ fun ResultsScreen(
                     Text(node.subtitle, style = MaterialTheme.typography.bodyLarge, color = palette.textSecondary, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
                     Text(node.detail, style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoofConstraintBanner(inputs: QuoteInputs, result: QuoteResult) {
+    val palette = LocalLumixPalette.current
+    val roofLabel = inputs.roofConstraint?.roofLabel
+    SectionCard(title = "", modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("🏠", style = MaterialTheme.typography.titleMedium)
+            Column {
+                Text(
+                    "Your roof limits the recommended system",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.solarAmberText
+                )
+                Text(
+                    "Your electricity usage calls for about %.1f kW, but %s can physically fit about %.1f kW (%d panels). Showing the roof-constrained system below."
+                        .format(result.energyOptimalPvKw, roofLabel ?: "your traced roof", result.pvKw, result.panelCount),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = palette.textPrimary
+                )
+                Text(
+                    "Consider tracing additional roof area, adding a second roof plane, or ground mounting to close the gap.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary
+                )
             }
         }
     }

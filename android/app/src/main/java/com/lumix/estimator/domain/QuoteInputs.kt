@@ -59,6 +59,25 @@ data class AcLoad(
     val hours: Double get() = if (!hasAc) 0.0 else if (useStandardHours) 4.0 else customHours
 }
 
+/**
+ * Carries a Solar Site roof plane's physical panel-fit result into the estimator, so the
+ * recommended system can be capped at what the roof can actually hold rather than only what
+ * the electricity usage calls for. [maxPanelCount] comes from
+ * `PanelLayoutOptimizer` — real geometric placement, not `usableArea / panelArea`.
+ */
+@Serializable
+data class RoofConstraint(
+    val sourceSiteId: String,
+    val sourceRoofPlaneId: String,
+    val roofLabel: String,
+    val maxPanelCount: Int,
+    val panelWattage: Int,
+    val azimuthDegrees: Double?,
+    val pitchDegrees: Double?
+) {
+    val maxCapacityKw: Double get() = maxPanelCount * panelWattage / 1000.0
+}
+
 fun defaultAppliances(): Map<ApplianceType, ApplianceLoad> = mapOf(
     ApplianceType.FRIDGE to ApplianceLoad(qty = 1, hours = 24.0),
     ApplianceType.FREEZER to ApplianceLoad(),
@@ -114,7 +133,9 @@ data class QuoteInputs(
     val discountValue: Double = 0.0,
 
     val customerName: String = "",
-    val customerContact: String = ""
+    val customerContact: String = "",
+
+    val roofConstraint: RoofConstraint? = null
 ) {
     val backupHours: Double get() = (backupHoursPreset?.toDouble()) ?: backupHoursCustom
 }

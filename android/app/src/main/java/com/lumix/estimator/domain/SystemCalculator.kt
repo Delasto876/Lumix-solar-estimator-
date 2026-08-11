@@ -208,6 +208,19 @@ object SystemCalculator {
             }
         }
 
+        // Roof-constrained system: cap the energy-optimal panel count at what the roof can
+        // physically hold (from Solar Site's real geometric panel-packing result), if lower.
+        // Rounds the cap DOWN to even rather than reusing enforceEvenPanels (which rounds up) —
+        // exceeding the roof's actual capacity to satisfy the even-row convention would violate
+        // the "never overclaim what fits" guarantee the panel-packing engine provides.
+        val energyOptimalPanelCount = panelCount
+        input.roofConstraint?.let { constraint ->
+            if (constraint.maxPanelCount < panelCount) {
+                panelCount = if (constraint.maxPanelCount % 2 == 1) constraint.maxPanelCount - 1 else constraint.maxPanelCount
+                panelCount = max(0, panelCount)
+            }
+        }
+
         var chargeControllerCount = 0
         if (effectiveSystemMode == SystemMode.OFFGRID) {
             val pvWatts = panelCount * panelW
@@ -416,6 +429,7 @@ object SystemCalculator {
             peakWatts = peakWatts,
             panelCount = panelCount,
             panelWatts = panelW,
+            energyOptimalPanelCount = energyOptimalPanelCount,
             inverterName = inverter.name,
             inverterKw = inverter.kw,
             batteryName = chosenBattery?.name,

@@ -33,6 +33,7 @@ import com.lumix.estimator.ui.simulation.SimulationScreen
 import com.lumix.estimator.ui.simulation.SimulationViewModel
 import com.lumix.estimator.ui.wizard.WizardScreen
 import com.lumix.estimator.ui.wizard.WizardViewModel
+import com.lumix.estimator.domain.RoofConstraint
 import com.lumix.estimator.site.ManualSiteScreen
 import com.lumix.estimator.site.SiteDetailScreen
 import com.lumix.estimator.site.SolarSiteEntryScreen
@@ -206,6 +207,20 @@ fun LumixNavHost(app: LumixApp) {
                 SiteDetailScreen(
                     viewModel = siteViewModel,
                     siteId = siteId,
+                    onUseRoof = { plane ->
+                        wizardViewModel.startWithRoofConstraint(
+                            RoofConstraint(
+                                sourceSiteId = siteId,
+                                sourceRoofPlaneId = plane.id,
+                                roofLabel = plane.label,
+                                maxPanelCount = plane.panelLayout?.panelCount ?: 0,
+                                panelWattage = plane.panelLayout?.panelWattage?.toInt() ?: 0,
+                                azimuthDegrees = plane.azimuthDegrees ?: plane.suggestedAzimuthDegrees,
+                                pitchDegrees = plane.pitchDegrees
+                            )
+                        )
+                        navController.navigate(ROUTE_WIZARD)
+                    },
                     onBack = { navController.popBackStack() }
                 )
             }

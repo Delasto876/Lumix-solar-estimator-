@@ -214,13 +214,13 @@ transparent layers above it change. Built in four phases:
   path start/end/length sanity for all four paths; and `daylightProgress()` bounds at
   midnight/noon/sunrise. Plus a full import-completeness sweep across the module.
 
-## Solar Site (Phases 1–5, in progress)
+## Solar Site (Phases 1–6, in progress)
 
 A new major module (a **Site** tab alongside Home/Estimate/Systems/Savings/Profile) letting a
 homeowner or installer map a customer's actual roof and turn it into a real system estimate,
 rather than a generic sizing based on electricity usage alone. Building toward 8 phases total;
-phases 6–8 (wiring the roof-constrained system into the estimator, and connecting site data
-into the digital-twin simulation) are not yet built.
+phases 7–8 (connecting site data into the digital-twin simulation, and final polish) are not
+yet built.
 
 **Phase 1 — data model + geometry engine (`site/`, `site/geometry/`):**
 
@@ -374,6 +374,40 @@ peer path, not a fallback bolted onto the map screen:
   "perfect" roof (south-facing at 18°N, pitch matching latitude, no shading, usable area equal to
   a 50m² reference) at exactly 100/100, a north-facing roof at 18°N (worst possible orientation)
   at 0/20 on that factor, and unconfirmed azimuth/pitch at the neutral 10/20 each.
+
+**Phase 6 — connect roof analysis to the estimator (`domain/QuoteInputs.kt`'s `RoofConstraint`,
+`SystemCalculator.kt`, `WizardViewModel.kt`, `ResultsScreen.kt`):**
+
+This is where the Solar Site module stops being a separate tool and actually changes what the
+estimator recommends.
+
+- `RoofConstraint` (in the `domain` package, not `site` — the estimator's domain layer doesn't
+  depend on the Site module, only on this small data-transfer shape) carries a roof plane's
+  `PanelLayoutOptimizer`-verified panel count into `QuoteInputs.roofConstraint`.
+- `SystemCalculator` now determines the panel count exactly as before (from electricity usage —
+  the "energy-optimal" figure), then, in one place right before that count starts driving
+  inverter/rail/wiring/material calculations, caps it at the roof's real limit if one is set and
+  binding. The cap rounds **down** to the nearest even panel count rather than reusing
+  `enforceEvenPanels` (which rounds up for normal sizing) — rounding up here would let the
+  even-row convention silently exceed what the roof was actually verified to hold, breaking the
+  panel-packing engine's own "never overclaim" guarantee from Phase 1.
+- `QuoteResult` gained `energyOptimalPanelCount` (defaults to `panelCount`, so quotes saved
+  before this field existed still decode without a roof constraint on record — the accurate
+  reading for old data) plus derived `energyOptimalPvKw` and `isRoofConstrained`.
+- `SolarPotentialCard`'s "Use This Roof" button (present since Phase 5, unwired until now) calls
+  `WizardViewModel.startWithRoofConstraint()`, which resets the wizard and pre-loads the
+  constraint, then opens the wizard fresh.
+- `ResultsScreen` shows a "Your roof limits the recommended system" banner whenever
+  `result.isRoofConstrained` is true, stating both figures ("Your electricity usage calls for
+  about 7.2 kW, but Roof A can physically fit about 5.4 kW") and suggesting tracing more roof
+  area, a second roof plane, or ground mounting — matching the spec's energy-optimal-vs-roof-
+  physical-limit distinction.
+- Verified standalone: a large-usage guided quote (avg bill J$200,000) that would normally
+  recommend 38 panels, capped by a 7-panel roof (odd — confirming it rounds *down* to 6, never
+  up to 8), correctly reports `panelCount=6`, `energyOptimalPanelCount=38`,
+  `isRoofConstrained=true`, and the capped `panelCount` never exceeds the roof's real limit; the
+  same quote against a 200-panel roof (not actually binding) correctly reports
+  `isRoofConstrained=false` and leaves the panel count completely unchanged.
 
 ## Fixed vs. the original prototype
 
