@@ -160,12 +160,59 @@ real calculated PV/inverter/battery/load numbers (`domain/simulation/SimSystemCo
   Weather chips now spring-scale up slightly (via the existing `LumixMotion` spec) when
   selected, matching the micro-interaction language used elsewhere in the app.
 
-**House visual note**: the brief's reference images are photoreal-rendered art; this sandbox
-has no image-generation or asset-sourcing capability, so the house is the most detailed
-version achievable as a hand-drawn Compose `Canvas` vector illustration (layered shading,
-individual panel cells, a battery fill gauge, status LEDs) rather than actual bitmap/3D
-artwork — the spec's own fallback guidance ("a polished stylized 3D/isometric technical
-visualization is preferred" over full photorealism) is what's implemented.
+**House visual, superseded**: the simulator originally used a hand-drawn Compose `Canvas`
+illustration (described above) because this sandbox has no image-generation capability. Once
+the user supplied an actual photoreal reference photo, the visual was rebuilt on top of that
+real asset instead — see "Photoreal house overlay" below. `HouseSimulationVisual.kt` is no
+longer wired into `SimulationScreen` but stays in the tree unused (its `statusColor()` helper
+is still shared), in case the earlier illustration is wanted back.
+
+## Photoreal house overlay
+
+Follow-up work replacing the hand-drawn house illustration with the user-supplied
+photorealistic reference photo (`res/drawable-nodpi/bg_house_energy_routes.png`) plus a fully
+dynamic overlay on top — the image itself is never redrawn, regenerated, or recolored; only
+transparent layers above it change. Built in four phases:
+
+- **`domain/simulation/EnergyFlow.kt`** — `EnergyNode`/`FlowDirection`/`EnergyFlow`, and
+  `EnergyFlowResolver.resolve(frame)`, which relabels a `SimFrame`'s already-computed granular
+  sub-flows (`solarToHouseKw`, `solarToBatteryKw`, `batteryToHouseKw`, etc.) onto the four
+  visual routes baked into the photo (solar→inverter, inverter↔battery, grid↔inverter,
+  inverter→house). This is a pure relabeling, not a re-simulation, so it inherits the engine's
+  priority routing and `POWER_LIMITED` handling for free — grid flows are already zeroed by
+  the engine when disconnected.
+- **`ui/simulation/SolarSimulationPaths.kt`** — normalized (0f..1f) anchor points for the four
+  routes, hand-picked against the 1536×1024 reference photo, plus bounding boxes for the
+  battery and panel array. Approximate by construction; a `DEBUG_SHOW_PATHS` flag (off by
+  default) draws the raw polylines for recalibrating them visually in Android Studio.
+- **`ui/simulation/EnergyFlowPathManager.kt`** — pure geometry/particle math (the spec's
+  particle-count breakpoint table, power-dependent speed, arc-length-based position-along-
+  path), kept free of Compose types so it's independently verifiable and renderer-agnostic.
+- **`ui/simulation/EnergyFlowCanvas.kt`** — the umbrella composable: the fixed background
+  `Image`, then (in order) the cloud layer, sun marker, battery fill wash, and animated
+  particles, all sharing one aspect-ratio-locked `Box` so every layer stays aligned with the
+  artwork regardless of screen width. Particles are small glow+core dots, power-dependent in
+  count and speed, colored per the spec's semantic mapping (solar yellow; green/cyan for
+  battery charge/discharge; amber/green for grid import/export; warm white into the house).
+  Reversed flows (battery discharging, grid exporting) travel backward along the same printed
+  line via a signed animation phase, so a bidirectional route only needs one polyline. Honors
+  the app's existing reduced-motion accessibility setting by freezing particle motion.
+- **`ui/simulation/EnvironmentOverlays.kt`** — `CloudOverlay` (soft gradient blobs over the
+  sky, opacity from `1 - weather.multiplier`), `SunIndicator` (a glowing marker on a low arc,
+  positioned by `SimulationEngine.daylightProgress()` and sized by `irradianceFactor() ×
+  cloudMultiplier` — so it's physically impossible for the marker to show a bright sun while
+  the panels report near-zero output), and `BatteryFillOverlay` (a translucent liquid-level
+  wash rising within the battery's printed footprint, tracking live SOC).
+- Wired into `SimulationScreen`: `EnergyFlowResolver.resolve(frame)` for the particle flows,
+  `SimulationEngine.daylightProgress()`/`irradianceFactor()` for the sun marker, `1 -
+  weather.multiplier` for cloud coverage, and `frame.batterySocPercent` for the fill overlay
+  (only shown when `config.hasBattery`).
+- Verified standalone (this sandbox can't compile the Android/Compose module): all 6 of the
+  spec's critical test cases (solar+battery charging, battery discharge, grid import, export
+  with full battery, simultaneous solar+battery+house, grid disconnected) run against
+  hand-built `SimFrame`s through `EnergyFlowResolver`; the particle-count breakpoint table;
+  path start/end/length sanity for all four paths; and `daylightProgress()` bounds at
+  midnight/noon/sunrise. Plus a full import-completeness sweep across the module.
 
 ## Fixed vs. the original prototype
 

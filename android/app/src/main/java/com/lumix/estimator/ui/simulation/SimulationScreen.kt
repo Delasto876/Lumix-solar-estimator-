@@ -45,7 +45,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lumix.estimator.domain.simulation.EnergyFlowResolver
 import com.lumix.estimator.domain.simulation.SimFrame
+import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.domain.simulation.TechnicalModel
 import com.lumix.estimator.ui.components.AnimatedCounterText
 import com.lumix.estimator.ui.components.SectionCard
@@ -112,6 +114,13 @@ fun SimulationScreen(
 
         val config = state.config!!
         val frame = state.currentFrame!!
+        val flows = remember(frame) { EnergyFlowResolver.resolve(frame) }
+        val sunProgress = remember(frame.hour) { SimulationEngine.daylightProgress(frame.hour) }
+        val sunIntensity = remember(frame.hour, state.weather) {
+            (SimulationEngine.irradianceFactor(frame.hour) * state.weather.multiplier).toFloat()
+        }
+        val cloudCoverage = remember(state.weather) { (1.0 - state.weather.multiplier).toFloat() }
+        val batterySocFraction = if (config.hasBattery) frame.batterySocPercent / 100f else null
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -135,7 +144,15 @@ fun SimulationScreen(
 
             item {
                 SectionCard(title = "", accentColor = statusColor(frame.status)) {
-                    HouseSimulationVisual(frame = frame, config = config)
+                    EnergyFlowCanvas(
+                        flows = flows,
+                        cloudCoverage = cloudCoverage,
+                        sunProgress = sunProgress,
+                        sunIntensity = sunIntensity,
+                        batterySocFraction = batterySocFraction,
+                        batteryCharging = frame.batteryPowerKw > 0.0,
+                        modifier = Modifier.clip(RoundedCornerShape(LumixRadius.md))
+                    )
                     InspectChipRow(
                         hasBattery = config.hasBattery,
                         onSelect = { inspectTarget = it },

@@ -11,8 +11,8 @@ import kotlin.math.sin
  * the time dial is a cheap lookup + interpolation rather than a re-simulation.
  */
 object SimulationEngine {
-    private const val SUNRISE_HOUR = 5.5
-    private const val SUNSET_HOUR = 18.5
+    const val SUNRISE_HOUR = 5.5
+    const val SUNSET_HOUR = 18.5
     private const val BATTERY_MIN_SOC_FRACTION = 0.10
     private const val BATTERY_MAX_SOC_FRACTION = 1.00
     private const val BATTERY_CHARGE_EFFICIENCY = 0.95
@@ -37,6 +37,13 @@ object SimulationEngine {
         val span = SUNSET_HOUR - SUNRISE_HOUR
         val x = (h - SUNRISE_HOUR) / span
         return sin(PI * x).pow(1.2)
+    }
+
+    /** 0f at sunrise, 1f at sunset; null outside daylight hours. For positioning a sun marker. */
+    fun daylightProgress(hour: Double): Float? {
+        val h = hour.mod(24.0)
+        if (h <= SUNRISE_HOUR || h >= SUNSET_HOUR) return null
+        return ((h - SUNRISE_HOUR) / (SUNSET_HOUR - SUNRISE_HOUR)).toFloat()
     }
 
     fun loadFactor(hour: Double): Double {
