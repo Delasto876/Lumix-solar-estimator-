@@ -550,13 +550,15 @@ with `sdk.dir` on first open) and add a line `MAPS_API_KEY=your_key_here`. The f
 git-ignored, so the key never gets committed. Everything else in the app, including the entire
 manual site-entry flow, works with no key at all.
 
-## Post-build field fixes (Samsung Galaxy A15 + simulation logic, in progress)
+## Post-build field fixes (Samsung Galaxy A15 + simulation logic)
 
 The app was first successfully built and run on a physical device (Samsung Galaxy A15) after
 the sandbox-only development above. Real-device testing surfaced issues this environment's
-lack of an Android SDK/emulator couldn't have caught. Fixes land in phases; each is verified
-by code review + import-completeness sweep here (this sandbox still can't compile/run the app),
-then confirmed on-device by the user before the next phase starts.
+lack of an Android SDK/emulator couldn't have caught. Fixes landed in six phases, each verified
+by code review + a standalone scratch JVM project exercising the pure-Kotlin domain logic (this
+sandbox still can't compile/run the actual Android app). Phase 6 is the final validation pass
+against the original spec's own TEST 1-20 — see below. Real-device re-confirmation on the A15,
+especially of TEST 6, is the one thing this sandbox genuinely cannot do itself.
 
 **Phase 1 — window-insets / safe-area pass:**
 
@@ -767,5 +769,59 @@ service-cap scenarios) — every active flow maps to a real fixed path, `REVERSE
 internally consistent for a whole simulated day, not just the moments already covered by
 targeted test cases.
 
-Remaining phase (final validation against the spec's 20 test scenarios) is tracked but not
-started as of this commit.
+**Phase 6 — final validation against the spec's own TEST 1-20** (`domain/simulation/SimulationEngine.kt`,
+`ui/simulation/InspectPanel.kt`):
+
+The original 34-section spec ended with 20 explicit test scenarios. Went through each against
+the current implementation (code review, not on-device — this sandbox still can't run the app):
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | New estimate → Customer details appear first | ✅ Phase 2 |
+| 2 | Bill field defaults to $16,000 | ✅ Phase 2 |
+| 3 | Backup defaults to 12 hours | ✅ Phase 2 |
+| 4 | Backup coverage defaults to MOST LOAD | ✅ Phase 2 |
+| 5 | PSH defaults to 5.5 hours | ✅ Phase 2 |
+| 6 | Samsung A15: all buttons visible | ⚠️ Fix applied (Phase 1's root-cause `Scaffold` inset fix) but never re-confirmed on-device after that specific fix — please re-check |
+| 7 | SBU + daytime: solar supplies load first | ✅ Phase 3 |
+| 8 | SBU + no solar + battery 80%: battery supplies load | ✅ Phase 3 |
+| 9 | SBU + battery reaches 20%: battery stops, utility takes over | ✅ Phase 3 (20% DOD cutoff) |
+| 10 | Utility active: supplies house AND charges battery simultaneously | ✅ Phase 3 (`gridToBatteryKw`) |
+| 11 | Utility current limit: 30A | ✅ Phase 4 (configurable, enforced) |
+| 12 | UTI mode: utility has priority | ✅ Phase 3 |
+| 13 | SOL mode: solar has priority | ✅ Phase 3 |
+| 14 | Battery charging → particles INVERTER→BATTERY | ✅ Phase 3/5 |
+| 15 | Battery discharging → particles BATTERY→INVERTER | ✅ (pre-existing, unaffected) |
+| 16 | Utility importing → particles JPS→INVERTER | ✅ Phase 3/5 |
+| 17 | Utility exporting → particles INVERTER→JPS | ❌ **Deliberately not implemented** — see below |
+| 18 | House supply → particles INVERTER→HOUSE | ✅ (pre-existing, unaffected) |
+| 19 | No power → no particles, routes stay visible | ✅ (pre-existing: routes are baked into the background image, not drawn by the particle layer) |
+| 20 | High-load appliance ON → animation changes immediately | ✅ (pre-existing reactive `StateFlow` pipeline, unaffected) |
+
+**TEST 17 is an intentional deviation, not a bug.** The spec's own SOL-mode example (§24) and
+this test both describe conditional grid export ("`INVERTER → JPS` if grid export is enabled").
+Partway through this work the user gave an explicit, direct correction — *"we do not send power
+to the grid when only take power from grid"* — which overrides that part of the original spec.
+Phase 3 removed export capability from the domain model entirely (no `solarToGridKw` field, no
+`EXPORTING_TO_GRID` status, no code path that can produce a negative `gridPowerKw`), so TEST 17
+cannot pass and was never intended to after that correction. Documenting it here rather than
+silently dropping it, since it's a real, deliberate divergence from the written spec.
+
+Two small gaps found and fixed during this review pass, both real correctness issues rather than
+missing features:
+- The Battery inspect sheet's "Estimated runtime" figure was still computing against a
+  hardcoded 10% reserve floor — a leftover from before Phase 3 raised the actual engine cutoff
+  to 20% (spec §12/§27). It was quietly overestimating remaining runtime ever since. Fixed by
+  making `SimulationEngine.BATTERY_MIN_SOC_FRACTION` public and having the UI read it directly,
+  so the two can't drift apart again.
+- Added an explicit "Reserve cutoff: 20%" row to the same sheet — spec §27 asks for the cutoff
+  to be shown alongside SOC, and it wasn't displayed anywhere.
+
+Everything else in the original 34-section spec not covered by the numbered tests above
+(mobile-first sizing, progressive disclosure over scrolling, the `InverterMode` enum shape,
+named fixed paths, bidirectional particle handling, cloud/appliance reactivity) was cross-checked
+against the corresponding phase's own verification and is covered.
+
+This closes out the A15 field-fix pass. Everything above was verified through code review and
+the standalone scratch JVM project (this sandbox has no Android SDK); real-device confirmation
+on the Samsung Galaxy A15 — especially TEST 6 — is the one remaining step.

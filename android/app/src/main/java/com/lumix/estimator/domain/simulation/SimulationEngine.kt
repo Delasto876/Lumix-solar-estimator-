@@ -21,8 +21,9 @@ object SimulationEngine {
     const val SUNRISE_HOUR = 5.5
     const val SUNSET_HOUR = 18.5
     // SOL/SBU reserve the battery down to this floor before ever importing from JPS —
-    // a 20% DOD cutoff, per the real hybrid-inverter behavior this models.
-    private const val BATTERY_MIN_SOC_FRACTION = 0.20
+    // a 20% DOD cutoff, per the real hybrid-inverter behavior this models. Public so the UI
+    // (battery runtime estimates, cutoff display) stays in sync with the engine's own value.
+    const val BATTERY_MIN_SOC_FRACTION = 0.20
     private const val BATTERY_MAX_SOC_FRACTION = 1.00
     private const val BATTERY_CHARGE_EFFICIENCY = 0.95
     private const val FLOW_EPSILON = 0.01

@@ -138,8 +138,9 @@ private fun detailLines(
     )
     InspectTarget.BATTERY -> {
         val chargingRate = f.batteryPowerKw
+        val cutoffFraction = SimulationEngine.BATTERY_MIN_SOC_FRACTION
         val runtimeHours = if (chargingRate < -0.01) {
-            val availableKwh = (f.batterySocKwh - config.batteryCapacityKwh * 0.10).coerceAtLeast(0.0)
+            val availableKwh = (f.batterySocKwh - config.batteryCapacityKwh * cutoffFraction).coerceAtLeast(0.0)
             availableKwh / (-chargingRate)
         } else null
         DetailLines(
@@ -153,7 +154,8 @@ private fun detailLines(
                     chargingRate < -0.01 -> "Discharging" to fmtKw(chargingRate)
                     else -> "Status" to "Idle"
                 },
-                runtimeHours?.let { "Estimated runtime" to formatHours(it) }
+                runtimeHours?.let { "Estimated runtime" to formatHours(it) },
+                "Reserve cutoff" to "${(cutoffFraction * 100).toInt()}%"
             )
         )
     }
