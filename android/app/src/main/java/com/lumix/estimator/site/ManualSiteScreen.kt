@@ -45,9 +45,9 @@ import com.lumix.estimator.ui.theme.LumixRadius
 private val pitchOptions: List<Double?> = listOf(null, 0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0)
 
 /**
- * Location + roof entry entirely by typed numbers — no map, GPS, or network required. A peer
- * path to [com.lumix.estimator.site.map.SolarSiteMapScreen], not a fallback: some installers
- * already have exact coordinates and roof dimensions and would rather just type them in.
+ * Location + roof entry entirely by typed numbers — no map, GPS, or network required. Currently
+ * the only way into Solar Site: the map-based tracing flow was removed at the user's request
+ * (planned to return in a future upgrade), leaving this as the sole path rather than a fallback.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

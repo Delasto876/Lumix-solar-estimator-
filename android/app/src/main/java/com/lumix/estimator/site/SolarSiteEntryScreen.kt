@@ -12,7 +12,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,15 +31,14 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * The Site tab's landing screen: previously saved sites, plus a choice of how to start a new
- * one. Map and manual entry are shown as equal peer options — manual is not hidden behind a
- * "no GPS?" fallback, since some installers already have coordinates and dimensions in hand
- * and the map itself needs a configured API key this build may not have yet.
+ * The Site tab's landing screen: previously saved sites, plus manual entry to start a new one.
+ * The map-based tracing flow is deliberately absent — removed at the user's request, planned to
+ * return in a future upgrade — so manual entry (typed coordinates and roof dimensions) is
+ * currently the only path in.
  */
 @Composable
 fun SolarSiteEntryScreen(
     viewModel: SolarSiteViewModel,
-    onOpenMap: () -> Unit,
     onOpenManual: () -> Unit,
     onOpenSite: (String) -> Unit
 ) {
@@ -56,7 +54,7 @@ fun SolarSiteEntryScreen(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Solar Site", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = palette.textPrimary)
                 Text(
-                    "Map a customer's roof and turn it into a real system estimate.",
+                    "Record a customer's roof and turn it into a real system estimate.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = palette.textSecondary
                 )
@@ -64,22 +62,13 @@ fun SolarSiteEntryScreen(
         }
 
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                EntryOptionCard(
-                    icon = Icons.Default.Map,
-                    title = "Use Satellite Map",
-                    description = "Search the address, zoom to the roof, and trace it directly.",
-                    onClick = onOpenMap,
-                    modifier = Modifier.weight(1f)
-                )
-                EntryOptionCard(
-                    icon = Icons.Default.LocationOn,
-                    title = "Enter Manually",
-                    description = "Type in coordinates and roof dimensions — no map needed.",
-                    onClick = onOpenManual,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            EntryOptionCard(
+                icon = Icons.Default.LocationOn,
+                title = "Enter Manually",
+                description = "Type in coordinates and roof dimensions.",
+                onClick = onOpenManual,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         if (sites.isNotEmpty()) {
@@ -92,7 +81,7 @@ fun SolarSiteEntryScreen(
         } else {
             item {
                 Text(
-                    "No sites yet — start with either option above.",
+                    "No sites yet — start with the option above.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = palette.textSecondary
                 )

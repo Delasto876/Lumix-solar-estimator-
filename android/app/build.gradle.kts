@@ -105,15 +105,10 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
 
-    // Solar Site: OpenStreetMap tiles (street via Mapnik, satellite via Esri World Imagery) for
-    // the roof-tracing map — no API key required, unlike the Google Maps SDK this replaced.
-    // osmdroid has no first-class Compose bindings; SolarSiteMapScreen wraps its classic
-    // MapView in an AndroidView. Device location for the "My Location" button still comes from
-    // Play Services (play-services-location), which is unrelated to Maps and needs no API key
-    // of its own. Version below is believed current as of writing but couldn't be verified
-    // against Maven Central in this environment (network-blocked sandbox) — bump to latest in
-    // Android Studio if Gradle reports a newer one available.
-    implementation("org.osmdroid:osmdroid-android:6.1.20")
+    // Solar Site: the map-based roof-tracing flow was removed at the user's request (planned
+    // for a future upgrade), so there's no map SDK dependency here for now. Device location
+    // (DeviceLocationManager) is kept — small, generic, and reusable — via Play Services, which
+    // needs no API key of its own; it's currently unused (no live caller) until the map returns.
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
     testImplementation("junit:junit:4.13.2")

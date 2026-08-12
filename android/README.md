@@ -937,3 +937,34 @@ osmdroid API surface used (`MapView`, `MapEventsOverlay`, `Marker`, `Polygon`,
 `OnlineTileSourceBase`, `MapTileIndex`) was written from a well-established, stable, long-standing
 library API rather than verified by a build. Please pull and report back the exact Gradle/compile
 error if anything doesn't build — that's the fastest way to pin down any API mismatch precisely.
+
+## A18: map removed entirely (deferred to a future upgrade)
+
+Immediately after A17, the user asked to remove the map altogether rather than keep debugging
+it — it'll come back in a future upgrade rather than staying half-working in the meantime.
+Removed cleanly:
+
+- `site/map/SolarSiteMapScreen.kt`, `site/map/MapController.kt`, and
+  `site/map/RoofDrawingController.kt` (the whole `site/map/` package) — deleted outright, not
+  disabled/hidden behind a flag.
+- The `site/map` nav route and its `SolarSiteMapScreen` wiring in `LumixNavHost.kt`.
+- The "Use Satellite Map" entry option on the Site tab's landing screen
+  (`SolarSiteEntryScreen.kt`) — manual entry is now the only way in, shown as a single full-width
+  card rather than two side-by-side options, with copy updated to match ("Record a customer's
+  roof..." instead of "Map a customer's roof...").
+- The `org.osmdroid:osmdroid-android` Gradle dependency and its one-time `Configuration` setup
+  in `LumixApp.onCreate()`.
+
+**Kept, deliberately, as reusable infrastructure**: `DeviceLocationManager.kt`,
+`sensors/CompassManager.kt`, `network/NetworkConnectivityObserver.kt`, and
+`site/SolarCompassBadge.kt`. These are small, generic, already-correct utility classes (device
+GPS location, magnetic compass heading, connectivity observation) that only ever had the map
+screen as a caller — with no live caller now, they're inert, not broken or confusing, and
+rewriting them from scratch when the map returns would just be wasted duplicate work. The
+`play-services-location` dependency stays for the same reason (`DeviceLocationManager` still
+compiles against it). `sensors/CompassMath.kt` was never map-specific to begin with — it's still
+actively used by the digital-twin simulation's Sun & Roof card.
+
+`ManualSiteScreen.kt`'s own doc comment (previously describing itself as "a peer path to
+SolarSiteMapScreen, not a fallback") was updated to reflect that it's now the sole path into
+Solar Site, not a fallback with nothing to be a peer to.

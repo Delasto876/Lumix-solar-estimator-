@@ -40,7 +40,6 @@ import com.lumix.estimator.site.ManualSiteScreen
 import com.lumix.estimator.site.SiteDetailScreen
 import com.lumix.estimator.site.SolarSiteEntryScreen
 import com.lumix.estimator.site.SolarSiteViewModel
-import com.lumix.estimator.site.map.SolarSiteMapScreen
 
 private const val ROUTE_HOME = "home"
 private const val ROUTE_ESTIMATE = "estimate"
@@ -51,7 +50,6 @@ private const val ROUTE_SYSTEMS = "systems"
 private const val ROUTE_SAVINGS = "savings"
 private const val ROUTE_PROFILE = "profile"
 private const val ROUTE_SITE = "site"
-private const val ROUTE_SITE_MAP = "site/map"
 private const val ROUTE_SITE_MANUAL = "site/manual"
 private const val ROUTE_SITE_DETAIL = "site/detail/{siteId}"
 
@@ -184,26 +182,11 @@ fun LumixNavHost(app: LumixApp) {
             composable(ROUTE_SITE) {
                 SolarSiteEntryScreen(
                     viewModel = siteViewModel,
-                    onOpenMap = {
-                        siteViewModel.startNewSite()
-                        navController.navigate(ROUTE_SITE_MAP)
-                    },
                     onOpenManual = {
                         siteViewModel.startNewSite()
                         navController.navigate(ROUTE_SITE_MANUAL)
                     },
                     onOpenSite = { id -> navController.navigate("site/detail/$id") }
-                )
-            }
-
-            composable(ROUTE_SITE_MAP) {
-                SolarSiteMapScreen(
-                    viewModel = siteViewModel,
-                    onSaved = { id -> navController.navigate("site/detail/$id") { popUpTo(ROUTE_SITE) } },
-                    onBack = { navController.popBackStack() },
-                    onSwitchToManual = {
-                        navController.navigate(ROUTE_SITE_MANUAL) { popUpTo(ROUTE_SITE_MAP) { inclusive = true } }
-                    }
                 )
             }
 
