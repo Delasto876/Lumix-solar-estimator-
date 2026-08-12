@@ -1,5 +1,7 @@
 package com.lumix.estimator.ui.nav
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -77,7 +79,16 @@ fun LumixNavHost(app: LumixApp) {
     val currentRoute = backStackEntry?.destination?.route
     val isTabRoute = currentRoute != null && tabRoutes.contains(currentRoute)
 
+    // contentWindowInsets = WindowInsets(0): this outer, app-wide Scaffold must NOT consume any
+    // system insets itself. Material3's Scaffold consumes contentWindowInsets on behalf of its
+    // content regardless of whether bottomBar is populated for the current route — with the
+    // default (WindowInsets.safeDrawing), that silently zeroed out the navigation-bar inset for
+    // every screen further down the tree (including each pushed screen's own inner Scaffold),
+    // which is why adding navigationBarsPadding() inside those inner screens alone didn't stop
+    // buttons clipping under the nav bar on a real device. Insets now pass through untouched;
+    // FloatingBottomNav below and each individual screen apply their own, for real.
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (isTabRoute) {
                 FloatingBottomNav(
@@ -92,7 +103,9 @@ fun LumixNavHost(app: LumixApp) {
                             }
                         }
                     },
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
                 )
             }
         }

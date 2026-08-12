@@ -582,6 +582,21 @@ none of those screens then applied their *own* navigation-bar inset protection. 
   hidden), but as another pushed route its `LazyColumn`'s `contentPadding` didn't account for
   the nav bar either; added `WindowInsets.navigationBars` to the bottom content padding.
 
+**Phase 1 correction — the real root cause was one level up.** The fixes above (moving
+Back/Next into `bottomBar`, adding `navigationBarsPadding()`) still clipped on-device. Cause:
+`LumixNavHost`'s own outer, app-wide `Scaffold` — the one hosting the tab bar — used the
+Material3 default `contentWindowInsets` (`WindowInsets.safeDrawing`). Scaffold consumes that
+inset on behalf of its content **regardless of whether `bottomBar` is populated for the current
+route**, which silently zeroed the navigation-bar inset for every screen further down the tree,
+pushed or tabbed alike — so the `navigationBarsPadding()` calls added inside each individual
+screen's own inner Scaffold had nothing left to consume; they were correct code operating on an
+already-exhausted inset. Fixed in `LumixNavHost.kt`: the outer Scaffold now sets
+`contentWindowInsets = WindowInsets(0, 0, 0, 0)` so it never reserves anything itself, and
+`FloatingBottomNav` (the tab bar) gained its own explicit `navigationBarsPadding()` so it still
+protects itself now that nothing upstream does it automatically. Insets now propagate fully
+intact to every leaf screen, tab or pushed, each handling its own edges — no more double
+consumption anywhere in the tree.
+
 Not yet done: splitting any wizard step whose *content* (not just the button row) is too tall
 for a small phone — that's bundled into Phase 2 below, since it's the same step-list refactor.
 
