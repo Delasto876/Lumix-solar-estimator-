@@ -639,6 +639,66 @@ for a small phone — that's bundled into Phase 2 below, since it's the same ste
   appliance load triggers the capacity warning under `MOST_LOAD` but never under
   `CRITICAL_LOADS`; a modest, well-within-capacity hybrid load triggers no warning.
 
-Remaining phases (hybrid inverter SOL/SBU/UTI operating modes, Jamaica 110V/220V electrical
-config, energy-flow animation correctness, validation) are tracked but not started as of this
-commit.
+**Phase 3 — hybrid inverter operating modes: SOL/SBU/UTI, and the hard no-export rule**
+(`domain/simulation/SimFrame.kt`, `SimulationEngine.kt`, `EnergyFlow.kt`, `TechnicalReadout.kt`,
+`ui/simulation/SolarSimulationPaths.kt`, `EnergyFlowCanvas.kt`, `HouseSimulationVisual.kt`,
+`InspectPanel.kt`, `SimulationViewModel.kt`, `SimulationScreen.kt`):**
+
+The grid connection this app models is **strictly import-only** — a correction from the user
+that overrides the original spec text's own SOL-mode example (which mentioned conditional grid
+export). Every mode, in every state, never sends power to JPS. Concretely: `SimFrame` lost its
+`solarToGridKw` field and `SystemStatus.EXPORTING_TO_GRID` entirely; there is no code path left
+that can produce a negative `gridPowerKw`. Solar surplus that can't be used or stored (battery
+full or absent, no export outlet) is simply **curtailed** — a new `SimFrame.curtailedSolarKw`
+tracks it for transparency (surfaced in the Panels inspect sheet as "Curtailed (unused)"),
+distinct from "exported."
+
+New `InverterMode` enum (`SOL`, `SBU`, `UTI`), selectable per-simulation from a new "Inverter
+Mode" card on `SimulationScreen` (only shown for grid-capable systems), wired through
+`SimulationViewModel`/`SimulationUiState` and `SimulationEngine.buildDayTimeline` the same way
+`gridConnected`/`weather` already were — a runtime what-if toggle, not baked into the saved
+quote:
+
+- **SOL and SBU** are functionally identical priority chains, per the spec's own description of
+  them: solar → house first, solar surplus → battery (up to its rate/room cap; anything left
+  over is curtailed, never exported), and only once the battery is drawn down to its reserve
+  floor does JPS import kick in. Verified standalone that SOL and SBU produce byte-identical
+  timelines for the same config. Neither ever charges the battery from the grid.
+- **UTI** makes JPS the primary house supply whenever it's connected — the battery is pure
+  outage backup in this mode and never discharges to the house while grid power is available,
+  falling back to the SBU-style solar→battery→nothing-else logic only during an outage. A new
+  `gridToBatteryKw` flow (and a new `gridChargeEnabled` toggle, shown alongside the mode
+  selector when UTI is active) lets JPS simultaneously top off the battery in the same frame it's
+  serving the house — the flow the spec calls out explicitly and that didn't exist in the engine
+  before this phase. Solar is still prioritized over grid for battery charging even in UTI mode
+  (free power first).
+- The battery's reserve floor (previously a generic 10% `BATTERY_MIN_SOC_FRACTION`) is now 20%,
+  matching the spec's SOL/SBU cutoff.
+- `SystemStatus` gained `GRID_CHARGING_BATTERY` (JPS topping off the battery with no house
+  import happening in that same instant) and dropped `EXPORTING_TO_GRID`.
+
+Visualization: the existing 4 fixed energy-flow paths (`solar_inverter`, `grid_inverter`,
+`inverter_battery`, `inverter_house`) needed no new geometry — `grid_inverter` (now marked
+`bidirectional = false`, always GRID→INVERTER) and `inverter_battery` simply render active
+simultaneously in a UTI grid-charging frame, which is exactly the "simultaneous grid-to-house
+and grid-to-battery" visual the spec asked for. `EnergyFlowResolver` combines
+`solarToBatteryKw + gridToBatteryKw` into the one physical inverter↔battery path's magnitude,
+and `gridToHouseKw + gridToBatteryKw` into the one physical grid↔inverter path's magnitude.
+`HouseSimulationVisual.kt` (the earlier hand-drawn Canvas visualization, superseded by the
+photoreal overlay and confirmed unreferenced anywhere in the nav graph) was kept compiling
+rather than deleted, on the same "don't rebuild, make targeted fixes" instruction as the rest of
+this pass.
+
+Verified standalone (scratch JVM project): the no-export invariant (`gridPowerKw >= 0` and
+neither grid sub-flow ever negative) holds across full-day timelines in all three modes; SOL/SBU
+timelines are identical; every SBU grid-import frame is explained by either the reserve floor or
+the battery's discharge-rate cap (not a logic gap); UTI never discharges the battery to the house
+while grid-connected; UTI charges the battery from JPS when enabled and never does when disabled;
+a real engine-produced frame shows simultaneous `gridToHouseKw` + `gridToBatteryKw`; a
+battery-starts-full/near-zero-load scenario curtails solar rather than exporting it; and
+`EnergyFlowResolver`'s grid path stays `FORWARD`-only with correct combined magnitudes across a
+full UTI day.
+
+Remaining phases (Jamaica 110V/220V electrical config for the simulation, further energy-flow
+animation polish, final validation against the spec's 20 test scenarios) are tracked but not
+started as of this commit.

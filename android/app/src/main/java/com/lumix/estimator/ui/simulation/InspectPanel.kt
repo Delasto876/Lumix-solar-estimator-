@@ -119,7 +119,7 @@ private fun detailLines(
             "Current output" to fmtKw(f.pvKw),
             "To home" to fmtKw(f.solarToHouseKw),
             "To battery" to fmtKw(f.solarToBatteryKw),
-            "Exported to grid" to fmtKw(f.solarToGridKw)
+            "Curtailed (unused)" to fmtKw(f.curtailedSolarKw)
         )
     )
     InspectTarget.INVERTER -> DetailLines(
@@ -158,8 +158,8 @@ private fun detailLines(
         title = "JPS Grid",
         subtitle = if (!config.gridConnectable) "This system has no grid connection" else if (gridConnected) "Connected" else "Disconnected — running on backup",
         rows = listOf(
-            "Import" to fmtKw(f.gridToHouseKw),
-            "Export" to fmtKw(f.solarToGridKw)
+            "To home" to fmtKw(f.gridToHouseKw),
+            "Charging battery" to fmtKw(f.gridToBatteryKw)
         ),
         note = if (f.unmetLoadKw > 0.01) "Demand exceeds solar + battery, and the grid is unavailable — some load can't be met." else null
     )

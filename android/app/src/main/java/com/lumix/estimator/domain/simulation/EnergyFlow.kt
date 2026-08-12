@@ -45,12 +45,15 @@ object EnergyFlowResolver {
             active = houseDeliveredKw > EPSILON
         )
 
+        // Battery charging can come from solar and/or grid (UTI mode) at once — both share
+        // the one physical inverter↔battery path, so their magnitudes combine here.
+        val batteryChargeKw = frame.solarToBatteryKw + frame.gridToBatteryKw
         val batteryFlow = when {
-            frame.solarToBatteryKw > EPSILON -> EnergyFlow(
+            batteryChargeKw > EPSILON -> EnergyFlow(
                 id = "inverter_battery",
                 source = EnergyNode.INVERTER,
                 destination = EnergyNode.BATTERY,
-                powerKw = frame.solarToBatteryKw,
+                powerKw = batteryChargeKw,
                 direction = FlowDirection.FORWARD,
                 active = true
             )
@@ -72,32 +75,18 @@ object EnergyFlowResolver {
             )
         }
 
-        val gridFlow = when {
-            frame.gridToHouseKw > EPSILON -> EnergyFlow(
-                id = "grid_inverter",
-                source = EnergyNode.GRID,
-                destination = EnergyNode.INVERTER,
-                powerKw = frame.gridToHouseKw,
-                direction = FlowDirection.FORWARD,
-                active = true
-            )
-            frame.solarToGridKw > EPSILON -> EnergyFlow(
-                id = "grid_inverter",
-                source = EnergyNode.INVERTER,
-                destination = EnergyNode.GRID,
-                powerKw = frame.solarToGridKw,
-                direction = FlowDirection.REVERSE,
-                active = true
-            )
-            else -> EnergyFlow(
-                id = "grid_inverter",
-                source = EnergyNode.GRID,
-                destination = EnergyNode.INVERTER,
-                powerKw = 0.0,
-                direction = FlowDirection.FORWARD,
-                active = false
-            )
-        }
+        // Import-only: the grid never receives power in this app, so this path is always
+        // GRID → INVERTER, carrying whatever JPS is currently supplying to the house and/or
+        // charging the battery (both can be nonzero in the same frame, in UTI mode).
+        val gridDrawKw = frame.gridToHouseKw + frame.gridToBatteryKw
+        val gridFlow = EnergyFlow(
+            id = "grid_inverter",
+            source = EnergyNode.GRID,
+            destination = EnergyNode.INVERTER,
+            powerKw = gridDrawKw,
+            direction = FlowDirection.FORWARD,
+            active = gridDrawKw > EPSILON
+        )
 
         return listOf(solarToInverter, inverterToHouse, batteryFlow, gridFlow)
     }

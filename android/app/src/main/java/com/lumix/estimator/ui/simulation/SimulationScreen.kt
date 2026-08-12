@@ -44,9 +44,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumix.estimator.domain.simulation.EnergyFlowResolver
+import com.lumix.estimator.domain.simulation.InverterMode
 import com.lumix.estimator.domain.simulation.SimFrame
 import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.domain.simulation.TechnicalModel
@@ -236,6 +238,34 @@ fun SimulationScreen(
                 }
             }
 
+            if (config.gridConnectable) {
+                item {
+                    SectionCard(title = "Inverter Mode") {
+                        InverterModeSelector(selected = state.inverterMode, onSelect = viewModel::setInverterMode)
+                        Text(
+                            state.inverterMode.description,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.textSecondary,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+                        if (state.inverterMode == InverterMode.UTI && config.hasBattery) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Grid charges battery", style = MaterialTheme.typography.labelMedium, color = palette.textPrimary)
+                                Switch(
+                                    checked = state.gridChargeEnabled,
+                                    onCheckedChange = { viewModel.setGridChargeEnabled(it) },
+                                    colors = SwitchDefaults.colors(checkedTrackColor = palette.solarYellow)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             item {
                 SectionCard(title = "Weather") {
                     WeatherSelector(selected = state.weather, onSelect = viewModel::setWeather)
@@ -379,6 +409,36 @@ private fun ModeToggle(technicalMode: Boolean, onToggle: (Boolean) -> Unit) {
 }
 
 @Composable
+private fun InverterModeSelector(selected: InverterMode, onSelect: (InverterMode) -> Unit) {
+    val palette = LocalLumixPalette.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(LumixRadius.pill))
+            .background(palette.glass)
+            .padding(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        InverterMode.entries.forEach { mode ->
+            val isSelected = mode == selected
+            Text(
+                mode.label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                color = if (isSelected) palette.solarYellowText else palette.textSecondary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(LumixRadius.pill))
+                    .background(if (isSelected) palette.solarYellow.copy(alpha = 0.16f) else Color.Transparent)
+                    .clickable { onSelect(mode) }
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
 private fun OutageBanner() {
     val palette = LocalLumixPalette.current
     Row(
@@ -426,7 +486,7 @@ private fun LivePowerRow(frame: SimFrame) {
     SectionCard(title = "") {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             LiveStat(label = "SOLAR", valueKw = frame.pvKw, color = palette.solarYellowText, modifier = Modifier.weight(1f))
-            LiveStat(label = "GRID", valueKw = frame.gridPowerKw, color = if (frame.gridPowerKw >= 0) palette.solarAmberText else palette.energyGreenText, modifier = Modifier.weight(1f), showSign = true)
+            LiveStat(label = "GRID", valueKw = frame.gridPowerKw, color = palette.solarAmberText, modifier = Modifier.weight(1f))
             LiveStat(label = "HOME", valueKw = frame.houseLoadKw, color = palette.textPrimary, modifier = Modifier.weight(1f))
             if (frame.batterySocPercent > 0f) {
                 Column(modifier = Modifier.weight(1f)) {

@@ -33,7 +33,8 @@ private fun colorFor(path: EnergyPath, flow: EnergyFlow): Color = when (path.id)
     "solar_inverter" -> LumixColors.SolarYellow
     "inverter_house" -> WarmWhite
     "inverter_battery" -> if (flow.direction == FlowDirection.FORWARD) LumixColors.EnergyGreen else LumixColors.TechnicalCyan
-    "grid_inverter" -> if (flow.direction == FlowDirection.FORWARD) LumixColors.SolarAmber else LumixColors.EnergyGreen
+    // Import-only: this path only ever carries JPS power inbound.
+    "grid_inverter" -> LumixColors.SolarAmber
     else -> LumixColors.TechnicalCyan
 }
 

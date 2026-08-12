@@ -60,7 +60,8 @@ object SolarSimulationPaths {
             NormalizedPoint(0.475f, 0.552f),
             NormalizedPoint(0.479f, 0.571f)
         ),
-        bidirectional = true
+        // Import-only: the grid connection never carries power the other way (no export).
+        bidirectional = false
     )
 
     val inverterToBatteryPath = EnergyPath(

@@ -20,7 +20,9 @@ import kotlin.math.sin
 object SimulationEngine {
     const val SUNRISE_HOUR = 5.5
     const val SUNSET_HOUR = 18.5
-    private const val BATTERY_MIN_SOC_FRACTION = 0.10
+    // SOL/SBU reserve the battery down to this floor before ever importing from JPS —
+    // a 20% DOD cutoff, per the real hybrid-inverter behavior this models.
+    private const val BATTERY_MIN_SOC_FRACTION = 0.20
     private const val BATTERY_MAX_SOC_FRACTION = 1.00
     private const val BATTERY_CHARGE_EFFICIENCY = 0.95
     private const val FLOW_EPSILON = 0.01
@@ -110,7 +112,9 @@ object SimulationEngine {
         gridConnected: Boolean = true,
         startSocFraction: Double = 0.6,
         resolutionMinutes: Int = 5,
-        applianceLoadKw: Double = 0.0
+        applianceLoadKw: Double = 0.0,
+        inverterMode: InverterMode = InverterMode.SBU,
+        gridChargeEnabled: Boolean = true
     ): List<SimFrame> {
         val maxSocKwh = config.batteryCapacityKwh * BATTERY_MAX_SOC_FRACTION
         val minSocKwh = config.batteryCapacityKwh * BATTERY_MIN_SOC_FRACTION
@@ -142,26 +146,47 @@ object SimulationEngine {
                 .coerceIn(0.0, config.inverterKw)
             val load = (loadFactor(hour) * backgroundPerHourKw + applianceLoadKw).coerceAtLeast(0.0)
 
+            // The grid connection is strictly import-only in every mode — solar never exports;
+            // any surplus that can't be used or stored is simply curtailed.
+            //
+            // SOL/SBU: solar → house first, surplus solar → battery, deficit → battery down to
+            // its reserve floor, only then → JPS. Grid never charges the battery.
+            //
+            // UTI: JPS is the primary house supply whenever connected (battery is pure outage
+            // backup — it does not discharge to serve the house while grid is up), and JPS can
+            // simultaneously top off the battery when [gridChargeEnabled]. Solar still serves
+            // the house and charges the battery for free first, ahead of the grid either way.
+            val gridConnectedNow = config.gridConnectable && gridConnected
+            val utiServesHouseFromGrid = inverterMode == InverterMode.UTI && gridConnectedNow
+            val allowGridChargeBattery = inverterMode == InverterMode.UTI && gridChargeEnabled && gridConnectedNow
+
             var solarToHouse = min(pv, load)
             var remainingPv = pv - solarToHouse
             var remainingLoad = load - solarToHouse
             var solarToBattery = 0.0
-            var solarToGrid = 0.0
+            var gridToBattery = 0.0
             var batteryToHouse = 0.0
             var gridToHouse = 0.0
+            var curtailedSolar = 0.0
             var unmet = 0.0
 
-            if (remainingPv > FLOW_EPSILON) {
-                if (config.hasBattery) {
-                    val roomKwh = (maxSocKwh - batterySocKwh).coerceAtLeast(0.0)
-                    val maxChargeThisStep = min(maxBatteryRateKw, roomKwh / dt)
-                    solarToBattery = min(remainingPv, maxChargeThisStep)
-                    remainingPv -= solarToBattery
+            if (utiServesHouseFromGrid && remainingLoad > FLOW_EPSILON) {
+                gridToHouse = remainingLoad
+                remainingLoad = 0.0
+            }
+
+            if (config.hasBattery) {
+                val roomKwh = (maxSocKwh - batterySocKwh).coerceAtLeast(0.0)
+                val maxChargeThisStep = min(maxBatteryRateKw, roomKwh / dt)
+                solarToBattery = min(remainingPv, maxChargeThisStep)
+                remainingPv -= solarToBattery
+                if (allowGridChargeBattery) {
+                    gridToBattery = (maxChargeThisStep - solarToBattery).coerceAtLeast(0.0)
                 }
-                if (remainingPv > FLOW_EPSILON && config.gridConnectable && gridConnected) {
-                    solarToGrid = remainingPv
-                }
-            } else if (remainingLoad > FLOW_EPSILON) {
+            }
+            curtailedSolar = remainingPv
+
+            if (remainingLoad > FLOW_EPSILON) {
                 if (config.hasBattery) {
                     val availableKwh = (batterySocKwh - minSocKwh).coerceAtLeast(0.0)
                     val maxDischargeThisStep = min(maxBatteryRateKw, availableKwh / dt)
@@ -169,7 +194,7 @@ object SimulationEngine {
                     remainingLoad -= batteryToHouse
                 }
                 if (remainingLoad > FLOW_EPSILON) {
-                    if (config.gridConnectable && gridConnected) {
+                    if (!utiServesHouseFromGrid && gridConnectedNow) {
                         gridToHouse = remainingLoad
                     } else {
                         unmet = remainingLoad
@@ -177,21 +202,21 @@ object SimulationEngine {
                 }
             }
 
-            val chargeEnergyKwh = solarToBattery * dt * BATTERY_CHARGE_EFFICIENCY
+            val chargeEnergyKwh = (solarToBattery + gridToBattery) * dt * BATTERY_CHARGE_EFFICIENCY
             val dischargeEnergyKwh = batteryToHouse * dt
             batterySocKwh = (batterySocKwh + chargeEnergyKwh - dischargeEnergyKwh).coerceIn(minSocKwh, maxSocKwh)
 
-            val batteryPowerKw = solarToBattery - batteryToHouse
-            val gridPowerKw = gridToHouse - solarToGrid
+            val batteryPowerKw = (solarToBattery + gridToBattery) - batteryToHouse
+            val gridPowerKw = gridToHouse + gridToBattery
             val socPercent = if (config.batteryCapacityKwh > 0) {
                 (batterySocKwh / config.batteryCapacityKwh * 100.0).toFloat()
             } else 0f
 
             val status = when {
                 unmet > FLOW_EPSILON -> SystemStatus.POWER_LIMITED
-                solarToGrid > FLOW_EPSILON -> SystemStatus.EXPORTING_TO_GRID
                 gridToHouse > FLOW_EPSILON && batteryToHouse > FLOW_EPSILON -> SystemStatus.BATTERY_PLUS_GRID
                 gridToHouse > FLOW_EPSILON -> SystemStatus.GRID_POWERING_HOME
+                gridToBattery > FLOW_EPSILON -> SystemStatus.GRID_CHARGING_BATTERY
                 batteryToHouse > FLOW_EPSILON && solarToHouse > FLOW_EPSILON -> SystemStatus.SOLAR_PLUS_BATTERY
                 batteryToHouse > FLOW_EPSILON -> SystemStatus.BATTERY_POWERING_HOME
                 solarToHouse > FLOW_EPSILON -> SystemStatus.SOLAR_POWERING_HOME
@@ -204,14 +229,15 @@ object SimulationEngine {
                 houseLoadKw = load,
                 solarToHouseKw = solarToHouse,
                 solarToBatteryKw = solarToBattery,
-                solarToGridKw = solarToGrid,
                 batteryToHouseKw = batteryToHouse,
                 gridToHouseKw = gridToHouse,
+                gridToBatteryKw = gridToBattery,
                 batterySocKwh = batterySocKwh,
                 batterySocPercent = socPercent,
                 batteryPowerKw = batteryPowerKw,
                 gridPowerKw = gridPowerKw,
                 unmetLoadKw = unmet,
+                curtailedSolarKw = curtailedSolar,
                 status = status
             )
         }
@@ -237,14 +263,15 @@ object SimulationEngine {
         houseLoadKw = lerp(a.houseLoadKw, b.houseLoadKw, t),
         solarToHouseKw = lerp(a.solarToHouseKw, b.solarToHouseKw, t),
         solarToBatteryKw = lerp(a.solarToBatteryKw, b.solarToBatteryKw, t),
-        solarToGridKw = lerp(a.solarToGridKw, b.solarToGridKw, t),
         batteryToHouseKw = lerp(a.batteryToHouseKw, b.batteryToHouseKw, t),
         gridToHouseKw = lerp(a.gridToHouseKw, b.gridToHouseKw, t),
+        gridToBatteryKw = lerp(a.gridToBatteryKw, b.gridToBatteryKw, t),
         batterySocKwh = lerp(a.batterySocKwh, b.batterySocKwh, t),
         batterySocPercent = lerp(a.batterySocPercent.toDouble(), b.batterySocPercent.toDouble(), t).toFloat(),
         batteryPowerKw = lerp(a.batteryPowerKw, b.batteryPowerKw, t),
         gridPowerKw = lerp(a.gridPowerKw, b.gridPowerKw, t),
         unmetLoadKw = lerp(a.unmetLoadKw, b.unmetLoadKw, t),
+        curtailedSolarKw = lerp(a.curtailedSolarKw, b.curtailedSolarKw, t),
         status = if (t < 0.5) a.status else b.status
     )
 

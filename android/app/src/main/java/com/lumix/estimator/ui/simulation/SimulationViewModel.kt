@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.domain.QuoteInputs
+import com.lumix.estimator.domain.simulation.InverterMode
 import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.SimFrame
 import com.lumix.estimator.domain.simulation.SimSystemConfig
@@ -33,6 +34,8 @@ data class SimulationUiState(
     val speed: Float = 1f,
     val appliances: Map<SimApplianceType, Boolean> = emptyMap(),
     val gridConnected: Boolean = true,
+    val inverterMode: InverterMode = InverterMode.SBU,
+    val gridChargeEnabled: Boolean = true,
     val weather: WeatherState = WeatherState.CLEAR,
     val startSocFraction: Double = 0.6,
     val cloudEventActive: Boolean = false,
@@ -58,10 +61,14 @@ class SimulationViewModel(
             val config = SimSystemConfig.from(saved.result, saved.inputs)
             val appliances = defaultApplianceStates(saved.inputs)
             val gridConnected = config.gridConnectable
+            val inverterMode = _state.value.inverterMode
+            val gridChargeEnabled = _state.value.gridChargeEnabled
             val timeline = SimulationEngine.buildDayTimeline(
                 config,
                 gridConnected = gridConnected,
-                applianceLoadKw = totalApplianceLoadKw(appliances)
+                applianceLoadKw = totalApplianceLoadKw(appliances),
+                inverterMode = inverterMode,
+                gridChargeEnabled = gridChargeEnabled
             )
             val label = saved.inputs.customerName.takeIf { it.isNotBlank() } ?: "Your Solar System"
             _state.update {
@@ -87,6 +94,14 @@ class SimulationViewModel(
 
     fun setGridConnected(connected: Boolean) {
         rebuildTimeline(gridConnected = connected)
+    }
+
+    fun setInverterMode(mode: InverterMode) {
+        rebuildTimeline(inverterMode = mode)
+    }
+
+    fun setGridChargeEnabled(enabled: Boolean) {
+        rebuildTimeline(gridChargeEnabled = enabled)
     }
 
     fun setWeather(weather: WeatherState) {
@@ -117,6 +132,8 @@ class SimulationViewModel(
     private fun rebuildTimeline(
         appliances: Map<SimApplianceType, Boolean> = _state.value.appliances,
         gridConnected: Boolean = _state.value.gridConnected,
+        inverterMode: InverterMode = _state.value.inverterMode,
+        gridChargeEnabled: Boolean = _state.value.gridChargeEnabled,
         weather: WeatherState = _state.value.weather,
         startSocFraction: Double = _state.value.startSocFraction
     ) {
@@ -127,12 +144,16 @@ class SimulationViewModel(
             cloudMultiplier = weather.multiplier,
             gridConnected = effectiveGridConnected,
             startSocFraction = startSocFraction,
-            applianceLoadKw = totalApplianceLoadKw(appliances)
+            applianceLoadKw = totalApplianceLoadKw(appliances),
+            inverterMode = inverterMode,
+            gridChargeEnabled = gridChargeEnabled
         )
         _state.update {
             it.copy(
                 appliances = appliances,
                 gridConnected = effectiveGridConnected,
+                inverterMode = inverterMode,
+                gridChargeEnabled = gridChargeEnabled,
                 weather = weather,
                 startSocFraction = startSocFraction,
                 timeline = timeline,

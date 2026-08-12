@@ -41,7 +41,7 @@ object TechnicalModel {
         } else 0.0
         val batteryCurrent = if (batteryVoltage > 0) (frame.batteryPowerKw * 1000.0) / batteryVoltage else 0.0
 
-        val inverterOutputKw = (frame.houseLoadKw - frame.unmetLoadKw).coerceAtLeast(0.0) + frame.solarToGridKw
+        val inverterOutputKw = (frame.houseLoadKw - frame.unmetLoadKw).coerceAtLeast(0.0) + frame.solarToBatteryKw + frame.gridToBatteryKw
 
         val gridActive = config.gridConnectable
         val gridVoltage = if (gridActive) GRID_NOMINAL_VOLTAGE else 0.0

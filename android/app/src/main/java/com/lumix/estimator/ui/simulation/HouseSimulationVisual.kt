@@ -273,8 +273,7 @@ private fun DrawScope.drawScene(
         drawLine(poleColor, poleTop + Offset(-w * 0.035f, h * 0.02f), poleTop + Offset(w * 0.035f, h * 0.02f), strokeWidth = 2.dp.toPx())
 
         val wireColor = when {
-            frame.gridToHouseKw > 0.01 -> LumixColors.SolarAmber
-            frame.solarToGridKw > 0.01 -> LumixColors.EnergyGreen
+            frame.gridToHouseKw > 0.01 || frame.gridToBatteryKw > 0.01 -> LumixColors.SolarAmber
             else -> palette.textSecondary.copy(alpha = 0.35f)
         }
         drawLine(wireColor, poleTop + Offset(w * 0.035f, h * 0.02f), meterPoint, strokeWidth = 2.dp.toPx())
@@ -302,8 +301,9 @@ private fun DrawScope.drawScene(
         if (config.gridConnectable) {
             if (frame.gridToHouseKw > 0.01) {
                 drawParticles(meterPoint, homeAnchor, (frame.gridToHouseKw / maxLoad).toFloat(), LumixColors.SolarAmber, flowPhase)
-            } else if (frame.solarToGridKw > 0.01) {
-                drawParticles(inverterAnchor, meterPoint, (frame.solarToGridKw / maxPv).toFloat(), LumixColors.EnergyGreen, flowPhase)
+            }
+            if (frame.gridToBatteryKw > 0.01) {
+                drawParticles(meterPoint, batteryAnchor, (frame.gridToBatteryKw / maxBatteryFlow).toFloat(), LumixColors.SolarAmber, flowPhase)
             }
         }
     }
@@ -329,8 +329,7 @@ private fun DrawScope.drawParticles(from: Offset, to: Offset, intensity: Float, 
 
 internal fun statusColor(status: SystemStatus): Color = when (status) {
     SystemStatus.POWER_LIMITED -> LumixColors.WarningRed
-    SystemStatus.EXPORTING_TO_GRID -> LumixColors.EnergyGreen
-    SystemStatus.GRID_POWERING_HOME, SystemStatus.BATTERY_PLUS_GRID -> LumixColors.SolarAmber
+    SystemStatus.GRID_POWERING_HOME, SystemStatus.BATTERY_PLUS_GRID, SystemStatus.GRID_CHARGING_BATTERY -> LumixColors.SolarAmber
     SystemStatus.BATTERY_POWERING_HOME -> LumixColors.TechnicalCyan
     SystemStatus.SOLAR_PLUS_BATTERY, SystemStatus.SOLAR_POWERING_HOME -> LumixColors.SolarYellow
     SystemStatus.IDLE -> Color.Gray
