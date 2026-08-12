@@ -36,6 +36,7 @@ data class SimulationUiState(
     val gridConnected: Boolean = true,
     val inverterMode: InverterMode = InverterMode.SBU,
     val gridChargeEnabled: Boolean = true,
+    val gridServiceAmps: Double = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS,
     val weather: WeatherState = WeatherState.CLEAR,
     val startSocFraction: Double = 0.6,
     val cloudEventActive: Boolean = false,
@@ -63,12 +64,14 @@ class SimulationViewModel(
             val gridConnected = config.gridConnectable
             val inverterMode = _state.value.inverterMode
             val gridChargeEnabled = _state.value.gridChargeEnabled
+            val gridServiceAmps = _state.value.gridServiceAmps
             val timeline = SimulationEngine.buildDayTimeline(
                 config,
                 gridConnected = gridConnected,
                 applianceLoadKw = totalApplianceLoadKw(appliances),
                 inverterMode = inverterMode,
-                gridChargeEnabled = gridChargeEnabled
+                gridChargeEnabled = gridChargeEnabled,
+                gridServiceAmps = gridServiceAmps
             )
             val label = saved.inputs.customerName.takeIf { it.isNotBlank() } ?: "Your Solar System"
             _state.update {
@@ -104,6 +107,10 @@ class SimulationViewModel(
         rebuildTimeline(gridChargeEnabled = enabled)
     }
 
+    fun setGridServiceAmps(amps: Double) {
+        rebuildTimeline(gridServiceAmps = amps)
+    }
+
     fun setWeather(weather: WeatherState) {
         rebuildTimeline(weather = weather)
     }
@@ -134,6 +141,7 @@ class SimulationViewModel(
         gridConnected: Boolean = _state.value.gridConnected,
         inverterMode: InverterMode = _state.value.inverterMode,
         gridChargeEnabled: Boolean = _state.value.gridChargeEnabled,
+        gridServiceAmps: Double = _state.value.gridServiceAmps,
         weather: WeatherState = _state.value.weather,
         startSocFraction: Double = _state.value.startSocFraction
     ) {
@@ -146,7 +154,8 @@ class SimulationViewModel(
             startSocFraction = startSocFraction,
             applianceLoadKw = totalApplianceLoadKw(appliances),
             inverterMode = inverterMode,
-            gridChargeEnabled = gridChargeEnabled
+            gridChargeEnabled = gridChargeEnabled,
+            gridServiceAmps = gridServiceAmps
         )
         _state.update {
             it.copy(
@@ -154,6 +163,7 @@ class SimulationViewModel(
                 gridConnected = effectiveGridConnected,
                 inverterMode = inverterMode,
                 gridChargeEnabled = gridChargeEnabled,
+                gridServiceAmps = gridServiceAmps,
                 weather = weather,
                 startSocFraction = startSocFraction,
                 timeline = timeline,

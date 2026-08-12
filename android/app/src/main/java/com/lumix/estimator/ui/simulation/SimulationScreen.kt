@@ -178,8 +178,8 @@ fun SimulationScreen(
                 item {
                     SectionCard(title = "Technical") {
                         TechnicalDetailsContent(
-                            readout = remember(frame, config, state.timeline) {
-                                TechnicalModel.compute(frame, config, state.timeline)
+                            readout = remember(frame, config, state.timeline, state.appliances, state.gridServiceAmps) {
+                                TechnicalModel.compute(frame, config, state.timeline, state.appliances, state.gridServiceAmps)
                             }
                         )
                     }
@@ -248,6 +248,14 @@ fun SimulationScreen(
                             color = palette.textSecondary,
                             modifier = Modifier.padding(top = 10.dp)
                         )
+                        Text(
+                            "Utility service limit",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = palette.textPrimary,
+                            modifier = Modifier.padding(top = 14.dp)
+                        )
+                        GridServiceAmpsSelector(selected = state.gridServiceAmps, onSelect = viewModel::setGridServiceAmps)
                         if (state.inverterMode == InverterMode.UTI && config.hasBattery) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
@@ -374,7 +382,8 @@ fun SimulationScreen(
                     frame = frame,
                     config = config,
                     inputs = state.inputs,
-                    gridConnected = state.gridConnected
+                    gridConnected = state.gridConnected,
+                    gridServiceAmps = state.gridServiceAmps
                 )
             }
         }
@@ -432,6 +441,39 @@ private fun InverterModeSelector(selected: InverterMode, onSelect: (InverterMode
                     .clip(RoundedCornerShape(LumixRadius.pill))
                     .background(if (isSelected) palette.solarYellow.copy(alpha = 0.16f) else Color.Transparent)
                     .clickable { onSelect(mode) }
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            )
+        }
+    }
+}
+
+private val GRID_SERVICE_AMP_PRESETS = listOf(15.0, 30.0, 60.0, 100.0)
+
+@Composable
+private fun GridServiceAmpsSelector(selected: Double, onSelect: (Double) -> Unit) {
+    val palette = LocalLumixPalette.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .clip(RoundedCornerShape(LumixRadius.pill))
+            .background(palette.glass)
+            .padding(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        GRID_SERVICE_AMP_PRESETS.forEach { amps ->
+            val isSelected = amps == selected
+            Text(
+                "${amps.toInt()}A",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                color = if (isSelected) palette.solarYellowText else palette.textSecondary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(LumixRadius.pill))
+                    .background(if (isSelected) palette.solarYellow.copy(alpha = 0.16f) else Color.Transparent)
+                    .clickable { onSelect(amps) }
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             )
         }

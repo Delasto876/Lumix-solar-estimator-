@@ -4,10 +4,16 @@ import kotlin.math.sin
 
 /**
  * Typical/modeled electrical figures for "Technical" mode — not measured telemetry.
- * Voltage and frequency are nominal assumptions for a Jamaica-style 110V/60Hz grid and a
- * 48V LiFePO4 battery bus; current is simply power/voltage from those assumptions. Energy
- * today is a real integral of the precomputed timeline; energy this month is that day's
- * total simply extrapolated ×30, not a recorded history.
+ * Voltage and frequency are nominal assumptions for a Jamaica-style split-phase 110V/220V,
+ * 50Hz grid and a 48V LiFePO4 battery bus; current is simply power/voltage (P=V×I) from those
+ * assumptions. Energy today is a real integral of the precomputed timeline; energy this month
+ * is that day's total simply extrapolated ×30, not a recorded history.
+ *
+ * The grid side is reported as two circuits, matching real Jamaican residential wiring: general
+ * lighting/outlets at 110V ([gridLowCurrent]) and heavy appliances (AC, water heater, etc.) at
+ * 220V ([gridHighCurrent]). [gridServiceUtilization] compares total grid draw against the
+ * configured utility service rating ([gridServiceAmps]) — the same rating the simulation engine
+ * itself enforces as a hard import cap, so this is always consistent with what the engine did.
  */
 data class TechnicalReadout(
     val pvVoltage: Double,
@@ -17,8 +23,12 @@ data class TechnicalReadout(
     val batteryCurrent: Double,
     val batterySocPercent: Float,
     val inverterOutputKw: Double,
-    val gridVoltage: Double,
-    val gridCurrent: Double,
+    val gridLowVoltage: Double,
+    val gridLowCurrent: Double,
+    val gridHighVoltage: Double,
+    val gridHighCurrent: Double,
+    val gridServiceAmps: Double,
+    val gridServiceUtilization: Float,
     val frequencyHz: Double,
     val energyTodayKwh: Double,
     val energyMonthEstKwh: Double
@@ -28,10 +38,17 @@ object TechnicalModel {
     private const val PV_NOMINAL_VOLTAGE = 380.0
     private const val BATTERY_MIN_VOLTAGE = 46.0
     private const val BATTERY_MAX_VOLTAGE = 53.0
-    private const val GRID_NOMINAL_VOLTAGE = 110.0
-    private const val GRID_NOMINAL_FREQUENCY = 60.0
+    private const val GRID_LOW_VOLTAGE = 110.0
+    private const val GRID_HIGH_VOLTAGE = SimulationEngine.GRID_SERVICE_VOLTAGE // 220.0
+    private const val GRID_FREQUENCY_HZ = 50.0 // Jamaica mains
 
-    fun compute(frame: SimFrame, config: SimSystemConfig, timeline: List<SimFrame>): TechnicalReadout {
+    fun compute(
+        frame: SimFrame,
+        config: SimSystemConfig,
+        timeline: List<SimFrame>,
+        appliances: Map<SimApplianceType, Boolean> = emptyMap(),
+        gridServiceAmps: Double = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS
+    ): TechnicalReadout {
         val pvVoltage = if (frame.pvKw > 0.01) PV_NOMINAL_VOLTAGE else 0.0
         val pvCurrent = if (pvVoltage > 0) (frame.pvKw * 1000.0) / pvVoltage else 0.0
 
@@ -44,9 +61,30 @@ object TechnicalModel {
         val inverterOutputKw = (frame.houseLoadKw - frame.unmetLoadKw).coerceAtLeast(0.0) + frame.solarToBatteryKw + frame.gridToBatteryKw
 
         val gridActive = config.gridConnectable
-        val gridVoltage = if (gridActive) GRID_NOMINAL_VOLTAGE else 0.0
-        val gridCurrent = if (gridActive) (frame.gridPowerKw * 1000.0) / GRID_NOMINAL_VOLTAGE else 0.0
-        val frequencyHz = if (gridActive) GRID_NOMINAL_FREQUENCY + 0.02 * sin(frame.hour) else 0.0
+        val gridTotalKw = frame.gridToHouseKw + frame.gridToBatteryKw
+
+        // The frame only tracks one blended houseLoadKw; apportion the grid's actual delivered
+        // power across the two circuits by the current appliance mix, so the reading reflects
+        // what's really running rather than assuming everything is one flat voltage.
+        val loadByTier = applianceLoadKwByTier(appliances)
+        val lowTierKw = loadByTier[ElectricalTier.LOW] ?: 0.0
+        val highTierKw = loadByTier[ElectricalTier.HIGH] ?: 0.0
+        val tieredTotalKw = lowTierKw + highTierKw
+        val (gridLowKw, gridHighKw) = if (tieredTotalKw > 0.01) {
+            (gridTotalKw * (lowTierKw / tieredTotalKw)) to (gridTotalKw * (highTierKw / tieredTotalKw))
+        } else {
+            gridTotalKw to 0.0 // no tier info (background load only) — assume general 110V circuits
+        }
+
+        val gridLowVoltage = if (gridActive) GRID_LOW_VOLTAGE else 0.0
+        val gridHighVoltage = if (gridActive) GRID_HIGH_VOLTAGE else 0.0
+        val gridLowCurrent = if (gridActive) (gridLowKw * 1000.0) / GRID_LOW_VOLTAGE else 0.0
+        val gridHighCurrent = if (gridActive) (gridHighKw * 1000.0) / GRID_HIGH_VOLTAGE else 0.0
+
+        val maxGridServiceKw = gridServiceAmps * GRID_HIGH_VOLTAGE / 1000.0
+        val gridServiceUtilization = if (gridActive && maxGridServiceKw > 0) (gridTotalKw / maxGridServiceKw).toFloat() else 0f
+
+        val frequencyHz = if (gridActive) GRID_FREQUENCY_HZ + 0.02 * sin(frame.hour) else 0.0
 
         val dt = if (timeline.size > 1) timeline[1].hour - timeline[0].hour else 5.0 / 60.0
         val energyTodayKwh = timeline.filter { it.hour <= frame.hour }.sumOf { it.pvKw * dt }
@@ -59,8 +97,12 @@ object TechnicalModel {
             batteryCurrent = batteryCurrent,
             batterySocPercent = frame.batterySocPercent,
             inverterOutputKw = inverterOutputKw,
-            gridVoltage = gridVoltage,
-            gridCurrent = gridCurrent,
+            gridLowVoltage = gridLowVoltage,
+            gridLowCurrent = gridLowCurrent,
+            gridHighVoltage = gridHighVoltage,
+            gridHighCurrent = gridHighCurrent,
+            gridServiceAmps = gridServiceAmps,
+            gridServiceUtilization = gridServiceUtilization,
             frequencyHz = frequencyHz,
             energyTodayKwh = energyTodayKwh,
             energyMonthEstKwh = energyTodayKwh * 30

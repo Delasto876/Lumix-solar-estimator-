@@ -699,6 +699,45 @@ battery-starts-full/near-zero-load scenario curtails solar rather than exporting
 `EnergyFlowResolver`'s grid path stays `FORWARD`-only with correct combined magnitudes across a
 full UTI day.
 
-Remaining phases (Jamaica 110V/220V electrical config for the simulation, further energy-flow
-animation polish, final validation against the spec's 20 test scenarios) are tracked but not
-started as of this commit.
+**Phase 4 — Jamaica electrical config: 110V/220V split-phase, 50Hz, P=V×I, configurable utility
+service amps** (`domain/simulation/SimAppliance.kt`, `TechnicalReadout.kt`, `SimulationEngine.kt`,
+`ui/simulation/TechnicalDetailsCard.kt`, `InspectPanel.kt`, `SimulationViewModel.kt`,
+`SimulationScreen.kt`):
+
+Scoped to the simulation only, per an earlier explicit choice — the estimator's core appliance
+catalog (pricing/sizing) is untouched; only the simulation-only `SimApplianceType` enum and the
+Technical readout/engine gained electrical awareness.
+
+- **50Hz, not 60Hz.** `TechnicalModel`'s grid frequency assumption was a real bug — Jamaica's
+  mains frequency is 50Hz. Fixed.
+- **Real 110V/220V split, not one flat fake voltage.** Every `SimApplianceType` now carries an
+  `ElectricalTier` (`LOW`=110V for lighting/outlets/fridge/fans/etc., `HIGH`=220V for AC, water
+  heater, oven, dryer, pump, EV charger — matching how Jamaican homes are actually wired). A
+  new `applianceLoadKwByTier()` helper splits the currently-on appliances' load by tier, and
+  `TechnicalModel.compute()` apportions the frame's actual grid draw across those two tiers by
+  the live appliance mix, reporting genuine `gridLowCurrent`/`gridHighCurrent` via real P=V×I
+  on each tier instead of one blended, physically-meaningless number. Verified standalone: an
+  all-AC load draws its current entirely on the 220V leg, an all-lights load draws entirely on
+  110V, and `(gridLowVoltage×gridLowCurrent + gridHighVoltage×gridHighCurrent)/1000` exactly
+  reconstructs the frame's total grid draw — P=V×I round-trips correctly.
+- **A real, configurable utility service current limit — enforced in the engine, not just
+  displayed.** `SimulationEngine.buildDayTimeline` gained a `gridServiceAmps` parameter
+  (default 30A, matching the spec) that hard-caps total grid import (`gridToHouseKw +
+  gridToBatteryKw`) at `amps × 220V`, the same both-legs-capacity convention used for the
+  Technical readout's own service-utilization figure so the two stay consistent. When the cap
+  binds, battery charging backs off first (it's the lower-priority use of grid import), then
+  house import is throttled as a last resort, converting the remainder into `unmetLoadKw` —
+  exactly like a real breaker trip would behave, and surfacing as the existing
+  `POWER_LIMITED` status rather than a new one. Selectable at runtime from the Inverter Mode
+  card (15A/30A/60A/100A presets), the same what-if pattern as `inverterMode`/`gridConnected`.
+  Verified standalone: a 25kW load against a 30A service caps grid draw at exactly 6.6kW and
+  produces `POWER_LIMITED` with real unmet load; raising the service to 100A permits
+  proportionally more draw; the cap never causes a Phase 3 no-export violation; and in UTI mode
+  the cap always exhausts battery-charging headroom before ever leaving house load unmet.
+- `InspectPanel`'s Grid detail sheet now shows the configured service limit (amps + kW) and its
+  "demand exceeds supply" note distinguishes an actual outage from hitting the utility service
+  cap while still connected — two different real-world causes that look identical in the raw
+  numbers but aren't the same problem.
+
+Remaining phases (further energy-flow animation polish, final validation against the spec's 20
+test scenarios) are tracked but not started as of this commit.

@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.simulation.SimFrame
 import com.lumix.estimator.domain.simulation.SimSystemConfig
+import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixRadius
 
@@ -64,10 +65,11 @@ fun ComponentDetailContent(
     config: SimSystemConfig,
     inputs: QuoteInputs?,
     gridConnected: Boolean,
+    gridServiceAmps: Double = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalLumixPalette.current
-    val lines = detailLines(target, frame, config, inputs, gridConnected)
+    val lines = detailLines(target, frame, config, inputs, gridConnected, gridServiceAmps)
 
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
         Row {
@@ -109,7 +111,8 @@ private fun detailLines(
     f: SimFrame,
     config: SimSystemConfig,
     inputs: QuoteInputs?,
-    gridConnected: Boolean
+    gridConnected: Boolean,
+    gridServiceAmps: Double
 ): DetailLines = when (target) {
     InspectTarget.PANELS -> DetailLines(
         title = "Solar Array",
@@ -154,15 +157,23 @@ private fun detailLines(
             )
         )
     }
-    InspectTarget.GRID -> DetailLines(
-        title = "JPS Grid",
-        subtitle = if (!config.gridConnectable) "This system has no grid connection" else if (gridConnected) "Connected" else "Disconnected — running on backup",
-        rows = listOf(
-            "To home" to fmtKw(f.gridToHouseKw),
-            "Charging battery" to fmtKw(f.gridToBatteryKw)
-        ),
-        note = if (f.unmetLoadKw > 0.01) "Demand exceeds solar + battery, and the grid is unavailable — some load can't be met." else null
-    )
+    InspectTarget.GRID -> {
+        val serviceKw = gridServiceAmps * SimulationEngine.GRID_SERVICE_VOLTAGE / 1000.0
+        DetailLines(
+            title = "JPS Grid",
+            subtitle = if (!config.gridConnectable) "This system has no grid connection" else if (gridConnected) "Connected" else "Disconnected — running on backup",
+            rows = listOf(
+                "To home" to fmtKw(f.gridToHouseKw),
+                "Charging battery" to fmtKw(f.gridToBatteryKw),
+                "Service limit" to "${gridServiceAmps.toInt()}A (${fmtKw(serviceKw)})"
+            ),
+            note = when {
+                f.unmetLoadKw <= 0.01 -> null
+                !config.gridConnectable || !gridConnected -> "Demand exceeds solar + battery, and the grid is unavailable — some load can't be met."
+                else -> "Demand exceeds solar + battery, and the ${gridServiceAmps.toInt()}A utility service limit — some load can't be met."
+            }
+        )
+    }
     InspectTarget.HOME -> DetailLines(
         title = "Your Home",
         subtitle = inputs?.propertyType?.label ?: "Current consumption",

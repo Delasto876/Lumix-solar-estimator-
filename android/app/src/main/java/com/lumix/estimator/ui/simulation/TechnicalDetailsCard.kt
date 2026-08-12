@@ -20,15 +20,19 @@ fun TechnicalDetailsContent(readout: TechnicalReadout, modifier: Modifier = Modi
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            "Typical values for a 110V/60Hz grid and a 48V battery bus — modeled, not live telemetry.",
+            "Typical values for a Jamaica-style split-phase 110V/220V, 50Hz grid and a 48V battery bus — modeled, not live telemetry.",
             style = MaterialTheme.typography.labelSmall,
             color = palette.textSecondary
         )
 
         TechRow("PV Voltage", "%.0f V".format(readout.pvVoltage), "PV Current", "%.2f A".format(readout.pvCurrent))
         TechRow("Battery Voltage", "%.1f V".format(readout.batteryVoltage), "Battery Current", "%.2f A".format(readout.batteryCurrent))
-        TechRow("Inverter Output", "%.2f kW".format(readout.inverterOutputKw), "Grid Voltage", "%.0f V".format(readout.gridVoltage))
-        TechRow("Grid Current", "%.2f A".format(readout.gridCurrent), "Frequency", if (readout.frequencyHz > 0) "%.2f Hz".format(readout.frequencyHz) else "—")
+        TechRow("Inverter Output", "%.2f kW".format(readout.inverterOutputKw), "Frequency", if (readout.frequencyHz > 0) "%.2f Hz".format(readout.frequencyHz) else "—")
+        TechRow("Grid 110V Current", "%.2f A".format(readout.gridLowCurrent), "Grid 220V Current", "%.2f A".format(readout.gridHighCurrent))
+        TechRow(
+            "Utility Service Limit", "${readout.gridServiceAmps.toInt()} A",
+            "Service Used", if (readout.gridServiceUtilization > 0f) "%.0f%%".format(readout.gridServiceUtilization * 100f) else "—"
+        )
         TechRow("Energy Today", "%.1f kWh".format(readout.energyTodayKwh), "Energy This Month (est.)", "%.0f kWh".format(readout.energyMonthEstKwh))
     }
 }

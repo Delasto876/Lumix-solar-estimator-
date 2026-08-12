@@ -28,6 +28,11 @@ object SimulationEngine {
     private const val FLOW_EPSILON = 0.01
     private const val BACKGROUND_LOAD_FRACTION = 0.4
     private const val BACKGROUND_LOAD_FLOOR_KW = 0.15
+    // Jamaican residential service is rated in amps against the 220V split-phase feed (both
+    // legs) — this is the same convention TechnicalReadout uses for its own service-limit math,
+    // so the two stay consistent.
+    const val GRID_SERVICE_VOLTAGE = 220.0
+    const val DEFAULT_GRID_SERVICE_AMPS = 30.0
 
     // Jamaica has no DST, so a fixed UTC offset stands in for a full timezone lookup —
     // consistent with the rest of this Jamaica-focused app (see solar/SolarPositionCalculator
@@ -114,7 +119,8 @@ object SimulationEngine {
         resolutionMinutes: Int = 5,
         applianceLoadKw: Double = 0.0,
         inverterMode: InverterMode = InverterMode.SBU,
-        gridChargeEnabled: Boolean = true
+        gridChargeEnabled: Boolean = true,
+        gridServiceAmps: Double = DEFAULT_GRID_SERVICE_AMPS
     ): List<SimFrame> {
         val maxSocKwh = config.batteryCapacityKwh * BATTERY_MAX_SOC_FRACTION
         val minSocKwh = config.batteryCapacityKwh * BATTERY_MIN_SOC_FRACTION
@@ -198,6 +204,27 @@ object SimulationEngine {
                         gridToHouse = remainingLoad
                     } else {
                         unmet = remainingLoad
+                    }
+                }
+            }
+
+            // The utility connection itself is current-limited (a real main-breaker/service
+            // rating, e.g. 30A) — this is separate from and on top of everything above. If the
+            // combined grid draw would exceed it, back off battery charging first (it's the
+            // lower-priority use of grid import), then throttle house import as a last resort,
+            // turning any remainder into unmet load exactly like a genuine outage would.
+            if (gridConnectedNow) {
+                val maxGridServiceKw = gridServiceAmps * GRID_SERVICE_VOLTAGE / 1000.0
+                val totalGridDraw = gridToHouse + gridToBattery
+                if (totalGridDraw > maxGridServiceKw + FLOW_EPSILON) {
+                    var overage = totalGridDraw - maxGridServiceKw
+                    val batteryCut = min(gridToBattery, overage)
+                    gridToBattery -= batteryCut
+                    overage -= batteryCut
+                    if (overage > FLOW_EPSILON) {
+                        val houseCut = min(gridToHouse, overage)
+                        gridToHouse -= houseCut
+                        unmet += houseCut
                     }
                 }
             }
