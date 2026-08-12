@@ -1,13 +1,13 @@
 package com.lumix.estimator.domain
 
 object Validation {
-    fun step1Errors(input: QuoteInputs): List<String> {
+    fun customerErrors(input: QuoteInputs): List<String> {
         val errors = mutableListOf<String>()
         if (input.parish.isBlank()) errors += "Please select a parish."
         return errors
     }
 
-    fun step4Errors(input: QuoteInputs): List<String> {
+    fun usageErrors(input: QuoteInputs): List<String> {
         if (input.quoteMode != QuoteMode.GUIDED) return emptyList()
         val errors = mutableListOf<String>()
         when (input.usageMode) {
@@ -18,7 +18,7 @@ object Validation {
         return errors
     }
 
-    fun step6Errors(input: QuoteInputs): List<String> {
+    fun manualErrors(input: QuoteInputs): List<String> {
         if (input.quoteMode != QuoteMode.MANUAL) return emptyList()
         val errors = mutableListOf<String>()
         if (input.manualModeType != ManualModeType.BATTERY_LED && input.manualPanelCount <= 0) {
@@ -27,7 +27,7 @@ object Validation {
         return errors
     }
 
-    fun step7Errors(input: QuoteInputs): List<String> {
+    fun pricingErrors(input: QuoteInputs): List<String> {
         val errors = mutableListOf<String>()
         if (input.discountType == DiscountType.PERCENT && (input.discountValue < 0 || input.discountValue > 100)) {
             errors += "Percent discount must be between 0 and 100."

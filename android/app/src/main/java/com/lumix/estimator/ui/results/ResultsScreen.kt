@@ -39,7 +39,6 @@ import com.lumix.estimator.data.SavedQuote
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.SavingsCalculator
-import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.domain.SystemMode
 import com.lumix.estimator.domain.formatCurrency
 import com.lumix.estimator.domain.formatQty
@@ -185,6 +184,12 @@ fun ResultsScreen(
                     }
                 }
 
+                if (result.backupCapacityWarningKw != null) {
+                    item {
+                        BackupCapacityWarningBanner(warningKw = result.backupCapacityWarningKw, inverterKw = result.inverterKw)
+                    }
+                }
+
                 item {
                     SectionCard(title = "Estimated Performance") {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -314,6 +319,35 @@ private fun RoofConstraintBanner(inputs: QuoteInputs, result: QuoteResult) {
 }
 
 @Composable
+private fun BackupCapacityWarningBanner(warningKw: Double, inverterKw: Double) {
+    val palette = LocalLumixPalette.current
+    SectionCard(title = "", modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("⚠️", style = MaterialTheme.typography.titleMedium)
+            Column {
+                Text(
+                    "Backup load exceeds system capacity",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.warningRedText
+                )
+                Text(
+                    "Backing up this much load needs about %.1f kW, but the selected inverter delivers %.1f kW."
+                        .format(warningKw, inverterKw),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = palette.textPrimary
+                )
+                Text(
+                    "Switch backup coverage to Critical Loads to back up only what this system can actually deliver, or consider a larger inverter.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun PerformanceStat(label: String, value: String, modifier: Modifier = Modifier) {
     val palette = LocalLumixPalette.current
     Column(modifier = modifier.padding(vertical = 6.dp)) {
@@ -332,10 +366,10 @@ private fun buildFlowNodes(
         FlowNode(
             id = "sun",
             title = "Sunlight",
-            subtitle = "~${SystemCalculator.PSH.toInt()} peak sun hours/day",
+            subtitle = "~${"%.1f".format(inputs.peakSunHours)} peak sun hours/day",
             glyph = "☀️",
             accentColor = palette.SolarYellow,
-            detail = "Kingston-area sites average around ${SystemCalculator.PSH.toInt()} peak sun hours a day. Panel and battery sizing throughout this quote is based on that average."
+            detail = "Panel and battery sizing throughout this quote is based on ${"%.1f".format(inputs.peakSunHours)} peak sun hours/day for this site — editable in the Energy step, not a measured value."
         ),
         FlowNode(
             id = "panels",

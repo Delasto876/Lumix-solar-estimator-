@@ -600,6 +600,45 @@ consumption anywhere in the tree.
 Not yet done: splitting any wizard step whose *content* (not just the button row) is too tall
 for a small phone — that's bundled into Phase 2 below, since it's the same step-list refactor.
 
-Remaining phases (customer-first wizard reorder + new defaults, hybrid inverter SOL/SBU/UTI
-operating modes, Jamaica 110V/220V electrical config, energy-flow animation correctness,
-validation) are tracked but not started as of this commit.
+**Phase 2 — customer-first wizard reorder + new defaults
+(`QuoteInputs.kt`, `SystemCalculator.kt`, `QuoteResult.kt`, `SavingsCalculator.kt`,
+`ui/wizard/`, `Validation.kt`):**
+
+- New wizard step order: **Customer** (name/phone/email/address, plus parish/nearest-town moved
+  here from the old Site Info step) is now step 1, before any electricity-usage or sizing
+  question. Full order: 1 Customer, 2 Mode & Site Info, 3 Roof & Mounting, 4 Loads, 5 JPS
+  Bill/Usage, 6 Backup Requirements, 7 Manual System Builder (Manual mode only), 8 Pricing &
+  Discount. `WizardViewModel`/`WizardScreen`/`Validation` all renumbered together;
+  `Validation`'s functions are now named for what they validate (`customerErrors`,
+  `usageErrors`, `manualErrors`, `pricingErrors`) instead of by step number, so a future
+  reorder doesn't silently re-wire the wrong check to the wrong step again.
+- New defaults: monthly bill **J$16,000** (was 50,000), backup duration **12h** (was 4h,
+  16h added as a preset option alongside 4/8/24/Custom).
+- New `QuoteInputs.peakSunHours` field (default **5.5**, editable in the Usage step) replaces
+  `SystemCalculator`'s previously-hardcoded `PSH = 6.0` constant everywhere it mattered
+  (panel-count sizing *and* `SavingsCalculator`'s production projection) — every quote now
+  carries its own PSH assumption instead of the whole app sharing one baked-in number.
+- `BackupCoverage` gained `CRITICAL_LOADS`/`MOST_LOAD`/`CUSTOM` (`MOST_LOAD` is the new
+  default) alongside the original `ESSENTIALS`/`FULL`, which are kept — not renamed — purely
+  so quotes saved before this change still decode (kotlinx.serialization encodes enum
+  constants by name). `CRITICAL_LOADS` and `ESSENTIALS` compute identically; so do
+  `MOST_LOAD` and `FULL`. `CUSTOM` adds a user-chosen 10–100% slider
+  (`customBackupCoverageFraction`) instead of a fixed haircut.
+- New capacity-check warning: `QuoteResult.backupCapacityWarningKw` is set when the requested
+  backup coverage (Most Load/Custom — never Critical Loads/Essentials, which never asked for
+  the full peak) implies more load than the actually-selected inverter can deliver (its rating
+  got capped at the catalog's largest option). `ResultsScreen` shows an amber warning banner
+  in that case, naming the shortfall and suggesting Critical Loads coverage or a larger
+  inverter — the same "never silently pretend it fits" pattern as the roof-constraint banner.
+- Verified standalone: every existing scenario still passes unchanged (confirms
+  `ESSENTIALS`/`FULL` decode and calculate identically to before); a lower PSH now correctly
+  requires more PV kW for the same energy target; `SavingsCalculator` production now moves
+  with `peakSunHours` instead of a fixed constant; `CRITICAL_LOADS`/`MOST_LOAD` match legacy
+  `ESSENTIALS`/`FULL` battery sizing exactly; `CUSTOM` at 50%/80% falls strictly between
+  `CRITICAL_LOADS`(60%) and `MOST_LOAD`(100%) as expected; a deliberately oversized off-grid
+  appliance load triggers the capacity warning under `MOST_LOAD` but never under
+  `CRITICAL_LOADS`; a modest, well-within-capacity hybrid load triggers no warning.
+
+Remaining phases (hybrid inverter SOL/SBU/UTI operating modes, Jamaica 110V/220V electrical
+config, energy-flow animation correctness, validation) are tracked but not started as of this
+commit.

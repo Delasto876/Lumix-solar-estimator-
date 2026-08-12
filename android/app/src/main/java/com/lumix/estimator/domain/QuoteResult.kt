@@ -49,7 +49,16 @@ data class QuoteResult(
     val serviceCharge: Double,
     val deliveryCharge: Double,
     val discountAmount: Double,
-    val grandTotal: Double
+    val grandTotal: Double,
+    /**
+     * Set when the requested backup coverage (Most Load / Custom) implies a load the actually-
+     * selected inverter can't deliver (its rating was capped at the catalog's largest option).
+     * The value is the shortfall-causing required kW. Null whenever coverage is Critical Loads/
+     * Essentials (which never asks for the full peak) or the chosen inverter covers it fine.
+     * Defaults to null so quotes saved before this field existed decode as "no warning on
+     * record" — the accurate reading, since the check didn't exist yet either.
+     */
+    val backupCapacityWarningKw: Double? = null
 ) {
     val pvKw: Double get() = panelCount * panelWatts / 1000.0
     val energyOptimalPvKw: Double get() = energyOptimalPanelCount * panelWatts / 1000.0

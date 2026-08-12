@@ -12,7 +12,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.lumix.estimator.domain.Catalog
 import com.lumix.estimator.domain.JpsRate
 import com.lumix.estimator.domain.PropertyType
 import com.lumix.estimator.domain.QuoteInputs
@@ -54,24 +53,6 @@ fun Step1SiteInfo(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) 
                 selected = inputs.propertyType,
                 optionLabel = { it.label },
                 onSelected = { v -> onUpdate { it.copy(propertyType = v) } }
-            )
-
-            LabeledDropdown(
-                label = "Parish",
-                options = Catalog.parishes,
-                selected = inputs.parish.ifBlank { "Select parish" },
-                optionLabel = { it },
-                onSelected = { v -> onUpdate { it.copy(parish = v, nearestTown = "") } }
-            )
-
-            val towns = Catalog.parishTowns[inputs.parish].orEmpty()
-            LabeledDropdown(
-                label = "Nearest town",
-                options = towns.ifEmpty { listOf("Select a parish first") },
-                selected = inputs.nearestTown.ifBlank { towns.firstOrNull() ?: "Select a parish first" },
-                optionLabel = { it },
-                onSelected = { v -> onUpdate { it.copy(nearestTown = v) } },
-                supportingText = "Used for delivery & internal records."
             )
 
             LabeledDropdown(

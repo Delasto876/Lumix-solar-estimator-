@@ -52,5 +52,15 @@ fun Step4Usage(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> 
                 )
             }
         }
+
+        SectionCard(title = "Solar resource") {
+            NumberField(
+                label = "Peak Sun Hours",
+                value = inputs.peakSunHours,
+                onValueChange = { v -> onUpdate { it.copy(peakSunHours = v) } },
+                suffix = "hrs",
+                supportingText = "Estimator default for Jamaica — editable, and not a verified, location-specific value. See a real seasonal PSH estimate for a traced roof under Solar Site."
+            )
+        }
     }
 }

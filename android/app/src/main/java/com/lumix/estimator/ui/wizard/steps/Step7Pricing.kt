@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -77,23 +76,6 @@ fun Step7Pricing(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -
                         "% off the total (materials + 15% service + delivery)." else null
                 )
             }
-        }
-
-        SectionCard(title = "Customer") {
-            OutlinedTextField(
-                value = inputs.customerName,
-                onValueChange = { v -> onUpdate { it.copy(customerName = v) } },
-                label = { Text("Customer name (optional)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = inputs.customerContact,
-                onValueChange = { v -> onUpdate { it.copy(customerContact = v) } },
-                label = { Text("Customer contact (phone or email)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
         }
 
         Text(

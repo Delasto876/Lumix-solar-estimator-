@@ -25,8 +25,14 @@ enum class RoofType { ZINC, SLAB, SHINGLE }
 @Serializable
 enum class UsageMode { BILL, KWH, UNKNOWN }
 
+/**
+ * ESSENTIALS/FULL are kept (not renamed) purely so quotes saved before CRITICAL_LOADS/MOST_LOAD/
+ * CUSTOM existed still decode correctly — kotlinx.serialization encodes enum constants by name.
+ * ESSENTIALS and CRITICAL_LOADS are treated identically in [SystemCalculator]; likewise FULL and
+ * MOST_LOAD. New quotes always pick from CRITICAL_LOADS/MOST_LOAD/CUSTOM going forward.
+ */
 @Serializable
-enum class BackupCoverage { ESSENTIALS, FULL }
+enum class BackupCoverage { ESSENTIALS, FULL, CRITICAL_LOADS, MOST_LOAD, CUSTOM }
 
 @Serializable
 enum class ManualModeType { BATTERY_LED, PANEL_LED, FULL_MANUAL }
@@ -116,12 +122,16 @@ data class QuoteInputs(
     val otherHours: Double = 0.0,
 
     val usageMode: UsageMode = UsageMode.BILL,
-    val avgBill: Double = 50000.0,
+    val avgBill: Double = 16000.0,
     val avgKwh: Double = 0.0,
+    /** Peak Sun Hours for this site. Estimator default (not a measured value) — see SystemCalculator.PSH doc. */
+    val peakSunHours: Double = 5.5,
 
-    val backupHoursPreset: Int? = 4,
+    val backupHoursPreset: Int? = 12,
     val backupHoursCustom: Double = 6.0,
-    val backupCoverage: BackupCoverage = BackupCoverage.ESSENTIALS,
+    val backupCoverage: BackupCoverage = BackupCoverage.MOST_LOAD,
+    /** Fraction (0..1) of daily load to size backup for when backupCoverage == CUSTOM. */
+    val customBackupCoverageFraction: Double = 0.8,
 
     val manualModeType: ManualModeType = ManualModeType.BATTERY_LED,
     val manualInverterId: String? = null,
@@ -141,6 +151,9 @@ data class QuoteInputs(
 
     val customerName: String = "",
     val customerContact: String = "",
+    val customerEmail: String = "",
+    val customerAddress: String = "",
+    val customerNotes: String = "",
 
     val roofConstraint: RoofConstraint? = null
 ) {

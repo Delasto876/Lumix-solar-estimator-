@@ -37,7 +37,9 @@ class WizardViewModel(
     private val _isCalculating = MutableStateFlow(false)
     val isCalculating: StateFlow<Boolean> = _isCalculating.asStateFlow()
 
-    val totalSteps = 7
+    // 1 Customer, 2 Mode & Site Info, 3 Roof & Mounting, 4 Loads, 5 JPS Bill/Usage (GUIDED only),
+    // 6 Backup Requirements, 7 Manual System Builder (MANUAL only), 8 Pricing & Discount.
+    val totalSteps = 8
 
     fun update(transform: (QuoteInputs) -> QuoteInputs) {
         _inputs.value = transform(_inputs.value)
@@ -46,10 +48,10 @@ class WizardViewModel(
     fun errorsForStep(step: Int): List<String> {
         val data = _inputs.value
         return when (step) {
-            1 -> Validation.step1Errors(data)
-            4 -> Validation.step4Errors(data)
-            6 -> Validation.step6Errors(data)
-            7 -> Validation.step7Errors(data)
+            1 -> Validation.customerErrors(data)
+            5 -> Validation.usageErrors(data)
+            7 -> Validation.manualErrors(data)
+            8 -> Validation.pricingErrors(data)
             else -> emptyList()
         }
     }
@@ -57,8 +59,8 @@ class WizardViewModel(
     fun visibleSteps(): List<Int> {
         val mode = _inputs.value.quoteMode
         val steps = (1..totalSteps).toMutableList()
-        if (mode == QuoteMode.LOAD) steps.remove(4)
-        if (mode != QuoteMode.MANUAL) steps.remove(6)
+        if (mode == QuoteMode.LOAD) steps.remove(5)
+        if (mode != QuoteMode.MANUAL) steps.remove(7)
         return steps
     }
 

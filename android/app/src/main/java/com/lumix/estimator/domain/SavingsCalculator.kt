@@ -31,7 +31,7 @@ object SavingsCalculator {
     const val PROJECTION_YEARS = 20
 
     fun project(inputs: QuoteInputs, result: QuoteResult): SavingsProjection {
-        val monthlyProductionKwh = result.pvKw * SystemCalculator.PSH * 30.0
+        val monthlyProductionKwh = result.pvKw * inputs.peakSunHours * 30.0
         val requiredMonthlyKwh = result.designDailyKwh * 30.0
 
         val coveragePercent = if (requiredMonthlyKwh <= 0.01) {

@@ -5,9 +5,12 @@ import kotlin.math.max
 import kotlin.math.min
 
 object SystemCalculator {
-    const val PSH = 6.0
+    /** Fallback only — every real calculation uses [QuoteInputs.peakSunHours] (per-quote, editable, default 5.5) instead. */
+    const val PSH = 5.5
     const val BATTERY_DOD = 0.8
     const val BLENDED_TARIFF = 50.0
+    /** Minimum PSH floor so a stray 0/negative input can never divide-by-zero the panel-count math. */
+    private const val MIN_PSH = 0.5
 
     private data class LoadResult(val dailyKwh: Double, val peakWatts: Double)
 
@@ -67,8 +70,16 @@ object SystemCalculator {
 
         val designDailyKwh = designMonthlyKwh / 30.0
         val requiredInverterKw = (peakWatts * 1.25) / 1000.0
+        val psh = input.peakSunHours.coerceAtLeast(MIN_PSH)
 
-        val criticalDailyKwh = if (input.backupCoverage == BackupCoverage.ESSENTIALS) dailyKwhLoads * 0.6 else dailyKwhLoads
+        val criticalDailyKwh = when (input.backupCoverage) {
+            // ESSENTIALS/CRITICAL_LOADS: back up a reduced, "just the essentials" load.
+            BackupCoverage.ESSENTIALS, BackupCoverage.CRITICAL_LOADS -> dailyKwhLoads * 0.6
+            // FULL/MOST_LOAD: size backup for (up to) the whole day's load.
+            BackupCoverage.FULL, BackupCoverage.MOST_LOAD -> dailyKwhLoads
+            // CUSTOM: the user's own chosen fraction of the day's load.
+            BackupCoverage.CUSTOM -> dailyKwhLoads * input.customBackupCoverageFraction.coerceIn(0.0, 1.0)
+        }
         val backupFractionOfDay = input.backupHours / 24.0
         var batteryRequiredKwh = (criticalDailyKwh * backupFractionOfDay) / BATTERY_DOD
 
@@ -82,7 +93,7 @@ object SystemCalculator {
 
         if (input.quoteMode == QuoteMode.GUIDED || input.quoteMode == QuoteMode.LOAD) {
             panelW = if (input.systemMode == SystemMode.OFFGRID) 550 else 595
-            var pvKw = designDailyKwh / PSH
+            var pvKw = designDailyKwh / psh
 
             chosenInverter = when (input.systemMode) {
                 SystemMode.HYBRID -> Catalog.hybridInverters.firstOrNull { it.kw >= requiredInverterKw } ?: Catalog.hybridInverters.last()
@@ -165,7 +176,7 @@ object SystemCalculator {
 
             when (input.manualModeType) {
                 ManualModeType.BATTERY_LED -> {
-                    val pvKwForBattery = if (totalBatteryKwh > 0) totalBatteryKwh / 4.0 else designDailyKwh / PSH
+                    val pvKwForBattery = if (totalBatteryKwh > 0) totalBatteryKwh / 4.0 else designDailyKwh / psh
                     panelCount = enforceEvenPanels((pvKwForBattery * 1000) / panelW)
                 }
                 ManualModeType.PANEL_LED -> {
@@ -228,6 +239,19 @@ object SystemCalculator {
         }
 
         val inverter = chosenInverter!!
+
+        // Requested backup coverage (Most Load / Custom) implies wanting to run close to the
+        // whole house's peak draw during an outage, but the actually-selected inverter may have
+        // been capped at the catalog's largest option (requiredInverterKw > every available
+        // rating). Flag it rather than silently pretending the picked hardware can deliver more
+        // than its own rated capacity — never surfaced for Critical Loads/Essentials, since that
+        // coverage was never asking for the full peak in the first place.
+        val backupCapacityWarningKw: Double? =
+            if (input.backupCoverage != BackupCoverage.ESSENTIALS &&
+                input.backupCoverage != BackupCoverage.CRITICAL_LOADS &&
+                requiredInverterKw > inverter.kw
+            ) requiredInverterKw else null
+
         val panelUnitPrice = prices.panelPrice(panelW)
         val inverterCost = inverter.price(prices)
 
@@ -449,7 +473,8 @@ object SystemCalculator {
             serviceCharge = serviceCharge,
             deliveryCharge = input.deliveryCharge,
             discountAmount = discountAmount,
-            grandTotal = grandTotal
+            grandTotal = grandTotal,
+            backupCapacityWarningKw = backupCapacityWarningKw
         )
     }
 }

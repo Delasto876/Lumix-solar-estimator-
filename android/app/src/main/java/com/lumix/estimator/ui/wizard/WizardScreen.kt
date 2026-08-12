@@ -29,6 +29,7 @@ import com.lumix.estimator.domain.QuoteMode
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.theme.LocalLumixPalette
+import com.lumix.estimator.ui.wizard.steps.StepCustomer
 import com.lumix.estimator.ui.wizard.steps.Step1SiteInfo
 import com.lumix.estimator.ui.wizard.steps.Step2Roof
 import com.lumix.estimator.ui.wizard.steps.Step3Loads
@@ -38,13 +39,14 @@ import com.lumix.estimator.ui.wizard.steps.Step6Manual
 import com.lumix.estimator.ui.wizard.steps.Step7Pricing
 
 private val stepTitles = mapOf(
-    1 to "Mode & Site Info",
-    2 to "Roof & Mounting",
-    3 to "Loads",
-    4 to "JPS Bill / Usage",
-    5 to "Backup Requirements",
-    6 to "Manual System Builder",
-    7 to "Pricing & Customer"
+    1 to "Customer",
+    2 to "Mode & Site Info",
+    3 to "Roof & Mounting",
+    4 to "Loads",
+    5 to "JPS Bill / Usage",
+    6 to "Backup Requirements",
+    7 to "Manual System Builder",
+    8 to "Pricing & Discount"
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -100,7 +102,7 @@ fun WizardScreen(
                     LumixPrimaryButton(
                         text = "Calculate",
                         onClick = { showCalculationSequence = true },
-                        enabled = viewModel.errorsForStep(7).isEmpty()
+                        enabled = viewModel.errorsForStep(8).isEmpty()
                     )
                 } else {
                     LumixPrimaryButton(text = "Next", onClick = { viewModel.goNext() })
@@ -130,13 +132,14 @@ fun WizardScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 when (currentStep) {
-                    1 -> Step1SiteInfo(inputs, viewModel::update)
-                    2 -> Step2Roof(inputs, viewModel::update)
-                    3 -> Step3Loads(inputs, viewModel::update)
-                    4 -> if (inputs.quoteMode == QuoteMode.GUIDED) Step4Usage(inputs, viewModel::update)
-                    5 -> Step5Backup(inputs, viewModel::update)
-                    6 -> if (inputs.quoteMode == QuoteMode.MANUAL) Step6Manual(inputs, viewModel::update)
-                    7 -> Step7Pricing(inputs, viewModel::update)
+                    1 -> StepCustomer(inputs, viewModel::update)
+                    2 -> Step1SiteInfo(inputs, viewModel::update)
+                    3 -> Step2Roof(inputs, viewModel::update)
+                    4 -> Step3Loads(inputs, viewModel::update)
+                    5 -> if (inputs.quoteMode == QuoteMode.GUIDED) Step4Usage(inputs, viewModel::update)
+                    6 -> Step5Backup(inputs, viewModel::update)
+                    7 -> if (inputs.quoteMode == QuoteMode.MANUAL) Step6Manual(inputs, viewModel::update)
+                    8 -> Step7Pricing(inputs, viewModel::update)
                 }
             }
 
