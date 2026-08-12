@@ -45,7 +45,12 @@ fun formatSimTime(hour: Double): String {
     return "%d:%02d %s".format(h12, m, amPm)
 }
 
-private fun hourToAngleDeg(hour: Double): Double = (hour / 24.0 * 360.0).mod(360.0)
+// Noon at the top (12 o'clock), midnight at the bottom (6 o'clock) — matching the intuitive
+// "sun is highest at the top" mental model, and consistent with the separate SunIndicator
+// overlay's sunrise-on-the-left/sunset-on-the-right convention (verified: hourToAngleDeg(6)
+// lands on the dial's left side, hourToAngleDeg(18) on the right). Previously mapped midnight
+// to the top and noon to the bottom, which read as the sun dipping down at its actual peak.
+private fun hourToAngleDeg(hour: Double): Double = ((hour - 12.0) / 24.0 * 360.0).mod(360.0)
 
 private fun angleToOffset(angleDeg: Double, radius: Float, center: Offset): Offset {
     val rad = Math.toRadians(angleDeg - 90.0)

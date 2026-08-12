@@ -149,8 +149,18 @@ object SimulationEngine {
                     roofPitchDegrees = config.roofPitchDegrees!!
                 )
             } else 1.0
-            val pv = (irradianceFactor(hour) * config.pvCapacityKw * cloudMultiplier * siteFactor)
+            val irradianceFraction = irradianceFactor(hour) * cloudMultiplier * siteFactor
+            val potentialPv = (irradianceFraction * config.pvCapacityKw).coerceIn(0.0, config.inverterKw)
+
+            // Real-world losses, modeled as separate itemized factors rather than one blended
+            // derate: panel temperature (rises with irradiance/ambient heat, cutting output —
+            // meaningful in Jamaica's climate) plus fixed inverter/wiring/soiling losses.
+            val ambientTempC = SystemLosses.ambientTemperatureC(hour)
+            val cellTempC = SystemLosses.cellTemperatureC(ambientTempC, irradianceFraction)
+            val temperatureDerate = SystemLosses.temperatureDerate(cellTempC)
+            val pv = (irradianceFraction * config.pvCapacityKw * temperatureDerate * SystemLosses.fixedSystemEfficiency)
                 .coerceIn(0.0, config.inverterKw)
+
             val load = (loadFactor(hour) * backgroundPerHourKw + applianceLoadKw).coerceAtLeast(0.0)
 
             // The grid connection is strictly import-only in every mode — solar never exports;
@@ -254,6 +264,9 @@ object SimulationEngine {
             frames += SimFrame(
                 hour = hour,
                 pvKw = pv,
+                potentialPvKw = potentialPv,
+                cellTempC = cellTempC,
+                temperatureDerateFraction = temperatureDerate,
                 houseLoadKw = load,
                 solarToHouseKw = solarToHouse,
                 solarToBatteryKw = solarToBattery,
@@ -288,6 +301,9 @@ object SimulationEngine {
     private fun lerpFrame(a: SimFrame, b: SimFrame, t: Double): SimFrame = SimFrame(
         hour = a.hour + (b.hour - a.hour) * t,
         pvKw = lerp(a.pvKw, b.pvKw, t),
+        potentialPvKw = lerp(a.potentialPvKw, b.potentialPvKw, t),
+        cellTempC = lerp(a.cellTempC, b.cellTempC, t),
+        temperatureDerateFraction = lerp(a.temperatureDerateFraction, b.temperatureDerateFraction, t),
         houseLoadKw = lerp(a.houseLoadKw, b.houseLoadKw, t),
         solarToHouseKw = lerp(a.solarToHouseKw, b.solarToHouseKw, t),
         solarToBatteryKw = lerp(a.solarToBatteryKw, b.solarToBatteryKw, t),

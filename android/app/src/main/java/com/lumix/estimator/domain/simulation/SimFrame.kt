@@ -41,10 +41,17 @@ enum class SystemStatus(val label: String) {
  * enabled); it is a separate import path from [gridToHouseKw], and both can be active in the
  * same frame. [curtailedSolarKw] is solar production that had nowhere to go this instant
  * (battery full or absent, and no export outlet) — it's simply unused, not sent anywhere.
+ *
+ * [pvKw] is realized (loss-adjusted) production; [potentialPvKw] is the same instant with no
+ * real-world losses applied — the gap between them is [SystemLosses]' itemized inverter/wiring/
+ * soiling factors plus [temperatureDerateFraction], not something wasted or curtailed.
  */
 data class SimFrame(
     val hour: Double,
     val pvKw: Double,
+    val potentialPvKw: Double,
+    val cellTempC: Double,
+    val temperatureDerateFraction: Double,
     val houseLoadKw: Double,
     val solarToHouseKw: Double,
     val solarToBatteryKw: Double,

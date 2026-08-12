@@ -29,7 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixMotion
 import com.lumix.estimator.ui.theme.LumixRadius
@@ -53,10 +55,10 @@ fun FloatingBottomNav(
     GlassSurface(
         modifier = modifier
             .fillMaxWidth()
-            .height(68.dp),
+            .height(72.dp),
         shape = RoundedCornerShape(LumixRadius.pill)
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp)) {
             val tabWidth = maxWidth / tabs.size
             val indicatorOffset by animateDpAsState(
                 targetValue = tabWidth * selectedIndex,
@@ -109,18 +111,27 @@ private fun NavTabItem(
                 indication = null,
                 onClick = onClick
             )
-            .padding(vertical = 10.dp),
+            .padding(vertical = 6.dp, horizontal = 2.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Icon(tab.icon, contentDescription = tab.label, tint = contentColor, modifier = Modifier.size(22.dp))
+            Icon(tab.icon, contentDescription = tab.label, tint = contentColor, modifier = Modifier.size(20.dp))
             Text(
                 tab.label,
                 color = contentColor,
-                style = MaterialTheme.typography.labelSmall,
+                // Fixed, deliberately small size (rather than labelSmall) so all six labels —
+                // including "Systems"/"Savings"/"Profile" — reliably fit one line in the narrow
+                // per-tab width six tabs leaves on a phone like the Galaxy A15. maxLines/
+                // softWrap/overflow are a hard guarantee against ever wrapping to a second line,
+                // which would blow out this pill's fixed height and clip.
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
             )
         }

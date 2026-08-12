@@ -14,11 +14,20 @@ import kotlin.math.sin
  * 220V ([gridHighCurrent]). [gridServiceUtilization] compares total grid draw against the
  * configured utility service rating ([gridServiceAmps]) — the same rating the simulation engine
  * itself enforces as a hard import cap, so this is always consistent with what the engine did.
+ *
+ * [pvPowerKw] is realized (loss-adjusted) solar output; [potentialPvKw] is the same instant with
+ * no real-world losses at all. [temperatureLossPercent] and [fixedSystemLossPercent] are the two
+ * itemized causes of that gap — see [SystemLosses] for the individual inverter/wiring/soiling
+ * factors [fixedSystemLossPercent] combines.
  */
 data class TechnicalReadout(
     val pvVoltage: Double,
     val pvCurrent: Double,
     val pvPowerKw: Double,
+    val potentialPvKw: Double,
+    val cellTempC: Double,
+    val temperatureLossPercent: Float,
+    val fixedSystemLossPercent: Float,
     val batteryVoltage: Double,
     val batteryCurrent: Double,
     val batterySocPercent: Float,
@@ -89,10 +98,17 @@ object TechnicalModel {
         val dt = if (timeline.size > 1) timeline[1].hour - timeline[0].hour else 5.0 / 60.0
         val energyTodayKwh = timeline.filter { it.hour <= frame.hour }.sumOf { it.pvKw * dt }
 
+        val temperatureLossPercent = ((1.0 - frame.temperatureDerateFraction) * 100.0).toFloat().coerceAtLeast(0f)
+        val fixedSystemLossPercent = ((1.0 - SystemLosses.fixedSystemEfficiency) * 100.0).toFloat()
+
         return TechnicalReadout(
             pvVoltage = pvVoltage,
             pvCurrent = pvCurrent,
             pvPowerKw = frame.pvKw,
+            potentialPvKw = frame.potentialPvKw,
+            cellTempC = frame.cellTempC,
+            temperatureLossPercent = temperatureLossPercent,
+            fixedSystemLossPercent = fixedSystemLossPercent,
             batteryVoltage = batteryVoltage,
             batteryCurrent = batteryCurrent,
             batterySocPercent = frame.batterySocPercent,

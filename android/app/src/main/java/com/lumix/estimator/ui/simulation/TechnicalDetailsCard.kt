@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.lumix.estimator.domain.simulation.SystemLosses
 import com.lumix.estimator.domain.simulation.TechnicalReadout
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 
@@ -20,12 +21,25 @@ fun TechnicalDetailsContent(readout: TechnicalReadout, modifier: Modifier = Modi
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            "Typical values for a Jamaica-style split-phase 110V/220V, 50Hz grid and a 48V battery bus — modeled, not live telemetry.",
+            "Typical values for a Jamaica-style split-phase 110V/220V, 50Hz grid and a 48V battery bus — modeled, not live telemetry. " +
+                "Fixed system losses: inverter %.0f%%, DC wiring %.0f%%, soiling/availability %.0f%%.".format(
+                    (1.0 - SystemLosses.INVERTER_EFFICIENCY) * 100.0,
+                    (1.0 - SystemLosses.DC_WIRING_EFFICIENCY) * 100.0,
+                    (1.0 - SystemLosses.SOILING_AVAILABILITY_EFFICIENCY) * 100.0
+                ),
             style = MaterialTheme.typography.labelSmall,
             color = palette.textSecondary
         )
 
         TechRow("PV Voltage", "%.0f V".format(readout.pvVoltage), "PV Current", "%.2f A".format(readout.pvCurrent))
+        TechRow(
+            "Ideal Output", "%.2f kW".format(readout.potentialPvKw),
+            "Actual Output", "%.2f kW".format(readout.pvPowerKw)
+        )
+        TechRow(
+            "Cell Temp", "%.0f°C".format(readout.cellTempC),
+            "Temp Loss", "%.1f%%".format(readout.temperatureLossPercent)
+        )
         TechRow("Battery Voltage", "%.1f V".format(readout.batteryVoltage), "Battery Current", "%.2f A".format(readout.batteryCurrent))
         TechRow("Inverter Output", "%.2f kW".format(readout.inverterOutputKw), "Frequency", if (readout.frequencyHz > 0) "%.2f Hz".format(readout.frequencyHz) else "—")
         TechRow("Grid 110V Current", "%.2f A".format(readout.gridLowCurrent), "Grid 220V Current", "%.2f A".format(readout.gridHighCurrent))

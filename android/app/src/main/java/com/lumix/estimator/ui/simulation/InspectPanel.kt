@@ -119,7 +119,9 @@ private fun detailLines(
         subtitle = "${config.panelCount} × ${config.panelWatts} W",
         rows = listOf(
             "Total capacity" to fmtKw(config.pvCapacityKw),
-            "Current output" to fmtKw(f.pvKw),
+            "Ideal output (no losses)" to fmtKw(f.potentialPvKw),
+            "Actual output" to fmtKw(f.pvKw),
+            "Cell temp" to "%.0f°C".format(f.cellTempC),
             "To home" to fmtKw(f.solarToHouseKw),
             "To battery" to fmtKw(f.solarToBatteryKw),
             "Curtailed (unused)" to fmtKw(f.curtailedSolarKw)
