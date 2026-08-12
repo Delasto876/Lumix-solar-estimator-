@@ -51,4 +51,6 @@ class QuoteRepository(private val dao: QuoteDao) {
     }
 
     suspend fun delete(entity: QuoteEntity) = dao.delete(entity)
+
+    suspend fun clearAll() = dao.deleteAll()
 }

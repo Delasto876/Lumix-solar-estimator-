@@ -21,7 +21,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.QuoteEntity
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.domain.formatCurrency
+import com.lumix.estimator.ui.components.LargeTitleTopBar
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.SurfaceCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
@@ -57,18 +57,7 @@ fun HistoryScreen(
     val scope = rememberCoroutineScope()
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Systems") },
-                navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Text("×", style = MaterialTheme.typography.titleLarge)
-                        }
-                    }
-                }
-            )
-        }
+        topBar = { LargeTitleTopBar(title = "Systems", onBack = onBack) }
     ) { padding ->
         if (quotes.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp), contentAlignment = Alignment.Center) {

@@ -1,12 +1,5 @@
 package com.lumix.estimator.domain.simulation
 
-import com.lumix.estimator.solar.SolarIrradianceModel
-import com.lumix.estimator.solar.SolarPosition
-import com.lumix.estimator.solar.SolarPositionCalculator
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.ZoneOffset
-import java.time.ZonedDateTime
 import kotlin.math.PI
 import kotlin.math.min
 import kotlin.math.pow
@@ -34,12 +27,6 @@ object SimulationEngine {
     // so the two stay consistent.
     const val GRID_SERVICE_VOLTAGE = 220.0
     const val DEFAULT_GRID_SERVICE_AMPS = 30.0
-
-    // Jamaica has no DST, so a fixed UTC offset stands in for a full timezone lookup —
-    // consistent with the rest of this Jamaica-focused app (see solar/SolarPositionCalculator
-    // verification, which uses the same offset).
-    private val JAMAICA_ZONE = ZoneOffset.of("-05:00")
-    private val solarPositionCalculator = SolarPositionCalculator()
 
     // Typical residential demand shape (higher morning + evening, lower overnight/midday).
     // Normalized by its own mean, so it only shapes the curve — total daily energy still
@@ -76,42 +63,6 @@ object SimulationEngine {
         return v / loadShapeMean
     }
 
-    /**
-     * Multiplicative correction on top of [irradianceFactor]'s generic bell curve, based on the
-     * real sun position for today's date at this hour vs. the roof's actual azimuth/pitch. A
-     * well-oriented (south-facing, latitude-tilt) roof peaks near 1.0 at solar noon — matching
-     * the generic model's own peak — so it isn't penalized relative to a site-unaware quote,
-     * while a poorly-oriented roof shows genuinely reduced/asymmetric output.
-     *
-     * Uses [LocalDate.now] rather than a fixed reference date, since this is a live digital twin
-     * meant to reflect the actual current day. [JAMAICA_ZONE] stands in for a real timezone
-     * lookup, consistent with the rest of this Jamaica-focused app.
-     */
-    fun sitePlaneOfArrayFactor(
-        hour: Double,
-        latitude: Double,
-        longitude: Double,
-        roofAzimuthDegrees: Double,
-        roofPitchDegrees: Double
-    ): Double {
-        val position = sitePosition(hour, latitude, longitude)
-        return SolarIrradianceModel.planeOfArrayFactor(
-            sunAzimuthDegrees = position.azimuthDegrees,
-            sunElevationDegrees = position.elevationDegrees,
-            roofAzimuthDegrees = roofAzimuthDegrees,
-            roofPitchDegrees = roofPitchDegrees
-        )
-    }
-
-    /** The real sun position, for today's date, at the given simulated hour and location. */
-    fun sitePosition(hour: Double, latitude: Double, longitude: Double): SolarPosition {
-        val h = hour.mod(24.0)
-        val wholeHour = h.toInt().coerceIn(0, 23)
-        val minute = ((h - wholeHour) * 60).toInt().coerceIn(0, 59)
-        val dateTime = ZonedDateTime.of(LocalDate.now(), LocalTime.of(wholeHour, minute), JAMAICA_ZONE)
-        return solarPositionCalculator.calculate(latitude, longitude, dateTime)
-    }
-
     fun buildDayTimeline(
         config: SimSystemConfig,
         cloudMultiplier: Double = 1.0,
@@ -143,16 +94,7 @@ object SimulationEngine {
         for (i in 0..steps) {
             val hour = (i * resolutionMinutes) / 60.0
 
-            val siteFactor = if (config.isSiteAware) {
-                sitePlaneOfArrayFactor(
-                    hour = hour,
-                    latitude = config.siteLatitude!!,
-                    longitude = config.siteLongitude!!,
-                    roofAzimuthDegrees = config.roofAzimuthDegrees!!,
-                    roofPitchDegrees = config.roofPitchDegrees!!
-                )
-            } else 1.0
-            val irradianceFraction = irradianceFactor(hour) * cloudMultiplier * siteFactor
+            val irradianceFraction = irradianceFactor(hour) * cloudMultiplier
             val potentialPv = (irradianceFraction * config.pvCapacityKw).coerceIn(0.0, config.inverterKw)
 
             // Real-world losses, modeled as separate itemized factors rather than one blended

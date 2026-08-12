@@ -14,7 +14,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -31,6 +30,7 @@ import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SavedQuote
 import com.lumix.estimator.domain.SavingsCalculator
 import com.lumix.estimator.domain.formatCurrency
+import com.lumix.estimator.ui.components.LargeTitleTopBar
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.components.SolarHeroVisual
@@ -58,21 +58,13 @@ fun HomeScreen(
     val greetingName = latest?.inputs?.customerName?.takeIf { it.isNotBlank() }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Lumix") }) }
+        topBar = { LargeTitleTopBar(title = "Lumix", subtitle = greetingText(greetingName)) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item {
-                Text(
-                    greetingText(greetingName),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = palette.textSecondary
-                )
-            }
-
             item {
                 SectionCard(title = "") {
                     Text("☀️ Your Solar Potential", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

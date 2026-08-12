@@ -8,7 +8,6 @@ import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteMode
 import com.lumix.estimator.domain.QuoteResult
-import com.lumix.estimator.domain.RoofConstraint
 import com.lumix.estimator.domain.RoofType
 import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.domain.Validation
@@ -102,12 +101,6 @@ class WizardViewModel(
         _currentStep.value = 1
         _result.value = null
         _savedQuoteId.value = null
-    }
-
-    /** Starts a fresh quote pre-loaded with a Solar Site roof's panel-fit limit, so the wizard's recommendation is capped at what the roof can physically hold. */
-    fun startWithRoofConstraint(constraint: RoofConstraint) {
-        reset()
-        _inputs.value = _inputs.value.copy(roofConstraint = constraint)
     }
 
     fun calculateAndSave(onDone: (Long) -> Unit) {

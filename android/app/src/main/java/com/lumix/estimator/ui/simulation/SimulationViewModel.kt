@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.lumix.estimator.data.QuoteRepository
+import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.simulation.ApplianceRun
 import com.lumix.estimator.domain.simulation.ApplianceState
@@ -20,6 +21,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -50,7 +52,8 @@ data class SimulationUiState(
 }
 
 class SimulationViewModel(
-    private val quoteRepository: QuoteRepository
+    private val quoteRepository: QuoteRepository,
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SimulationUiState())
@@ -62,12 +65,13 @@ class SimulationViewModel(
     fun load(quoteId: Long) {
         viewModelScope.launch {
             val saved = quoteRepository.getSavedQuote(quoteId) ?: return@launch
-            val config = SimSystemConfig.from(saved.result, saved.inputs)
+            val config = SimSystemConfig.from(saved.result)
             val appliances = defaultApplianceStates(saved.inputs)
             val gridConnected = config.gridConnectable
             val inverterMode = _state.value.inverterMode
             val gridChargeEnabled = _state.value.gridChargeEnabled
-            val gridServiceAmps = _state.value.gridServiceAmps
+            val technicalMode = settingsRepository.defaultTechnicalMode.first()
+            val gridServiceAmps = settingsRepository.defaultGridServiceAmps.first()
             val timeline = SimulationEngine.buildDayTimeline(
                 config,
                 gridConnected = gridConnected,
@@ -85,6 +89,8 @@ class SimulationViewModel(
                     config = config,
                     appliances = appliances,
                     gridConnected = gridConnected,
+                    gridServiceAmps = gridServiceAmps,
+                    technicalMode = technicalMode,
                     timeline = timeline,
                     currentFrame = SimulationEngine.frameAt(timeline, it.currentHour),
                     batteryFullHour = SimulationEngine.nextBatteryFullHour(timeline, it.currentHour)
@@ -93,17 +99,10 @@ class SimulationViewModel(
         }
     }
 
-    fun toggleAppliance(type: SimApplianceType) {
-        val current = _state.value.appliances[type] ?: ApplianceState()
-        val updated = _state.value.appliances.toMutableMap().apply { this[type] = current.copy(enabled = !current.enabled) }
-        rebuildTimeline(appliances = updated)
-    }
-
-    /** Replaces an appliance's full schedule — used when editing quantity/start/duration or adding/removing a run block. */
-    fun setApplianceRuns(type: SimApplianceType, runs: List<ApplianceRun>) {
-        val current = _state.value.appliances[type] ?: ApplianceState()
-        val safeRuns = runs.ifEmpty { listOf(ApplianceRun()) }
-        val updated = _state.value.appliances.toMutableMap().apply { this[type] = current.copy(runs = safeRuns) }
+    /** Replaces an appliance's full schedule from the picker's quantity/hours/selected-periods. */
+    fun setApplianceSchedule(type: SimApplianceType, quantity: Int, hoursPerPeriod: Double, periods: Set<DayPeriod>) {
+        val (enabled, runs) = buildApplianceSchedule(quantity, hoursPerPeriod, periods)
+        val updated = _state.value.appliances.toMutableMap().apply { this[type] = ApplianceState(enabled = enabled, runs = runs) }
         rebuildTimeline(appliances = updated)
     }
 
@@ -237,10 +236,10 @@ class SimulationViewModel(
     }
 
     companion object {
-        fun factory(quoteRepository: QuoteRepository) = object : ViewModelProvider.Factory {
+        fun factory(quoteRepository: QuoteRepository, settingsRepository: SettingsRepository) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SimulationViewModel(quoteRepository) as T
+                return SimulationViewModel(quoteRepository, settingsRepository) as T
             }
         }
     }

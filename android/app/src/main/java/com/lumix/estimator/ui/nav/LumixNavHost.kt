@@ -6,8 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Scaffold
@@ -30,16 +29,11 @@ import com.lumix.estimator.ui.history.HistoryScreen
 import com.lumix.estimator.ui.home.HomeScreen
 import com.lumix.estimator.ui.results.ResultsScreen
 import com.lumix.estimator.ui.savings.SavingsScreen
-import com.lumix.estimator.ui.settings.PriceSettingsScreen
+import com.lumix.estimator.ui.settings.SettingsScreen
 import com.lumix.estimator.ui.simulation.SimulationScreen
 import com.lumix.estimator.ui.simulation.SimulationViewModel
 import com.lumix.estimator.ui.wizard.WizardScreen
 import com.lumix.estimator.ui.wizard.WizardViewModel
-import com.lumix.estimator.domain.RoofConstraint
-import com.lumix.estimator.site.ManualSiteScreen
-import com.lumix.estimator.site.SiteDetailScreen
-import com.lumix.estimator.site.SolarSiteEntryScreen
-import com.lumix.estimator.site.SolarSiteViewModel
 
 private const val ROUTE_HOME = "home"
 private const val ROUTE_ESTIMATE = "estimate"
@@ -48,18 +42,14 @@ private const val ROUTE_RESULTS = "results/{quoteId}"
 private const val ROUTE_SIMULATION = "simulation/{quoteId}"
 private const val ROUTE_SYSTEMS = "systems"
 private const val ROUTE_SAVINGS = "savings"
-private const val ROUTE_PROFILE = "profile"
-private const val ROUTE_SITE = "site"
-private const val ROUTE_SITE_MANUAL = "site/manual"
-private const val ROUTE_SITE_DETAIL = "site/detail/{siteId}"
+private const val ROUTE_SETTINGS = "settings"
 
 private val tabs = listOf(
     NavTab(ROUTE_HOME, "Home", Icons.Default.Home),
     NavTab(ROUTE_ESTIMATE, "Estimate", Icons.Default.WbSunny),
-    NavTab(ROUTE_SITE, "Site", Icons.Default.Map),
     NavTab(ROUTE_SYSTEMS, "Systems", Icons.Default.Layers),
     NavTab(ROUTE_SAVINGS, "Savings", Icons.Default.TrendingUp),
-    NavTab(ROUTE_PROFILE, "Profile", Icons.Default.Person)
+    NavTab(ROUTE_SETTINGS, "Settings", Icons.Default.Settings)
 )
 private val tabRoutes = tabs.map { it.route }.toSet()
 
@@ -68,9 +58,6 @@ fun LumixNavHost(app: LumixApp) {
     val navController = rememberNavController()
     val wizardViewModel: WizardViewModel = viewModel(
         factory = WizardViewModel.factory(app.quoteRepository, app.priceRepository)
-    )
-    val siteViewModel: SolarSiteViewModel = viewModel(
-        factory = SolarSiteViewModel.factory(app.siteRepository)
     )
 
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -170,59 +157,11 @@ fun LumixNavHost(app: LumixApp) {
             ) { entry ->
                 val quoteId = entry.arguments?.getLong("quoteId") ?: 0L
                 val simulationViewModel: SimulationViewModel = viewModel(
-                    factory = SimulationViewModel.factory(app.quoteRepository)
+                    factory = SimulationViewModel.factory(app.quoteRepository, app.settingsRepository)
                 )
                 SimulationScreen(
                     quoteId = quoteId,
                     viewModel = simulationViewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
-
-            composable(ROUTE_SITE) {
-                SolarSiteEntryScreen(
-                    viewModel = siteViewModel,
-                    onOpenManual = {
-                        siteViewModel.startNewSite()
-                        navController.navigate(ROUTE_SITE_MANUAL)
-                    },
-                    onOpenSite = { id -> navController.navigate("site/detail/$id") }
-                )
-            }
-
-            composable(ROUTE_SITE_MANUAL) {
-                ManualSiteScreen(
-                    viewModel = siteViewModel,
-                    onSaved = { id -> navController.navigate("site/detail/$id") { popUpTo(ROUTE_SITE) } },
-                    onBack = { navController.popBackStack() }
-                )
-            }
-
-            composable(
-                ROUTE_SITE_DETAIL,
-                arguments = listOf(navArgument("siteId") { type = NavType.StringType })
-            ) { entry ->
-                val siteId = entry.arguments?.getString("siteId") ?: ""
-                SiteDetailScreen(
-                    viewModel = siteViewModel,
-                    siteId = siteId,
-                    onUseRoof = { plane ->
-                        val site = siteViewModel.getSite(siteId)
-                        wizardViewModel.startWithRoofConstraint(
-                            RoofConstraint(
-                                sourceSiteId = siteId,
-                                sourceRoofPlaneId = plane.id,
-                                roofLabel = plane.label,
-                                maxPanelCount = plane.panelLayout?.panelCount ?: 0,
-                                panelWattage = plane.panelLayout?.panelWattage?.toInt() ?: 0,
-                                azimuthDegrees = plane.azimuthDegrees ?: plane.suggestedAzimuthDegrees,
-                                pitchDegrees = plane.pitchDegrees,
-                                latitude = site?.latitude ?: 0.0,
-                                longitude = site?.longitude ?: 0.0
-                            )
-                        )
-                        navController.navigate(ROUTE_WIZARD)
-                    },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -249,8 +188,12 @@ fun LumixNavHost(app: LumixApp) {
                 )
             }
 
-            composable(ROUTE_PROFILE) {
-                PriceSettingsScreen(priceRepository = app.priceRepository)
+            composable(ROUTE_SETTINGS) {
+                SettingsScreen(
+                    priceRepository = app.priceRepository,
+                    settingsRepository = app.settingsRepository,
+                    quoteRepository = app.quoteRepository
+                )
             }
         }
     }

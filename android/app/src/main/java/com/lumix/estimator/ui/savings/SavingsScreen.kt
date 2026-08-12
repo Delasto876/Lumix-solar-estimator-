@@ -13,7 +13,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -29,6 +28,7 @@ import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SavedQuote
 import com.lumix.estimator.domain.SavingsCalculator
 import com.lumix.estimator.domain.formatCurrency
+import com.lumix.estimator.ui.components.LargeTitleTopBar
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.RingGauge
 import com.lumix.estimator.ui.components.SavingsGraph
@@ -53,7 +53,7 @@ fun SavingsScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Savings") }) }
+        topBar = { LargeTitleTopBar(title = "Savings") }
     ) { padding ->
         val current = latest
         if (quotes == null) {

@@ -19,13 +19,6 @@ data class QuoteResult(
 
     val panelCount: Int,
     val panelWatts: Int,
-    /**
-     * What panelCount would have been from electricity usage alone, before any roof cap was
-     * applied. Equal to panelCount when no roof constraint was in effect. Defaults to
-     * [panelCount] so quotes saved before this field existed still decode correctly (no roof
-     * constraint on record for them, which is the accurate interpretation).
-     */
-    val energyOptimalPanelCount: Int = panelCount,
 
     val inverterName: String,
     val inverterKw: Double,
@@ -61,6 +54,4 @@ data class QuoteResult(
     val backupCapacityWarningKw: Double? = null
 ) {
     val pvKw: Double get() = panelCount * panelWatts / 1000.0
-    val energyOptimalPvKw: Double get() = energyOptimalPanelCount * panelWatts / 1000.0
-    val isRoofConstrained: Boolean get() = energyOptimalPanelCount > panelCount
 }

@@ -1007,3 +1007,109 @@ call site in `SimulationScreen.kt` is the only thing that needed updating) and n
 `SceneAtmosphereOverlay` immediately after the background image, before the existing cloud/sun/
 battery/particle layers — so those stay legible and un-dimmed on top of it rather than getting
 washed out themselves.
+
+## A20: One UI restyle, Solar Site removed entirely, new Settings tab, appliance picker rework, battery math verified
+
+A large, multi-part round: a One UI-inspired shell restyle, full removal of the Solar Site
+feature (not just the map — everything, per explicit request), a real Settings tab in its place,
+a fix + redesign of the appliance scheduling sheet, and a verification pass on the battery's
+load-response physics.
+
+**1. Solar Site removed entirely — tab, screens, domain, and every integration point.**
+Unlike A18 (which removed just the map UI and deliberately kept some infrastructure "for when
+the map returns"), this is a full removal with nothing kept dormant, since the plan changed to
+not bringing Solar Site back. Deleted outright: the whole `site/` package (20 files — entry
+screen, manual entry, detail screen, view model, repository, roof-plane/panel-layout/shading UI,
+`geometry/` roof-geometry engine + panel-packing optimizer + roof-score calculator), plus
+`solar/` (`SolarPositionCalculator`, `SolarIrradianceModel`, `ClearSkyPshEstimator`,
+`SolarPathSampler`, `SolarResourceProvider`, `SolarPosition`) and `sensors/`
+(`CompassManager`, `CompassMath`) and `location/DeviceLocationManager.kt` and
+`network/NetworkConnectivityObserver.kt` — all of these had zero remaining callers once Solar
+Site itself was gone, so A18's "keep it inert for later" reasoning no longer applied. Also
+removed: the `ACCESS_FINE_LOCATION`/`ACCESS_COARSE_LOCATION`/`INTERNET`/`ACCESS_NETWORK_STATE`
+manifest permissions and the `play-services-location` Gradle dependency, since nothing in the
+app talks to a network or reads device location anymore.
+
+Surgical edits (keep the file, remove only the site-specific parts) rather than deletions:
+- `domain/QuoteInputs.kt`: removed the `RoofConstraint` data class and its `roofConstraint`
+  field on `QuoteInputs`.
+- `domain/QuoteResult.kt`: removed `energyOptimalPanelCount`, `energyOptimalPvKw`,
+  `isRoofConstrained`.
+- `domain/SystemCalculator.kt`: removed the roof-constrained panel-count cap block.
+- `domain/simulation/SimSystemConfig.kt`: removed `siteLatitude`/`siteLongitude`/
+  `roofAzimuthDegrees`/`roofPitchDegrees`/`isSiteAware` — confirmed via full-codebase search that
+  these were populated *exclusively* from the site "Use This Roof" flow and the plain wizard has
+  no roof-facing/pitch entry at all, so there was no general-purpose use to preserve.
+  `SimSystemConfig.from()` also dropped its now-unused `inputs: QuoteInputs` parameter.
+- `domain/simulation/SimulationEngine.kt`: removed `sitePosition()`/`sitePlaneOfArrayFactor()`
+  and the `siteFactor` conditional in `buildDayTimeline` — the generic, location-agnostic
+  irradiance model is now the only model, same as it always was for non-site-aware quotes.
+- `ui/simulation/SimulationScreen.kt`: removed the "Sun & Roof" card and its `config.isSiteAware`
+  gate.
+- `ui/results/ResultsScreen.kt` and `pdf/QuotePdfGenerator.kt`: removed the roof-constrained
+  warning banner/PDF block (and PDF's now-unused `warningPaint`/`wrapText` helper).
+- `ui/wizard/WizardViewModel.kt` and `ui/nav/LumixNavHost.kt`: removed
+  `startWithRoofConstraint()`, the `site/*` routes, the Site tab, and the `SolarSiteViewModel`
+  wiring.
+
+**2. One UI-inspired shell restyle** (design tokens + shared shell components, not a full
+per-screen rewrite — the existing corner-radius/spacing scale was already fairly generous, so
+the main gap was structural). New `LargeTitleTopBar` component
+(`ui/components/LargeTitleTopBar.kt`): a big, bold, left-aligned title sitting directly on the
+screen background — no bar fill, no shadow — replacing Material's small centered `TopAppBar`
+across every top-level tab screen (Home, Estimate, Systems, Savings, Settings). Supports an
+optional `onBack` for the rare screen (`HistoryScreen`) also reachable as a pushed route. Home's
+existing time-of-day greeting text now lives in the header's subtitle instead of a separate body
+item.
+
+**3. New Settings tab, replacing Profile** (which was really just the price editor under a
+different name). `ui/settings/SettingsScreen.kt` consolidates:
+- **Price list** — the same regular/discount editor from the old `PriceSettingsScreen.kt`,
+  folded in as one section.
+- **Appearance** — Light/Dark/System theme, a real in-app override on top of the existing
+  light+dark color system (previously it only ever followed the OS setting). New
+  `SettingsRepository` (DataStore-backed, same pattern as `PriceRepository`) persists it;
+  `MainActivity` reads it and passes the resolved `darkTheme` boolean into `LumixTheme`.
+- **Simulation defaults** — technical-mode-by-default and default grid service amps, both also
+  in `SettingsRepository`, read once by `SimulationViewModel.load()` so every new simulation
+  starts from the saved preference instead of a hardcoded value.
+- **Data management** — "Clear quote history," behind a confirmation dialog, backed by a new
+  `QuoteDao.deleteAll()` / `QuoteRepository.clearAll()`.
+
+The bottom nav drops from 5 tabs (Home/Estimate/Site/Systems/Savings/Profile was 6, already
+fixed for clipping in A16) to 5 (Home/Estimate/Systems/Savings/Settings) — Site removed, Profile
+renamed and expanded in place, so no new clipping risk.
+
+**4. Appliance sheet: fixed the scroll bug and reworked the picker.** The bug: the sheet's outer
+`Column` had no scroll modifier at all — with 14 appliances (some expandable), content taller
+than the sheet's viewport simply couldn't be reached past whatever fit on screen. Fixed by adding
+`.verticalScroll(rememberScrollState())`.
+
+The picker itself: replaced the old free-form "+ Add time block" editor (arbitrary start
+hour/duration blocks) with a fixed 3-chip Morning/Noon/Night control per appliance, plus a shared
+quantity and hours-per-period. Any combination can be selected — one, two, all three (which,
+since each period's own hours field clamps to that period's real span, approximates "runs all
+day"), or none, which is now *the* off state — there's no separate on/off switch to fall out of
+sync with it anymore. New `DayPeriod` enum (Morning 6am–12pm, Noon 12pm–5pm, Night 5pm–6am,
+wrapping past midnight) and `buildApplianceSchedule()` translate the picker's
+quantity/hours/periods into the domain's existing `ApplianceRun`/`ApplianceState` shape — that
+underlying model didn't need to change at all, since it already supported arbitrary scheduled
+windows; only the UI construction changed.  `SimulationViewModel` gained
+`setApplianceSchedule()` replacing the old `toggleAppliance()`/`setApplianceRuns()` pair.
+
+**5. Battery charge/discharge response to load: verified, not changed.** Built a focused
+standalone verification (pure-Kotlin copy of `SimulationEngine`/`SimFrame`/`SimSystemConfig`/
+`SimAppliance` in a scratch JVM project) with five scenarios: more load at midday visibly slows
+`solarToBatteryKw`; a big enough load flips `batteryPowerKw` from positive (charging) to negative
+(discharging) with `batteryToHouseKw` turning on; less load reaches a higher SOC by the same
+hour (faster charging); more nighttime load discharges faster (lower SOC by the same hour); and
+scheduled appliance runs (the new picker's mechanism) drive the same response as the legacy flat
+load parameter. All five passed against the existing, unmodified energy-balance code in
+`buildDayTimeline` — the physics described in the request (more load → slower charge → eventual
+discharge; less load → faster charge) was already fully implemented via the per-timestep
+solar-then-battery-then-grid priority order and rate/capacity-limited charge/discharge math; nothing
+in the engine needed to change. One real pitfall surfaced during verification and is worth
+recording: a naive test comparing SOC at a fixed hour across two load scenarios can silently pass
+or fail for the wrong reason if either run has already saturated at the battery's 100% ceiling or
+20% reserve floor by that hour — several early scenario attempts hit exactly this before
+adjusting starting SOC/battery size to leave headroom on both ends.

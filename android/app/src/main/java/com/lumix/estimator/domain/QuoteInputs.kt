@@ -65,32 +65,6 @@ data class AcLoad(
     val hours: Double get() = if (!hasAc) 0.0 else if (useStandardHours) 4.0 else customHours
 }
 
-/**
- * Carries a Solar Site roof plane's physical panel-fit result into the estimator, so the
- * recommended system can be capped at what the roof can actually hold rather than only what
- * the electricity usage calls for. [maxPanelCount] comes from
- * `PanelLayoutOptimizer` — real geometric placement, not `usableArea / panelArea`.
- *
- * [latitude]/[longitude] (the site's location, carried over so the digital-twin simulation can
- * compute real sun position later without a separate lookup) default to 0.0 for quotes saved
- * before these fields existed — harmless, since [azimuthDegrees]/[pitchDegrees] being non-null
- * is what actually gates the site-aware simulation path, not the coordinates alone.
- */
-@Serializable
-data class RoofConstraint(
-    val sourceSiteId: String,
-    val sourceRoofPlaneId: String,
-    val roofLabel: String,
-    val maxPanelCount: Int,
-    val panelWattage: Int,
-    val azimuthDegrees: Double?,
-    val pitchDegrees: Double?,
-    val latitude: Double = 0.0,
-    val longitude: Double = 0.0
-) {
-    val maxCapacityKw: Double get() = maxPanelCount * panelWattage / 1000.0
-}
-
 fun defaultAppliances(): Map<ApplianceType, ApplianceLoad> = mapOf(
     ApplianceType.FRIDGE to ApplianceLoad(qty = 1, hours = 24.0),
     ApplianceType.FREEZER to ApplianceLoad(),
@@ -153,9 +127,7 @@ data class QuoteInputs(
     val customerContact: String = "",
     val customerEmail: String = "",
     val customerAddress: String = "",
-    val customerNotes: String = "",
-
-    val roofConstraint: RoofConstraint? = null
+    val customerNotes: String = ""
 ) {
     val backupHours: Double get() = (backupHoursPreset?.toDouble()) ?: backupHoursCustom
 }

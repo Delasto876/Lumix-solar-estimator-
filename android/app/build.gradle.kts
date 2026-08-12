@@ -105,12 +105,6 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
 
-    // Solar Site: the map-based roof-tracing flow was removed at the user's request (planned
-    // for a future upgrade), so there's no map SDK dependency here for now. Device location
-    // (DeviceLocationManager) is kept — small, generic, and reusable — via Play Services, which
-    // needs no API key of its own; it's currently unused (no live caller) until the map returns.
-    implementation("com.google.android.gms:play-services-location:21.3.0")
-
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")

@@ -4,14 +4,14 @@ import android.app.Application
 import com.lumix.estimator.data.AppDatabase
 import com.lumix.estimator.data.PriceRepository
 import com.lumix.estimator.data.QuoteRepository
-import com.lumix.estimator.site.SiteRepository
+import com.lumix.estimator.data.SettingsRepository
 
 class LumixApp : Application() {
     lateinit var quoteRepository: QuoteRepository
         private set
     lateinit var priceRepository: PriceRepository
         private set
-    lateinit var siteRepository: SiteRepository
+    lateinit var settingsRepository: SettingsRepository
         private set
 
     override fun onCreate() {
@@ -19,6 +19,6 @@ class LumixApp : Application() {
         val db = AppDatabase.get(this)
         quoteRepository = QuoteRepository(db.quoteDao())
         priceRepository = PriceRepository(this)
-        siteRepository = SiteRepository()
+        settingsRepository = SettingsRepository(this)
     }
 }

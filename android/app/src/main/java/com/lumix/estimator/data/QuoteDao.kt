@@ -22,4 +22,7 @@ interface QuoteDao {
 
     @Query("DELETE FROM quotes WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM quotes")
+    suspend fun deleteAll()
 }
