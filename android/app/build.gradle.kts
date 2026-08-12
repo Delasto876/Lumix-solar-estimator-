@@ -70,14 +70,40 @@ android {
     }
 }
 
+// Recent androidx.core / androidx.lifecycle releases require compiling against Android API 37,
+// which this project isn't on (compileSdk 34 above). These two versions are the only place that
+// ceiling is defined — bump them together with compileSdk, deliberately, rather than letting one
+// drift ahead of the other via an IDE "Update dependency" quick-fix on just one line below.
+val androidxCoreVersion = "1.13.1"
+val androidxLifecycleVersion = "2.8.4"
+
+// Forces every transitive resolution of these two groups to the pinned versions above, so a
+// library added later (or pulled in transitively by something like play-services-maps) can't
+// silently drag core/lifecycle past what compileSdk 34 supports and reintroduce the "requires
+// compiling against Android API 37" AAR metadata error.
+configurations.all {
+    resolutionStrategy {
+        force(
+            "androidx.core:core-ktx:$androidxCoreVersion",
+            "androidx.core:core:$androidxCoreVersion",
+            "androidx.lifecycle:lifecycle-runtime-ktx:$androidxLifecycleVersion",
+            "androidx.lifecycle:lifecycle-viewmodel-compose:$androidxLifecycleVersion",
+            "androidx.lifecycle:lifecycle-runtime-compose:$androidxLifecycleVersion",
+            "androidx.lifecycle:lifecycle-runtime-compose-android:$androidxLifecycleVersion",
+            "androidx.lifecycle:lifecycle-common:$androidxLifecycleVersion",
+            "androidx.lifecycle:lifecycle-viewmodel:$androidxLifecycleVersion"
+        )
+    }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
+    implementation("androidx.core:core-ktx:$androidxCoreVersion")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:$androidxLifecycleVersion")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:$androidxLifecycleVersion")
     implementation("androidx.activity:activity-compose:1.9.1")
 
     implementation("androidx.compose.ui:ui")
