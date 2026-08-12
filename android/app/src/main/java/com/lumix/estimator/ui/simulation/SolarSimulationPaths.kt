@@ -30,9 +30,11 @@ data class EnergyPath(
 )
 
 /**
- * Anchor coordinates for `bg_house_energy_routes.png`, hand-picked against the supplied
- * 1536x1024 reference image. These are approximate — recalibrate visually in Android Studio
- * (enable [SolarSimulationPaths.DEBUG_SHOW_PATHS]) if a particle drifts off the printed line.
+ * Anchor coordinates for `bg_house_energy_routes.png`, sampled directly off the 1536x1024
+ * reference image's own printed neon wires (thresholded per-color pixel scan of the actual
+ * PNG, then hand-smoothed into a polyline) rather than eyeballed — see A19 in the README.
+ * Still worth a visual sanity check in Android Studio (enable [SolarSimulationPaths.DEBUG_SHOW_PATHS])
+ * if the artwork asset is ever swapped for a different render.
  */
 object SolarSimulationPaths {
     /** Development-only: draws the raw path polylines so misalignment is easy to spot. Off in prod. */
@@ -43,9 +45,10 @@ object SolarSimulationPaths {
         source = EnergyNode.SOLAR,
         destination = EnergyNode.INVERTER,
         points = listOf(
-            NormalizedPoint(0.485f, 0.332f),
-            NormalizedPoint(0.485f, 0.381f),
-            NormalizedPoint(0.503f, 0.449f)
+            NormalizedPoint(0.485f, 0.375f),
+            NormalizedPoint(0.492f, 0.391f),
+            NormalizedPoint(0.506f, 0.410f),
+            NormalizedPoint(0.507f, 0.461f)
         ),
         bidirectional = false
     )
@@ -55,10 +58,20 @@ object SolarSimulationPaths {
         source = EnergyNode.GRID,
         destination = EnergyNode.INVERTER,
         points = listOf(
-            NormalizedPoint(0.114f, 0.288f),
-            NormalizedPoint(0.114f, 0.552f),
-            NormalizedPoint(0.475f, 0.552f),
-            NormalizedPoint(0.479f, 0.571f)
+            NormalizedPoint(0.101f, 0.230f),
+            NormalizedPoint(0.111f, 0.391f),
+            NormalizedPoint(0.116f, 0.449f),
+            NormalizedPoint(0.163f, 0.474f),
+            NormalizedPoint(0.195f, 0.501f),
+            NormalizedPoint(0.214f, 0.516f),
+            NormalizedPoint(0.238f, 0.572f),
+            NormalizedPoint(0.260f, 0.585f),
+            NormalizedPoint(0.329f, 0.580f),
+            NormalizedPoint(0.365f, 0.555f),
+            NormalizedPoint(0.391f, 0.570f),
+            NormalizedPoint(0.423f, 0.561f),
+            NormalizedPoint(0.456f, 0.553f),
+            NormalizedPoint(0.479f, 0.543f)
         ),
         // Import-only: the grid connection never carries power the other way (no export).
         bidirectional = false
@@ -69,9 +82,9 @@ object SolarSimulationPaths {
         source = EnergyNode.INVERTER,
         destination = EnergyNode.BATTERY,
         points = listOf(
-            NormalizedPoint(0.501f, 0.581f),
-            NormalizedPoint(0.514f, 0.601f),
-            NormalizedPoint(0.540f, 0.625f)
+            NormalizedPoint(0.499f, 0.588f),
+            NormalizedPoint(0.497f, 0.679f),
+            NormalizedPoint(0.518f, 0.689f)
         ),
         bidirectional = true
     )
@@ -81,10 +94,15 @@ object SolarSimulationPaths {
         source = EnergyNode.INVERTER,
         destination = EnergyNode.HOUSE,
         points = listOf(
-            NormalizedPoint(0.540f, 0.552f),
-            NormalizedPoint(0.700f, 0.552f),
-            NormalizedPoint(0.840f, 0.552f),
-            NormalizedPoint(0.840f, 0.520f)
+            NormalizedPoint(0.540f, 0.620f),
+            NormalizedPoint(0.596f, 0.587f),
+            NormalizedPoint(0.651f, 0.586f),
+            NormalizedPoint(0.684f, 0.575f),
+            NormalizedPoint(0.710f, 0.547f),
+            NormalizedPoint(0.752f, 0.553f),
+            NormalizedPoint(0.781f, 0.586f),
+            NormalizedPoint(0.814f, 0.605f),
+            NormalizedPoint(0.830f, 0.611f)
         ),
         bidirectional = false
     )

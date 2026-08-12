@@ -52,6 +52,7 @@ import com.lumix.estimator.domain.simulation.InverterMode
 import com.lumix.estimator.domain.simulation.SimFrame
 import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.domain.simulation.TechnicalModel
+import com.lumix.estimator.domain.simulation.WeatherState
 import com.lumix.estimator.sensors.CompassMath
 import com.lumix.estimator.ui.components.AnimatedCounterText
 import com.lumix.estimator.ui.components.SectionCard
@@ -129,6 +130,8 @@ fun SimulationScreen(
             (SimulationEngine.irradianceFactor(frame.hour) * state.weather.multiplier).toFloat()
         }
         val cloudCoverage = remember(state.weather) { (1.0 - state.weather.multiplier).toFloat() }
+        val daylightFactor = remember(frame.hour) { SimulationEngine.irradianceFactor(frame.hour).toFloat() }
+        val isStorm = state.weather == WeatherState.STORM
         val batterySocFraction = if (config.hasBattery) frame.batterySocPercent / 100f else null
 
         LazyColumn(
@@ -158,6 +161,8 @@ fun SimulationScreen(
                         cloudCoverage = cloudCoverage,
                         sunProgress = sunProgress,
                         sunIntensity = sunIntensity,
+                        daylightFactor = daylightFactor,
+                        isStorm = isStorm,
                         batterySocFraction = batterySocFraction,
                         batteryCharging = frame.batteryPowerKw > 0.0,
                         modifier = Modifier.clip(RoundedCornerShape(LumixRadius.md))

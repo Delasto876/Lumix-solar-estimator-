@@ -40,14 +40,18 @@ private fun colorFor(path: EnergyPath, flow: EnergyFlow): Color = when (path.id)
 
 /**
  * The full photoreal digital-twin visual: `bg_house_energy_routes.png` (a fixed, never-
- * redrawn background asset) with every dynamic layer composited above it — cloud coverage,
- * a sun position/intensity marker, an animated battery fill wash, and particles flowing
- * along the routes baked into the artwork. Every layer is driven by real simulation state
- * passed in by the caller; nothing here fabricates its own numbers.
+ * redrawn background asset) with every dynamic layer composited above it — a full-scene
+ * lighting/rain wash, cloud coverage, a sun position/intensity marker, an animated battery
+ * fill wash, and particles flowing along the routes baked into the artwork. Every layer is
+ * driven by real simulation state passed in by the caller; nothing here fabricates its own
+ * numbers.
  *
  * @param cloudCoverage 0f (clear) .. 1f (fully overcast), from the selected weather state.
  * @param sunProgress 0f at sunrise, 1f at sunset; null hides the sun marker (nighttime).
  * @param sunIntensity 0f..1f, scales the marker's glow — irradiance factor × cloud multiplier.
+ * @param daylightFactor 0f outside daylight hours .. 1f at midday, undamped by weather — drives
+ * how dark/cool the whole scene reads, so night always matches actual solar output hitting zero.
+ * @param isStorm true for the heaviest weather state — adds a rain wash and falling streaks.
  * @param batterySocFraction 0f..1f state of charge; null hides the battery overlay (no battery in this system).
  */
 @Composable
@@ -57,6 +61,8 @@ fun EnergyFlowCanvas(
     cloudCoverage: Float = 0f,
     sunProgress: Float? = null,
     sunIntensity: Float = 0f,
+    daylightFactor: Float = 1f,
+    isStorm: Boolean = false,
     batterySocFraction: Float? = null,
     batteryCharging: Boolean = false,
     debugShowPaths: Boolean = SolarSimulationPaths.DEBUG_SHOW_PATHS
@@ -68,6 +74,8 @@ fun EnergyFlowCanvas(
             contentScale = ContentScale.FillBounds,
             modifier = Modifier.fillMaxWidth().aspectRatio(IMAGE_ASPECT_RATIO)
         )
+
+        SceneAtmosphereOverlay(daylightFactor = daylightFactor, cloudCoverage = cloudCoverage, isStorm = isStorm)
 
         CloudOverlay(coverageFraction = cloudCoverage)
 

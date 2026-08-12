@@ -4,11 +4,18 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import com.lumix.estimator.ui.theme.rememberReduceMotion
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -117,5 +124,89 @@ fun BatteryFillOverlay(fillFraction: Float, charging: Boolean, modifier: Modifie
             end = Offset(right, fillTop),
             strokeWidth = 2.5f
         )
+    }
+}
+
+private const val RAIN_DROP_COUNT = 46
+private const val RAIN_FALL_SPEED = 1.4f // phase units (full canvas heights) per second
+
+/**
+ * A full-scene lighting/precipitation wash over the *entire* photo — ground, walls and roof,
+ * not just the sky — so the house actually reads as sunny, overcast, stormy or after-dark
+ * rather than just showing a dim sun icon while the walls stay daylight-bright underneath it.
+ *
+ * [daylightFactor] is the engine's own undamped irradiance curve (0f outside daylight hours,
+ * rising to ~1f at midday) so darkness always tracks real solar output, never disagrees with
+ * it, and fades in smoothly around sunrise/sunset rather than snapping at the edges. Weather's
+ * overcast wash ([cloudCoverage]) is applied independently so a cloudy midday and a clear
+ * night read as visibly different, not just "the same darkness."
+ */
+@Composable
+fun SceneAtmosphereOverlay(
+    daylightFactor: Float,
+    cloudCoverage: Float,
+    isStorm: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val reduceMotion = rememberReduceMotion()
+    var rainPhase by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(isStorm, reduceMotion) {
+        if (!isStorm || reduceMotion) return@LaunchedEffect
+        var lastNanos = -1L
+        while (true) {
+            withFrameNanos { nanos ->
+                if (lastNanos >= 0L) {
+                    val deltaSeconds = (nanos - lastNanos) / 1_000_000_000f
+                    rainPhase = EnergyFlowPathManager.wrapUnit(rainPhase + deltaSeconds * RAIN_FALL_SPEED)
+                }
+                lastNanos = nanos
+            }
+        }
+    }
+
+    val night = (1f - daylightFactor.coerceIn(0f, 1f))
+    val overcast = cloudCoverage.coerceIn(0f, 1f)
+    if (night <= 0.02f && overcast <= 0.02f && !isStorm) return
+
+    Canvas(modifier = modifier.fillMaxWidth().aspectRatio(IMAGE_ASPECT_RATIO)) {
+        val w = size.width
+        val h = size.height
+
+        // Overcast/low-sunlight grey-down — independent of time of day, so a cloudy noon
+        // dims the scene without pretending it's dark out.
+        if (overcast > 0.02f) {
+            drawRect(color = Color(0xFF3B434D).copy(alpha = overcast * 0.30f))
+        }
+
+        // Dusk-to-night color grade: cools and darkens as daylightFactor falls toward zero.
+        if (night > 0.02f) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF060B21).copy(alpha = night * 0.72f),
+                        Color(0xFF0C1738).copy(alpha = night * 0.55f)
+                    )
+                )
+            )
+        }
+
+        if (isStorm) {
+            drawRect(color = Color(0xFF1B2530).copy(alpha = 0.22f))
+            val dropLength = 0.028f * h
+            val slant = 0.012f * w
+            repeat(RAIN_DROP_COUNT) { i ->
+                val seedX = (i * 0.0731f).mod(1f)
+                val seedOffset = (i * 0.171f).mod(1f)
+                val x = seedX * w
+                val y = (seedOffset + rainPhase).mod(1f) * (h + dropLength) - dropLength
+                drawLine(
+                    color = Color(0xFFBFD4E8).copy(alpha = 0.35f),
+                    start = Offset(x, y),
+                    end = Offset(x - slant, y + dropLength),
+                    strokeWidth = 1.6f
+                )
+            }
+        }
     }
 }

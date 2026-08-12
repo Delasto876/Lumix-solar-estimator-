@@ -968,3 +968,42 @@ actively used by the digital-twin simulation's Sun & Roof card.
 `ManualSiteScreen.kt`'s own doc comment (previously describing itself as "a peer path to
 SolarSiteMapScreen, not a fallback") was updated to reflect that it's now the sole path into
 Solar Site, not a fallback with nothing to be a peer to.
+
+## A19: particle/wire alignment fix + full-scene weather & time-of-day atmosphere
+
+Two fixes to the digital-twin Simulation screen (`EnergyFlowCanvas.kt` and friends):
+
+**1. Electrons no longer drift off the printed wires.** `SolarSimulationPaths.kt`'s four
+`EnergyPath` point lists (solar→inverter, grid→inverter, inverter→battery, inverter→house) were
+hand-eyeballed against the `bg_house_energy_routes.png` artwork and had drifted up to ~90px off
+the actual printed neon wires in spots — worst on the grid→inverter (red) path, which runs the
+longest, most bent route across the image. Recalibrated by directly sampling the PNG's own pixel
+data: thresholded each wire's color (yellow/red/green/blue) against its background, traced the
+resulting pixel clusters into a polyline per path, then verified by rendering the new normalized
+points back onto the image as connected dots and visually confirming every dot lands on the
+printed wire. The grid→inverter path in particular grew from 4 points to 14 to actually follow
+its zig-zagging real route along the wall, instead of cutting a straight line through it.
+
+**2. The house scene itself now visibly reacts to weather and time of day**, not just the small
+sun-icon glow and cloud puffs it did before — "sunny" at midday, dimmer/greyed-out under cloud,
+a rain wash + falling streaks during Storm weather, and a dark, cool-toned night once the sun
+sets, matching whatever hour the time dial or What-If actions land on. New
+`SceneAtmosphereOverlay` composable (`EnvironmentOverlays.kt`) draws three independent washes
+over the *entire* photo (walls and ground, not just the sky the existing `CloudOverlay` blobs
+sit in):
+- An overcast grey-down scaled by `cloudCoverage` (same value already driving the sky's cloud
+  puffs), so a cloudy midday visibly dims the whole scene, not just the sky.
+- A cool, dark gradient scaled by a new `daylightFactor` param — the engine's own undamped
+  `SimulationEngine.irradianceFactor(hour)` curve (0f outside daylight hours, rising to ~1f at
+  midday) — so the scene's darkness always tracks real solar output hitting zero, and fades in
+  smoothly around sunrise/sunset rather than snapping.
+- A semi-transparent rain wash plus ~46 animated falling streaks, shown only when
+  `state.weather == WeatherState.STORM` (the same state the "Simulate Cloud Event" What-If
+  action already sets) — off by default, respects reduced-motion the same way the particle
+  overlay does.
+
+`EnergyFlowCanvas` gained two new params (`daylightFactor`, `isStorm`, both defaulted so the one
+call site in `SimulationScreen.kt` is the only thing that needed updating) and now draws
+`SceneAtmosphereOverlay` immediately after the background image, before the existing cloud/sun/
+battery/particle layers — so those stay legible and un-dimmed on top of it rather than getting
+washed out themselves.
