@@ -33,36 +33,81 @@ enum class SimApplianceType(val label: String, val watts: Int, val tier: Electri
 }
 
 /**
- * Starting on/off state for each appliance, derived from what the user actually told
+ * One scheduled window a quantity of an appliance runs — e.g. "3 units, from 6am for 3h".
+ * An appliance can have several of these (a "+" control adds more), so a household's 6 fans
+ * can be modeled as 3 running a daytime window and 3 running a separate nighttime window,
+ * each contributing load only while its own window is active.
+ */
+data class ApplianceRun(
+    val quantity: Int = 1,
+    val startHour: Double = 0.0,
+    val durationHours: Double = 24.0
+) {
+    /** Whether this run is contributing load at [hour] (0..24), handling wraparound past midnight. */
+    fun isActiveAt(hour: Double): Boolean {
+        val h = hour.mod(24.0)
+        val endHour = startHour + durationHours
+        return if (endHour <= 24.0) {
+            h >= startHour && h < endHour
+        } else {
+            h >= startHour || h < (endHour - 24.0)
+        }
+    }
+}
+
+/**
+ * An appliance's full runtime configuration: whether it's in play at all, and the one or more
+ * scheduled [runs] making it up. A fresh, un-scheduled appliance defaults to a single run
+ * covering the whole day, so simply toggling one on behaves exactly like the old flat on/off
+ * model until someone actually customizes the schedule.
+ */
+data class ApplianceState(
+    val enabled: Boolean = false,
+    val runs: List<ApplianceRun> = listOf(ApplianceRun())
+) {
+    val totalQuantity: Int get() = runs.sumOf { it.quantity }
+}
+
+/**
+ * Starting configuration for each appliance, derived from what the user actually told
  * the estimator they have — not arbitrary defaults. Appliances the wizard never asks
  * about (water heater, oven, pump, computer, EV charger) default off so the simulator
  * starts matching the quoted load, and turning them on is an explicit "what if."
  */
-fun defaultApplianceStates(inputs: QuoteInputs): Map<SimApplianceType, Boolean> {
+fun defaultApplianceStates(inputs: QuoteInputs): Map<SimApplianceType, ApplianceState> {
     fun qty(type: ApplianceType) = inputs.appliances[type]?.qty ?: 0
+    fun stateFor(quantity: Int, enabled: Boolean = quantity > 0) =
+        ApplianceState(enabled = enabled, runs = listOf(ApplianceRun(quantity = quantity.coerceAtLeast(1))))
+
     return linkedMapOf(
-        SimApplianceType.LIGHTS to true,
-        SimApplianceType.REFRIGERATOR to (qty(ApplianceType.FRIDGE) > 0),
-        SimApplianceType.FANS to (qty(ApplianceType.FAN) > 0),
-        SimApplianceType.TV to (qty(ApplianceType.TV) > 0),
-        SimApplianceType.AIR_CONDITIONER to inputs.ac.hasAc,
-        SimApplianceType.MICROWAVE to (qty(ApplianceType.MICROWAVE) > 0),
-        SimApplianceType.WASHING_MACHINE to (qty(ApplianceType.WASHER) > 0),
-        SimApplianceType.DRYER to (qty(ApplianceType.DRYER) > 0),
-        SimApplianceType.IRON to (qty(ApplianceType.IRON) > 0),
-        SimApplianceType.WATER_HEATER to false,
-        SimApplianceType.OVEN to false,
-        SimApplianceType.PUMP to false,
-        SimApplianceType.COMPUTER to false,
-        SimApplianceType.EV_CHARGER to false
+        SimApplianceType.LIGHTS to stateFor(quantity = 1, enabled = true),
+        SimApplianceType.REFRIGERATOR to stateFor(qty(ApplianceType.FRIDGE)),
+        SimApplianceType.FANS to stateFor(qty(ApplianceType.FAN)),
+        SimApplianceType.TV to stateFor(qty(ApplianceType.TV)),
+        SimApplianceType.AIR_CONDITIONER to stateFor(inputs.ac.counts.values.sum(), enabled = inputs.ac.hasAc),
+        SimApplianceType.MICROWAVE to stateFor(qty(ApplianceType.MICROWAVE)),
+        SimApplianceType.WASHING_MACHINE to stateFor(qty(ApplianceType.WASHER)),
+        SimApplianceType.DRYER to stateFor(qty(ApplianceType.DRYER)),
+        SimApplianceType.IRON to stateFor(qty(ApplianceType.IRON)),
+        SimApplianceType.WATER_HEATER to stateFor(1, enabled = false),
+        SimApplianceType.OVEN to stateFor(1, enabled = false),
+        SimApplianceType.PUMP to stateFor(1, enabled = false),
+        SimApplianceType.COMPUTER to stateFor(1, enabled = false),
+        SimApplianceType.EV_CHARGER to stateFor(1, enabled = false)
     )
 }
 
-fun totalApplianceLoadKw(states: Map<SimApplianceType, Boolean>): Double =
-    states.filterValues { it }.keys.sumOf { it.watts } / 1000.0
+/** Total appliance load at a given hour (0..24) — only runs whose window is active contribute. */
+fun totalApplianceLoadKwAt(states: Map<SimApplianceType, ApplianceState>, hour: Double): Double =
+    states.entries.filter { it.value.enabled }.sumOf { (type, state) ->
+        val activeQty = state.runs.filter { it.isActiveAt(hour) }.sumOf { it.quantity }
+        activeQty * type.watts / 1000.0
+    }
 
-/** Splits the currently-on appliances' load by [ElectricalTier], for per-circuit current readings. */
-fun applianceLoadKwByTier(states: Map<SimApplianceType, Boolean>): Map<ElectricalTier, Double> =
-    states.filterValues { it }.keys
-        .groupBy { it.tier }
-        .mapValues { (_, types) -> types.sumOf { it.watts } / 1000.0 }
+/** Splits the appliance load active at [hour] by [ElectricalTier], for per-circuit current readings. */
+fun applianceLoadKwByTierAt(states: Map<SimApplianceType, ApplianceState>, hour: Double): Map<ElectricalTier, Double> =
+    states.entries.filter { it.value.enabled }
+        .associate { (type, state) -> type to state.runs.filter { it.isActiveAt(hour) }.sumOf { it.quantity } }
+        .filterValues { it > 0 }
+        .entries.groupBy({ it.key.tier }, { it.key to it.value })
+        .mapValues { (_, list) -> list.sumOf { (type, qty) -> qty * type.watts } / 1000.0 }

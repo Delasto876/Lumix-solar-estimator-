@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.domain.QuoteInputs
+import com.lumix.estimator.domain.simulation.ApplianceRun
+import com.lumix.estimator.domain.simulation.ApplianceState
 import com.lumix.estimator.domain.simulation.InverterMode
 import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.SimFrame
@@ -12,7 +14,7 @@ import com.lumix.estimator.domain.simulation.SimSystemConfig
 import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.domain.simulation.WeatherState
 import com.lumix.estimator.domain.simulation.defaultApplianceStates
-import com.lumix.estimator.domain.simulation.totalApplianceLoadKw
+import com.lumix.estimator.domain.simulation.totalApplianceLoadKwAt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,7 +34,7 @@ data class SimulationUiState(
     val currentFrame: SimFrame? = null,
     val isPlaying: Boolean = false,
     val speed: Float = 1f,
-    val appliances: Map<SimApplianceType, Boolean> = emptyMap(),
+    val appliances: Map<SimApplianceType, ApplianceState> = emptyMap(),
     val gridConnected: Boolean = true,
     val inverterMode: InverterMode = InverterMode.SBU,
     val gridChargeEnabled: Boolean = true,
@@ -43,7 +45,8 @@ data class SimulationUiState(
     val batteryFullHour: Double? = null,
     val technicalMode: Boolean = false
 ) {
-    val applianceLoadKw: Double get() = totalApplianceLoadKw(appliances)
+    /** Total appliance load right now, at [currentHour] — reflects each appliance's own schedule. */
+    val applianceLoadKw: Double get() = totalApplianceLoadKwAt(appliances, currentHour)
 }
 
 class SimulationViewModel(
@@ -68,7 +71,7 @@ class SimulationViewModel(
             val timeline = SimulationEngine.buildDayTimeline(
                 config,
                 gridConnected = gridConnected,
-                applianceLoadKw = totalApplianceLoadKw(appliances),
+                applianceStates = appliances,
                 inverterMode = inverterMode,
                 gridChargeEnabled = gridChargeEnabled,
                 gridServiceAmps = gridServiceAmps
@@ -91,7 +94,16 @@ class SimulationViewModel(
     }
 
     fun toggleAppliance(type: SimApplianceType) {
-        val updated = _state.value.appliances.toMutableMap().apply { this[type] = !(this[type] ?: false) }
+        val current = _state.value.appliances[type] ?: ApplianceState()
+        val updated = _state.value.appliances.toMutableMap().apply { this[type] = current.copy(enabled = !current.enabled) }
+        rebuildTimeline(appliances = updated)
+    }
+
+    /** Replaces an appliance's full schedule — used when editing quantity/start/duration or adding/removing a run block. */
+    fun setApplianceRuns(type: SimApplianceType, runs: List<ApplianceRun>) {
+        val current = _state.value.appliances[type] ?: ApplianceState()
+        val safeRuns = runs.ifEmpty { listOf(ApplianceRun()) }
+        val updated = _state.value.appliances.toMutableMap().apply { this[type] = current.copy(runs = safeRuns) }
         rebuildTimeline(appliances = updated)
     }
 
@@ -137,7 +149,7 @@ class SimulationViewModel(
     }
 
     private fun rebuildTimeline(
-        appliances: Map<SimApplianceType, Boolean> = _state.value.appliances,
+        appliances: Map<SimApplianceType, ApplianceState> = _state.value.appliances,
         gridConnected: Boolean = _state.value.gridConnected,
         inverterMode: InverterMode = _state.value.inverterMode,
         gridChargeEnabled: Boolean = _state.value.gridChargeEnabled,
@@ -152,7 +164,7 @@ class SimulationViewModel(
             cloudMultiplier = weather.multiplier,
             gridConnected = effectiveGridConnected,
             startSocFraction = startSocFraction,
-            applianceLoadKw = totalApplianceLoadKw(appliances),
+            applianceStates = appliances,
             inverterMode = inverterMode,
             gridChargeEnabled = gridChargeEnabled,
             gridServiceAmps = gridServiceAmps

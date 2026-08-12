@@ -119,6 +119,7 @@ object SimulationEngine {
         startSocFraction: Double = 0.6,
         resolutionMinutes: Int = 5,
         applianceLoadKw: Double = 0.0,
+        applianceStates: Map<SimApplianceType, ApplianceState> = emptyMap(),
         inverterMode: InverterMode = InverterMode.SBU,
         gridChargeEnabled: Boolean = true,
         gridServiceAmps: Double = DEFAULT_GRID_SERVICE_AMPS
@@ -129,8 +130,10 @@ object SimulationEngine {
         val maxBatteryRateKw = if (config.hasBattery) min(config.batteryCapacityKwh * 0.5, config.inverterKw.coerceAtLeast(0.1)) else 0.0
         // The day-shaped curve represents ambient/background load (standby draw, misc
         // cycling) not covered by the explicit appliance checklist; the checklist's total
-        // is added on top, flat, so toggling an appliance has an immediate, visible effect
-        // rather than being smoothed into an average.
+        // is added on top so toggling an appliance has an immediate, visible effect rather
+        // than being smoothed into an average. [applianceLoadKw] is a flat legacy contribution
+        // (still used by simple, unscheduled call sites); [applianceStates] layers each
+        // appliance's own scheduled run windows on top, hour by hour, for real precision.
         val backgroundPerHourKw = (config.avgDailyLoadKwh / 24.0 * BACKGROUND_LOAD_FRACTION).coerceAtLeast(BACKGROUND_LOAD_FLOOR_KW)
         val dt = resolutionMinutes / 60.0
 
@@ -161,7 +164,8 @@ object SimulationEngine {
             val pv = (irradianceFraction * config.pvCapacityKw * temperatureDerate * SystemLosses.fixedSystemEfficiency)
                 .coerceIn(0.0, config.inverterKw)
 
-            val load = (loadFactor(hour) * backgroundPerHourKw + applianceLoadKw).coerceAtLeast(0.0)
+            val load = (loadFactor(hour) * backgroundPerHourKw + applianceLoadKw + totalApplianceLoadKwAt(applianceStates, hour))
+                .coerceAtLeast(0.0)
 
             // The grid connection is strictly import-only in every mode — solar never exports;
             // any surplus that can't be used or stored is simply curtailed.

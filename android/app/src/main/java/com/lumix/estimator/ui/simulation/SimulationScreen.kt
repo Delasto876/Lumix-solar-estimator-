@@ -366,7 +366,9 @@ fun SimulationScreen(
             ) {
                 AppliancesSheetContent(
                     appliances = state.appliances,
-                    onToggle = { viewModel.toggleAppliance(it) }
+                    currentHour = state.currentHour,
+                    onToggle = { viewModel.toggleAppliance(it) },
+                    onSetRuns = { type, runs -> viewModel.setApplianceRuns(type, runs) }
                 )
             }
         }
