@@ -45,7 +45,10 @@ fun EnergyGraph(
 ) {
     if (timeline.isEmpty()) return
     val palette = LocalLumixPalette.current
-    val maxPower = max(timeline.maxOf { it.pvKw }, timeline.maxOf { it.houseLoadKw }).coerceAtLeast(0.1)
+    val maxPower = max(
+        max(timeline.maxOf { it.pvKw }, timeline.maxOf { it.houseLoadKw }),
+        timeline.maxOf { it.gridPowerKw }
+    ).coerceAtLeast(0.1)
 
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
@@ -78,23 +81,29 @@ fun EnergyGraph(
                 val solarFill = Path()
                 val loadPath = Path()
                 val socPath = Path()
+                val gridPath = Path()
 
                 timeline.forEachIndexed { i, f ->
                     val x = (f.hour * xStep).toFloat()
                     val ySolar = yForPower(f.pvKw)
                     val yLoad = yForPower(f.houseLoadKw)
                     val ySoc = yForPercent(f.batterySocPercent)
+                    // Grid draw is always >= 0 (import-only) — total of what's going to the
+                    // house and/or charging the battery, matching the live GRID stat above.
+                    val yGrid = yForPower(f.gridPowerKw)
                     if (i == 0) {
                         solarPath.moveTo(x, ySolar)
                         solarFill.moveTo(x, baseline)
                         solarFill.lineTo(x, ySolar)
                         loadPath.moveTo(x, yLoad)
                         socPath.moveTo(x, ySoc)
+                        gridPath.moveTo(x, yGrid)
                     } else {
                         solarPath.lineTo(x, ySolar)
                         solarFill.lineTo(x, ySolar)
                         loadPath.lineTo(x, yLoad)
                         socPath.lineTo(x, ySoc)
+                        gridPath.lineTo(x, yGrid)
                     }
                 }
                 solarFill.lineTo(size.width, baseline)
@@ -103,6 +112,15 @@ fun EnergyGraph(
                 drawPath(solarFill, brush = Brush.verticalGradient(listOf(LumixColors.SolarYellow.copy(alpha = 0.22f), Color.Transparent)))
                 drawPath(solarPath, color = LumixColors.SolarYellow, style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round))
                 drawPath(loadPath, color = palette.textSecondary, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+                drawPath(
+                    gridPath,
+                    color = LumixColors.SolarAmber.copy(alpha = 0.85f),
+                    style = Stroke(
+                        width = 1.5.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(2f, 5f))
+                    )
+                )
                 drawPath(
                     socPath,
                     color = LumixColors.TechnicalCyan.copy(alpha = 0.8f),
@@ -127,6 +145,7 @@ fun EnergyGraph(
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             LegendItem(LumixColors.SolarYellow, "Solar")
             LegendItem(palette.textSecondary, "Consumption")
+            LegendItem(LumixColors.SolarAmber, "Grid")
             LegendItem(LumixColors.TechnicalCyan, "Battery %")
         }
 

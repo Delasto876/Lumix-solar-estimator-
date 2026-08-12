@@ -124,6 +124,10 @@ private fun ParticleOverlay(flows: List<EnergyFlow>, debugShowPaths: Boolean) {
 
             val flow = flowById[path.id] ?: return@forEach
             if (!flow.active) return@forEach
+            // A REVERSE flow on a path not marked bidirectional (e.g. grid_inverter, which is
+            // strictly import-only) would be a resolver bug — fail safe by simply not drawing
+            // it, rather than animating a physically-impossible direction on a fixed one-way route.
+            if (flow.direction == FlowDirection.REVERSE && !path.bidirectional) return@forEach
 
             val color = colorFor(path, flow)
             val count = EnergyFlowPathManager.particleCountFor(flow.powerKw)

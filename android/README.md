@@ -739,5 +739,33 @@ Technical readout/engine gained electrical awareness.
   cap while still connected — two different real-world causes that look identical in the raw
   numbers but aren't the same problem.
 
-Remaining phases (further energy-flow animation polish, final validation against the spec's 20
-test scenarios) are tracked but not started as of this commit.
+**Phase 5 — energy-flow animation correctness** (`ui/simulation/EnergyFlowCanvas.kt`,
+`EnergyGraph.kt`):
+
+Most of "correct energy-flow animation" was already delivered as a side effect of Phase 3's
+domain-layer rewrite — the 4 fixed paths needed no new geometry, `EnergyFlowResolver` already
+combines solar+grid battery-charging onto the one physical path and gridToHouse+gridToBattery
+onto the one physical grid path, and `grid_inverter` was already marked import-only
+(`bidirectional = false`). Phase 5 closes the two gaps that were left:
+
+- **The `bidirectional` flag was metadata nobody read.** `EnergyFlowCanvas`'s particle renderer
+  now actually enforces it: a flow reporting `REVERSE` on a path not marked `bidirectional`
+  (which should never happen, but previously had nothing stopping it from rendering if it did)
+  is now simply not drawn, rather than animating a physically-impossible direction — e.g. an
+  export-looking glow on the strictly-import-only grid path. This turns the flag from
+  documentation into an enforced invariant.
+- **The 24h Energy Graph had no grid line.** It plotted Solar/Consumption/Battery% but nothing
+  for JPS activity, even though grid import (including the new battery-charging sub-flow) is now
+  a first-class, sometimes-load-bearing part of the day. Added a dashed amber grid trace (using
+  `SimFrame.gridPowerKw`, always ≥0 per the no-export rule) plus a legend entry, and folded it
+  into the graph's Y-axis scaling so a service-capped day doesn't clip off-chart.
+
+Verified standalone: extended the Phase 3 EnergyFlowResolver checks from hand-picked single
+frames to every frame of six full-day timelines (SOL, SBU, UTI, UTI-no-grid-charge, and both
+service-cap scenarios) — every active flow maps to a real fixed path, `REVERSE` never appears on
+`grid_inverter` in a single frame across any of them, and the resolver/paths system stays
+internally consistent for a whole simulated day, not just the moments already covered by
+targeted test cases.
+
+Remaining phase (final validation against the spec's 20 test scenarios) is tracked but not
+started as of this commit.
