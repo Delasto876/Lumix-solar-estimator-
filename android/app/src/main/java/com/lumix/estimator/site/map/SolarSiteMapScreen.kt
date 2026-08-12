@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -198,8 +200,16 @@ fun SolarSiteMapScreen(
             }
         }
 
-        // Top bar: back button + search field + map-type switch.
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Top bar: back button + search field + map-type switch. Same no-Scaffold situation as
+        // the bottom panel below — statusBarsPadding() is what keeps this clear of the status
+        // bar/display cutout on edge-to-edge devices.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 LumixIconButtonSurface(onClick = onBack) {
                     Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -309,8 +319,16 @@ fun SolarSiteMapScreen(
             )
         }
 
-        // Bottom panel.
-        Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp)) {
+        // Bottom panel. This screen has no Scaffold (it's a full-bleed map with overlaid
+        // controls), so unlike Scaffold-based screens it gets zero automatic protection from
+        // the system navigation bar — navigationBarsPadding() here is load-bearing, not defensive.
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(16.dp)
+        ) {
             if (roofController.isDrawing) {
                 RoofDrawingControls(
                     vertexCount = roofController.vertices.size,

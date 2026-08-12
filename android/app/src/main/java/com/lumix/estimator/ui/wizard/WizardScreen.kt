@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
@@ -85,6 +86,26 @@ fun WizardScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                LumixSecondaryButton(text = "Back", onClick = { viewModel.goBack() }, enabled = stepIndex > 0)
+                if (isLast) {
+                    LumixPrimaryButton(
+                        text = "Calculate",
+                        onClick = { showCalculationSequence = true },
+                        enabled = viewModel.errorsForStep(7).isEmpty()
+                    )
+                } else {
+                    LumixPrimaryButton(text = "Next", onClick = { viewModel.goNext() })
+                }
+            }
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -124,24 +145,6 @@ fun WizardScreen(
                     errors.forEach {
                         Text(it, color = palette.warningRedText, style = MaterialTheme.typography.labelSmall)
                     }
-                }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                LumixSecondaryButton(text = "Back", onClick = { viewModel.goBack() }, enabled = stepIndex > 0)
-                if (isLast) {
-                    LumixPrimaryButton(
-                        text = "Calculate",
-                        onClick = { showCalculationSequence = true },
-                        enabled = viewModel.errorsForStep(7).isEmpty()
-                    )
-                } else {
-                    LumixPrimaryButton(text = "Next", onClick = { viewModel.goNext() })
                 }
             }
         }

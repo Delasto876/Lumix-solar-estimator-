@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
@@ -89,6 +90,40 @@ fun ResultsScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            val current = saved
+            if (current != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    LumixSecondaryButton(text = "New quote", onClick = onNewQuote, modifier = Modifier.weight(1f))
+                    LumixPrimaryButton(
+                        text = if (isSharing) "Preparing…" else "Share PDF",
+                        enabled = !isSharing,
+                        onClick = {
+                            isSharing = true
+                            scope.launch {
+                                val file = withContext(Dispatchers.IO) {
+                                    QuotePdfGenerator.generate(context, current.inputs, current.result, current.timestamp)
+                                }
+                                isSharing = false
+                                context.startActivity(
+                                    android.content.Intent.createChooser(
+                                        QuotePdfGenerator.shareIntent(context, file),
+                                        "Share quote PDF"
+                                    )
+                                )
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
         }
     ) { padding ->
         val current = saved
@@ -229,33 +264,6 @@ fun ResultsScreen(
                         )
                     }
                 }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                LumixSecondaryButton(text = "New quote", onClick = onNewQuote, modifier = Modifier.weight(1f))
-                LumixPrimaryButton(
-                    text = if (isSharing) "Preparing…" else "Share PDF",
-                    enabled = !isSharing,
-                    onClick = {
-                        isSharing = true
-                        scope.launch {
-                            val file = withContext(Dispatchers.IO) {
-                                QuotePdfGenerator.generate(context, inputs, result, current.timestamp)
-                            }
-                            isSharing = false
-                            context.startActivity(
-                                android.content.Intent.createChooser(
-                                    QuotePdfGenerator.shareIntent(context, file),
-                                    "Share quote PDF"
-                                )
-                            )
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                )
             }
         }
 

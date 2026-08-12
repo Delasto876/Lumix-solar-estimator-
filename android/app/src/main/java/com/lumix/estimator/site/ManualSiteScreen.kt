@@ -4,8 +4,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
@@ -81,9 +84,14 @@ fun ManualSiteScreen(
             )
         }
     ) { padding ->
+        // This screen (like the map screen) is reached as a pushed, non-tab route, so the outer
+        // nav host doesn't reserve any navigation-bar space for it — the last item in this list
+        // (the "Analyze"/"Save" button) needs its own bottom inset or it sits flush against the
+        // system nav bar with no margin to scroll past.
+        val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + navBarBottom),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {

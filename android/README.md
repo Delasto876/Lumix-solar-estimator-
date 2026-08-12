@@ -549,3 +549,42 @@ To render the Solar Site map screen's satellite tiles, add a Google Maps API key
 with `sdk.dir` on first open) and add a line `MAPS_API_KEY=your_key_here`. The file is
 git-ignored, so the key never gets committed. Everything else in the app, including the entire
 manual site-entry flow, works with no key at all.
+
+## Post-build field fixes (Samsung Galaxy A15 + simulation logic, in progress)
+
+The app was first successfully built and run on a physical device (Samsung Galaxy A15) after
+the sandbox-only development above. Real-device testing surfaced issues this environment's
+lack of an Android SDK/emulator couldn't have caught. Fixes land in phases; each is verified
+by code review + import-completeness sweep here (this sandbox still can't compile/run the app),
+then confirmed on-device by the user before the next phase starts.
+
+**Phase 1 — window-insets / safe-area pass:**
+
+Root cause of "buttons cut off at the bottom of screens": several screens are reached as
+*pushed* routes (Wizard, Results, the Solar Site map, manual site entry) rather than tab
+routes. `LumixNavHost`'s outer `Scaffold` only reserves bottom space for tab routes
+(`Modifier.padding(bottom = if (isTabRoute) scaffoldPadding.calculateBottomPadding() else
+0.dp)`), which is correct — pushed screens don't have the floating bottom nav to clear — but
+none of those screens then applied their *own* navigation-bar inset protection. Fixed:
+
+- `WizardScreen.kt` — the Back/Next row was a plain last child of the body `Column` with a flat
+  `16.dp` padding, not routed through Scaffold's `bottomBar` slot at all. Moved it into
+  `bottomBar` with `.navigationBarsPadding()`, matching the pattern `SimulationScreen` already
+  used correctly for its transport bar.
+- `ResultsScreen.kt` — same anti-pattern for the "New quote" / "Share PDF" row; same fix.
+- `SolarSiteMapScreen.kt` — this screen has no `Scaffold` at all (full-bleed map with overlaid
+  controls), so its bottom analysis/drawing panel and top search bar, both positioned via plain
+  `Box.align(...)`, had *zero* automatic inset protection — `navigationBarsPadding()` /
+  `statusBarsPadding()` here are load-bearing, not defensive.
+- `SimulationScreen.kt` — already used `bottomBar` correctly; added `navigationBarsPadding()`
+  defensively for consistency.
+- `ManualSiteScreen.kt` — its buttons already scroll with content (lower severity, never fully
+  hidden), but as another pushed route its `LazyColumn`'s `contentPadding` didn't account for
+  the nav bar either; added `WindowInsets.navigationBars` to the bottom content padding.
+
+Not yet done: splitting any wizard step whose *content* (not just the button row) is too tall
+for a small phone — that's bundled into Phase 2 below, since it's the same step-list refactor.
+
+Remaining phases (customer-first wizard reorder + new defaults, hybrid inverter SOL/SBU/UTI
+operating modes, Jamaica 110V/220V electrical config, energy-flow animation correctness,
+validation) are tracked but not started as of this commit.
