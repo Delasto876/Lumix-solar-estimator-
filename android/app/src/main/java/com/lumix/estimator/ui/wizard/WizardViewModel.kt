@@ -9,6 +9,7 @@ import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteMode
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.RoofConstraint
+import com.lumix.estimator.domain.RoofType
 import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.domain.Validation
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,9 +38,12 @@ class WizardViewModel(
     private val _isCalculating = MutableStateFlow(false)
     val isCalculating: StateFlow<Boolean> = _isCalculating.asStateFlow()
 
-    // 1 Customer, 2 Mode & Site Info, 3 Roof & Mounting, 4 Loads, 5 JPS Bill/Usage (GUIDED only),
-    // 6 Backup Requirements, 7 Manual System Builder (MANUAL only), 8 Pricing & Discount.
-    val totalSteps = 8
+    // One concept per screen, per the mobile usability pass: 1 Customer, 2 Quote Mode,
+    // 3 Property & System, 4 Roof Type, 5 Roof Mounting (ZINC only), 6 Air Conditioning,
+    // 7 Household Appliances, 8 JPS Bill/Usage (GUIDED only), 9 Backup Requirements,
+    // 10 Manual Mode (MANUAL only), 11 Inverter & Panels (MANUAL only), 12 Battery Bank
+    // (MANUAL only), 13 Pricing & Discount.
+    val totalSteps = 13
 
     fun update(transform: (QuoteInputs) -> QuoteInputs) {
         _inputs.value = transform(_inputs.value)
@@ -49,18 +53,23 @@ class WizardViewModel(
         val data = _inputs.value
         return when (step) {
             1 -> Validation.customerErrors(data)
-            5 -> Validation.usageErrors(data)
-            7 -> Validation.manualErrors(data)
-            8 -> Validation.pricingErrors(data)
+            8 -> Validation.usageErrors(data)
+            11 -> Validation.manualErrors(data)
+            13 -> Validation.pricingErrors(data)
             else -> emptyList()
         }
     }
 
     fun visibleSteps(): List<Int> {
-        val mode = _inputs.value.quoteMode
+        val data = _inputs.value
         val steps = (1..totalSteps).toMutableList()
-        if (mode == QuoteMode.LOAD) steps.remove(5)
-        if (mode != QuoteMode.MANUAL) steps.remove(7)
+        if (data.roofType != RoofType.ZINC) steps.remove(5)
+        if (data.quoteMode == QuoteMode.LOAD) steps.remove(8)
+        if (data.quoteMode != QuoteMode.MANUAL) {
+            steps.remove(10)
+            steps.remove(11)
+            steps.remove(12)
+        }
         return steps
     }
 

@@ -29,24 +29,34 @@ import com.lumix.estimator.domain.QuoteMode
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.theme.LocalLumixPalette
+import com.lumix.estimator.ui.wizard.steps.StepAirConditioning
+import com.lumix.estimator.ui.wizard.steps.StepBatteryBank
 import com.lumix.estimator.ui.wizard.steps.StepCustomer
-import com.lumix.estimator.ui.wizard.steps.Step1SiteInfo
-import com.lumix.estimator.ui.wizard.steps.Step2Roof
-import com.lumix.estimator.ui.wizard.steps.Step3Loads
+import com.lumix.estimator.ui.wizard.steps.StepHouseholdAppliances
+import com.lumix.estimator.ui.wizard.steps.StepInverterPanels
+import com.lumix.estimator.ui.wizard.steps.StepManualMode
+import com.lumix.estimator.ui.wizard.steps.StepPropertySystem
+import com.lumix.estimator.ui.wizard.steps.StepQuoteMode
+import com.lumix.estimator.ui.wizard.steps.StepRoofMounting
+import com.lumix.estimator.ui.wizard.steps.StepRoofType
 import com.lumix.estimator.ui.wizard.steps.Step4Usage
 import com.lumix.estimator.ui.wizard.steps.Step5Backup
-import com.lumix.estimator.ui.wizard.steps.Step6Manual
 import com.lumix.estimator.ui.wizard.steps.Step7Pricing
 
 private val stepTitles = mapOf(
     1 to "Customer",
-    2 to "Mode & Site Info",
-    3 to "Roof & Mounting",
-    4 to "Loads",
-    5 to "JPS Bill / Usage",
-    6 to "Backup Requirements",
-    7 to "Manual System Builder",
-    8 to "Pricing & Discount"
+    2 to "Quote Mode",
+    3 to "Property & System",
+    4 to "Roof Type",
+    5 to "Roof Mounting",
+    6 to "Air Conditioning",
+    7 to "Appliances",
+    8 to "JPS Bill / Usage",
+    9 to "Backup Requirements",
+    10 to "Manual Mode",
+    11 to "Inverter & Panels",
+    12 to "Battery Bank",
+    13 to "Pricing & Discount"
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,7 +112,7 @@ fun WizardScreen(
                     LumixPrimaryButton(
                         text = "Calculate",
                         onClick = { showCalculationSequence = true },
-                        enabled = viewModel.errorsForStep(8).isEmpty()
+                        enabled = viewModel.errorsForStep(13).isEmpty()
                     )
                 } else {
                     LumixPrimaryButton(text = "Next", onClick = { viewModel.goNext() })
@@ -133,13 +143,18 @@ fun WizardScreen(
             ) {
                 when (currentStep) {
                     1 -> StepCustomer(inputs, viewModel::update)
-                    2 -> Step1SiteInfo(inputs, viewModel::update)
-                    3 -> Step2Roof(inputs, viewModel::update)
-                    4 -> Step3Loads(inputs, viewModel::update)
-                    5 -> if (inputs.quoteMode == QuoteMode.GUIDED) Step4Usage(inputs, viewModel::update)
-                    6 -> Step5Backup(inputs, viewModel::update)
-                    7 -> if (inputs.quoteMode == QuoteMode.MANUAL) Step6Manual(inputs, viewModel::update)
-                    8 -> Step7Pricing(inputs, viewModel::update)
+                    2 -> StepQuoteMode(inputs, viewModel::update)
+                    3 -> StepPropertySystem(inputs, viewModel::update)
+                    4 -> StepRoofType(inputs, viewModel::update)
+                    5 -> StepRoofMounting(inputs, viewModel::update)
+                    6 -> StepAirConditioning(inputs, viewModel::update)
+                    7 -> StepHouseholdAppliances(inputs, viewModel::update)
+                    8 -> if (inputs.quoteMode == QuoteMode.GUIDED) Step4Usage(inputs, viewModel::update)
+                    9 -> Step5Backup(inputs, viewModel::update)
+                    10 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepManualMode(inputs, viewModel::update)
+                    11 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepInverterPanels(inputs, viewModel::update)
+                    12 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepBatteryBank(inputs, viewModel::update)
+                    13 -> Step7Pricing(inputs, viewModel::update)
                 }
             }
 

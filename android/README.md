@@ -825,3 +825,69 @@ against the corresponding phase's own verification and is covered.
 This closes out the A15 field-fix pass. Everything above was verified through code review and
 the standalone scratch JVM project (this sandbox has no Android SDK); real-device confirmation
 on the Samsung Galaxy A15 — especially TEST 6 — is the one remaining step.
+
+## Second round of field feedback (A16)
+
+After the A15 pass above, further on-device testing surfaced two more real bugs and three
+feature requests. Verified the same way as the whole post-build arc: code review + the
+standalone scratch JVM project for anything with testable domain logic (still no Android SDK
+in this sandbox).
+
+**Bottom nav label clipping** (`ui/components/FloatingBottomNav.kt`): six tabs (Home / Estimate
+/ Site / Systems / Savings / Profile) in a fixed-height pill left roughly 50dp per tab, and the
+label `Text` had no `maxLines`/overflow guard — "Systems", "Savings", and "Profile" could wrap
+to a second line and blow out the pill's fixed height, clipping. Fixed with a deliberately small
+fixed label size, `maxLines = 1` / `softWrap = false` / ellipsis as a hard guarantee it can never
+wrap, and tighter internal paddings.
+
+**Sun dial direction** (`ui/simulation/TimeDial.kt`): `hourToAngleDeg` mapped midnight to the
+top of the dial and noon to the bottom — backwards from the "sun is highest at the top" mental
+model, and inconsistent with the separate `SunIndicator` overlay's own sunrise-left/sunset-right
+convention. Shifted the mapping so noon sits at the top, midnight at the bottom, sunrise on the
+left, sunset on the right; verified numerically against the dial's own coordinate math
+(`angleToOffset`) rather than just eyeballing it.
+
+**Itemized simulation efficiency/loss model** (new `domain/simulation/SystemLosses.kt`): solar
+production previously had no real-world losses applied at all — nameplate capacity times
+irradiance, full stop. Added, as separate named factors (per the "itemized, not blended"
+choice): panel temperature derating (an NOCT-based cell-temperature estimate against a modeled
+Jamaica ambient-temperature curve, ~-0.4%/°C above the 25°C STC reference — genuinely meaningful
+in a tropical climate) plus fixed inverter conversion, DC wiring, and soiling/availability
+efficiency factors. `SimFrame` gained `potentialPvKw`/`cellTempC`/`temperatureDerateFraction` so
+the loss-free "ideal" output stays visible alongside the realized figure, surfaced in both the
+Technical readout and the Panels inspect sheet. Verified standalone that actual output never
+exceeds the ideal, cell temperature is realistically hotter at noon than midnight, and the
+actual/potential ratio exactly equals `fixedSystemEfficiency × temperatureDerateFraction`
+whenever the inverter's own rated-power ceiling isn't independently clipping both sides (and
+separately confirmed that when it does clip — an intentionally oversized array — that's the
+expected behavior, not a bug).
+
+**Appliance quantity + multi-block time scheduling** (`domain/simulation/SimAppliance.kt`,
+`ui/simulation/AppliancesSheet.kt`): replaced the flat per-appliance on/off toggle with a real
+schedule model per the user's own example — "3 units running in the day, 3 more at night, each
+with its own set time." Every appliance now has a quantity and one or more `ApplianceRun` blocks
+(quantity + start time + duration); a "+ Add time block" control in the Appliances sheet adds
+more. `SimulationEngine.buildDayTimeline` computes appliance load per-hour from these schedules
+rather than one constant added to the whole day. A fresh appliance defaults to a single all-day
+run, so nothing regresses until someone actually customizes a schedule. Verified standalone with
+the literal 3-day/3-night example: each block contributes only its own quantity's load during
+its own window, zero load between windows, correct wraparound past midnight, and the two blocks'
+quantities never double up.
+
+**Wizard step splitting** (`ui/wizard/`): per the "pages, not scrolling" preference, split the
+three step groups the user pointed at into nine focused, one-concept-per-screen steps: "Mode &
+Site Info" → **Quote Mode** + **Property & System**; "Roof & Mounting" → **Roof Type** +
+**Roof Mounting** (now its own step, only shown for zinc/metal roofs, instead of a conditional
+section buried in a longer screen); "Loads" → **Air Conditioning** + **Appliances**; "Manual
+System Builder" → **Manual Mode** + **Inverter & Panels** + **Battery Bank**. The wizard is now
+13 steps (up from 8): 1 Customer, 2 Quote Mode, 3 Property & System, 4 Roof Type, 5 Roof
+Mounting (ZINC only), 6 Air Conditioning, 7 Appliances, 8 JPS Bill/Usage (GUIDED only),
+9 Backup Requirements, 10 Manual Mode (MANUAL only), 11 Inverter & Panels (MANUAL only),
+12 Battery Bank (MANUAL only), 13 Pricing & Discount. `WizardViewModel.visibleSteps()` gates the
+three newly-conditional steps (5, and the 10-12 trio) the same way it already gated JPS Bill/
+Usage; validation stayed attached to its semantic function (`manualErrors` now fires on step 11,
+Inverter & Panels, where the panel-count field it actually checks lives) rather than being
+re-derived from scratch, so the existing step-reorder discipline from the A15 pass held. The
+four old combined step files (`Step1SiteInfo.kt`, `Step2Roof.kt`, `Step3Loads.kt`,
+`Step6Manual.kt`) were deleted outright rather than left as dead code, since every line of their
+content now lives in one of the nine new files.

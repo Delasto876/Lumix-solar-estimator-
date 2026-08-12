@@ -23,30 +23,9 @@ import com.lumix.estimator.ui.components.SectionCard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun Step1SiteInfo(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> Unit) {
+fun StepPropertySystem(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionCard(title = "Quote mode") {
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                QuoteMode.entries.forEachIndexed { index, mode ->
-                    SegmentedButton(
-                        selected = inputs.quoteMode == mode,
-                        onClick = { onUpdate { it.copy(quoteMode = mode) } },
-                        shape = SegmentedButtonDefaults.itemShape(index, QuoteMode.entries.size)
-                    ) {
-                        Text(
-                            when (mode) {
-                                QuoteMode.GUIDED -> "Guided"
-                                QuoteMode.MANUAL -> "Manual"
-                                QuoteMode.LOAD -> "Load-based"
-                            },
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                }
-            }
-        }
-
-        SectionCard(title = "Site info") {
+        SectionCard(title = "Property") {
             LabeledDropdown(
                 label = "Property type",
                 options = PropertyType.entries,
