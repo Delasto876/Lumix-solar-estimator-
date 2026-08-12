@@ -891,3 +891,49 @@ re-derived from scratch, so the existing step-reorder discipline from the A15 pa
 four old combined step files (`Step1SiteInfo.kt`, `Step2Roof.kt`, `Step3Loads.kt`,
 `Step6Manual.kt`) were deleted outright rather than left as dead code, since every line of their
 content now lives in one of the nine new files.
+
+## A17: replaced Google Maps with OpenStreetMap (no API key required)
+
+The Solar Site map screen (`site/map/SolarSiteMapScreen.kt`) was built on the Google Maps SDK
+back in the original build, which needs a `MAPS_API_KEY` set in `android/local.properties` to
+render any tiles at all — left blank (the out-of-the-box state for anyone who hasn't set one
+up), the map area was always going to be blank/error tiles. The user asked for it to just work,
+no API key, via OpenStreetMap or similar. Replaced entirely:
+
+- **Street tiles**: OSM's own Mapnik tile servers (`TileSourceFactory.MAPNIK`), osmdroid's
+  built-in default — no key, no setup.
+- **Satellite tiles**: Esri's free public World Imagery REST endpoint
+  (`server.arcgisonline.com/.../World_Imagery/MapServer/tile/{z}/{y}/{x}`), wired up as a custom
+  osmdroid tile source (`esriWorldImagery` in `SolarSiteMapScreen.kt`) — also no key. Roof
+  tracing fundamentally needs to see the actual building outline, which a street map alone can't
+  show, so keeping a working satellite view was the priority, not just any keyless map.
+- The map-type toggle is now two states (`SiteMapType.STREET` / `SATELLITE`) instead of three —
+  OSM has no built-in "hybrid" (satellite + labels) tile source the way Google Maps does, and
+  compositing one from two tile layers wasn't worth the complexity for what this screen needs.
+
+osmdroid has no first-class Jetpack Compose bindings (unlike `com.google.maps.android:maps-compose`,
+which is gone). `SolarSiteMapScreen` now hosts osmdroid's classic `MapView` via `AndroidView`,
+managed imperatively: overlays (the selected-location marker, saved roof-plane polygons, the
+roof currently being traced) are rebuilt from Compose state inside `AndroidView`'s `update`
+lambda; one-shot camera commands (zoom in/out, pan-to-search-result, pan-to-my-location) go
+straight to the held `MapView` reference via a `MapEventsOverlay` for tap handling and
+`mapView.controller` for camera movement. `MapController` now tracks `selectedLocation` as the
+app's own domain `GeoPoint` type rather than an SDK-specific one, decoupling it from whichever
+map engine is underneath.
+
+**Dropped, not replicable**: the 3D tilt toggle (`MapController.is3D`, the `ThreeDRotation`
+button) is gone. Google Maps' camera could tilt to a near-oblique angle over 3D building/terrain
+data; osmdroid is a pure 2D tile renderer with no equivalent camera capability, so faking this
+would mean lying about what the map can do rather than a genuine feature parity gap to close.
+
+**Setup got simpler**: no more `local.properties` API key step for the map to work at all —
+`android/local.properties` is no longer referenced anywhere in the Gradle config. osmdroid's own
+usage policy requires a real user-agent string and a sane tile cache location (both set once, in
+`LumixApp.onCreate()`), which needs no manual setup either.
+
+This is real Android-SDK/platform-library code this sandbox has no way to compile against (no
+Android SDK here, and no network access to fetch/inspect the actual osmdroid artifact) — the
+osmdroid API surface used (`MapView`, `MapEventsOverlay`, `Marker`, `Polygon`,
+`OnlineTileSourceBase`, `MapTileIndex`) was written from a well-established, stable, long-standing
+library API rather than verified by a build. Please pull and report back the exact Gradle/compile
+error if anything doesn't build — that's the fastest way to pin down any API mismatch precisely.

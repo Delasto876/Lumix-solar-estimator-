@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -7,19 +5,6 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
 }
-
-// The Solar Site map screen needs a Google Maps API key. It's read from local.properties
-// (already git-ignored, never committed) rather than hardcoded, so each developer/installer
-// drops in their own key: add a line `MAPS_API_KEY=your_key_here` to android/local.properties.
-// Left blank, the app still builds and runs — only the map tiles themselves won't load; the
-// manual site-entry flow needs no key at all.
-val localProperties = Properties().apply {
-    val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.exists()) {
-        localPropertiesFile.inputStream().use { load(it) }
-    }
-}
-val mapsApiKey: String = localProperties.getProperty("MAPS_API_KEY") ?: ""
 
 android {
     namespace = "com.lumix.estimator"
@@ -33,7 +18,6 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
     buildTypes {
@@ -78,7 +62,7 @@ val androidxCoreVersion = "1.13.1"
 val androidxLifecycleVersion = "2.8.4"
 
 // Forces every transitive resolution of these two groups to the pinned versions above, so a
-// library added later (or pulled in transitively by something like play-services-maps) can't
+// library added later (or pulled in transitively by something like play-services-location) can't
 // silently drag core/lifecycle past what compileSdk 34 supports and reintroduce the "requires
 // compiling against Android API 37" AAR metadata error.
 configurations.all {
@@ -121,13 +105,15 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
 
-    // Solar Site: satellite map + roof tracing (needs a MAPS_API_KEY in local.properties to
-    // actually render tiles — see the comment near the top of this file) and device location
-    // for the "My Location" button. Versions below are believed current as of writing but
-    // couldn't be verified against Google's Maven repo in this environment (network-blocked
-    // sandbox) — bump to latest in Android Studio if Gradle reports a newer one available.
-    implementation("com.google.maps.android:maps-compose:4.4.1")
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
+    // Solar Site: OpenStreetMap tiles (street via Mapnik, satellite via Esri World Imagery) for
+    // the roof-tracing map — no API key required, unlike the Google Maps SDK this replaced.
+    // osmdroid has no first-class Compose bindings; SolarSiteMapScreen wraps its classic
+    // MapView in an AndroidView. Device location for the "My Location" button still comes from
+    // Play Services (play-services-location), which is unrelated to Maps and needs no API key
+    // of its own. Version below is believed current as of writing but couldn't be verified
+    // against Maven Central in this environment (network-blocked sandbox) — bump to latest in
+    // Android Studio if Gradle reports a newer one available.
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
     testImplementation("junit:junit:4.13.2")

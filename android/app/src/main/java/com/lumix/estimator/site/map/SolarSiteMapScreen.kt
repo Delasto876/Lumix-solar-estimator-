@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ThreeDRotation
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -43,21 +42,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.MapType
-import com.google.maps.android.compose.GoogleMap
-import com.google.maps.android.compose.MapProperties
-import com.google.maps.android.compose.MapUiSettings
-import com.google.maps.android.compose.Marker
-import com.google.maps.android.compose.Polygon
-import com.google.maps.android.compose.rememberCameraPositionState
-import com.google.maps.android.compose.rememberMarkerState
+import androidx.compose.ui.viewinterop.AndroidView
 import com.lumix.estimator.location.DeviceLocationManager
 import com.lumix.estimator.network.NetworkConnectivityObserver
 import com.lumix.estimator.sensors.CompassManager
@@ -79,17 +67,50 @@ import com.lumix.estimator.ui.theme.LumixRadius
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.tileprovider.tilesource.ITileSource
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.MapTileIndex
+import org.osmdroid.views.CustomZoomButtonsController
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polygon
 import java.util.Locale
+import org.osmdroid.util.GeoPoint as OsmGeoPoint
 
 private val pitchOptions: List<Double?> = listOf(null, 0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0)
-private val jamaicaDefault = LatLng(18.1096, -77.2975)
+private val jamaicaDefault = GeoPoint(18.1096, -77.2975)
 
 /**
- * Satellite map for selecting a customer's property and tracing roof planes directly on it.
- * A peer to [com.lumix.estimator.site.ManualSiteScreen], not the only way in — this screen
- * needs a configured Google Maps API key to actually render tiles; without one the map area
- * will show blank/error tiles from the SDK itself, which is why manual entry exists as a
- * fully independent alternative rather than a degraded fallback bolted onto this screen.
+ * Esri World Imagery — free, public satellite tile server, no API key required. Tile URLs follow
+ * ArcGIS's REST convention of `{z}/{y}/{x}`, the reverse of the usual XYZ `{z}/{x}/{y}` order
+ * osmdroid's [OnlineTileSourceBase] assumes by default, hence the explicit override below.
+ */
+private val esriWorldImagery: ITileSource = object : OnlineTileSourceBase(
+    "EsriWorldImagery", 0, 19, 256, ".jpg",
+    arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/")
+) {
+    override fun getTileURLString(pMapTileIndex: Long): String {
+        val zoom = MapTileIndex.getZoom(pMapTileIndex)
+        val x = MapTileIndex.getX(pMapTileIndex)
+        val y = MapTileIndex.getY(pMapTileIndex)
+        return "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/$zoom/$y/$x.jpg"
+    }
+}
+
+/**
+ * OpenStreetMap-tiled screen for selecting a customer's property and tracing roof planes
+ * directly on it. Needs no API key — street tiles come from OSM's own Mapnik servers, satellite
+ * tiles from Esri's free public World Imagery endpoint (see [esriWorldImagery]). A peer to
+ * [com.lumix.estimator.site.ManualSiteScreen], not the only way in: both need a live connection
+ * to load tiles/geocode, which manual entry doesn't.
+ *
+ * osmdroid has no first-class Jetpack Compose bindings (unlike the Google Maps SDK this
+ * replaced), so its classic [MapView] is hosted via [AndroidView] and driven imperatively:
+ * overlays (markers/polygons) are rebuilt from Compose state inside `update`, while one-shot
+ * camera commands (zoom, pan-to-search-result) go straight to the held [MapView] reference.
  */
 @Composable
 fun SolarSiteMapScreen(
@@ -111,14 +132,12 @@ fun SolarSiteMapScreen(
     val connectivityObserver = remember { NetworkConnectivityObserver(context) }
     val isOnline by connectivityObserver.observe().collectAsState(initial = connectivityObserver.isOnline())
 
-    val initialLatLng = remember {
+    val initialPoint = remember {
         val lat = state.draftLatitude
         val lon = state.draftLongitude
-        if (lat != null && lon != null) LatLng(lat, lon) else jamaicaDefault
+        if (lat != null && lon != null) GeoPoint(lat, lon) else jamaicaDefault
     }
-    val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(initialLatLng, 17f)
-    }
+    val mapViewRef = remember { mutableStateOf<MapView?>(null) }
 
     var searchQuery by remember { mutableStateOf(state.draftAddress ?: "") }
     var searchError by remember { mutableStateOf(false) }
@@ -136,12 +155,19 @@ fun SolarSiteMapScreen(
         if (lat != null && lon != null) compassManager.updateLocation(lat, lon)
     }
 
+    fun animateTo(point: GeoPoint, zoom: Double) {
+        mapViewRef.value?.let { mv ->
+            mv.controller.setZoom(zoom)
+            mv.controller.animateTo(OsmGeoPoint(point.latitude, point.longitude))
+        }
+    }
+
     fun moveToDeviceLocation() {
         scope.launch {
             locationManager.lastKnownLocation()?.let { location ->
-                val latLng = LatLng(location.latitude, location.longitude)
-                mapController.selectLocation(latLng)
-                cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
+                val point = GeoPoint(location.latitude, location.longitude)
+                mapController.selectLocation(point)
+                animateTo(point, 18.0)
             }
         }
     }
@@ -151,54 +177,83 @@ fun SolarSiteMapScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        GoogleMap(
+        AndroidView(
             modifier = Modifier.fillMaxSize(),
-            cameraPositionState = cameraPositionState,
-            properties = MapProperties(
-                mapType = when (mapController.mapType) {
-                    SiteMapType.NORMAL -> MapType.NORMAL
-                    SiteMapType.SATELLITE -> MapType.SATELLITE
-                    SiteMapType.HYBRID -> MapType.HYBRID
-                }
-            ),
-            uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false, mapToolbarEnabled = false),
-            onMapClick = { latLng ->
-                if (roofController.isDrawing) {
-                    roofController.addVertex(GeoPoint(latLng.latitude, latLng.longitude))
-                } else {
-                    mapController.selectLocation(latLng)
-                }
-            }
-        ) {
-            mapController.selectedLocation?.let { loc ->
-                Marker(state = rememberMarkerState(position = loc), title = "Selected location")
-            }
+            factory = { ctx ->
+                MapView(ctx).apply {
+                    setTileSource(if (mapController.mapType == SiteMapType.SATELLITE) esriWorldImagery else TileSourceFactory.MAPNIK)
+                    setMultiTouchControls(true)
+                    zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
+                    controller.setZoom(17.0)
+                    controller.setCenter(OsmGeoPoint(initialPoint.latitude, initialPoint.longitude))
 
-            // Already-saved roof planes for this draft site, in green.
-            state.roofPlanes.forEach { plane ->
-                if (plane.vertices.size >= 3) {
-                    Polygon(
-                        points = plane.vertices.map { LatLng(it.latitude, it.longitude) },
-                        fillColor = Color(0x3363E6A5),
-                        strokeColor = Color(0xFF63E6A5),
-                        strokeWidth = 3f
+                    val tapOverlay = MapEventsOverlay(object : MapEventsReceiver {
+                        override fun singleTapConfirmedHelper(p: OsmGeoPoint): Boolean {
+                            val point = GeoPoint(p.latitude, p.longitude)
+                            if (roofController.isDrawing) {
+                                roofController.addVertex(point)
+                            } else {
+                                mapController.selectLocation(point)
+                            }
+                            return true
+                        }
+
+                        override fun longPressHelper(p: OsmGeoPoint): Boolean = false
+                    })
+                    overlays.add(tapOverlay)
+
+                    mapViewRef.value = this
+                }
+            },
+            update = { mapView ->
+                mapView.setTileSource(if (mapController.mapType == SiteMapType.SATELLITE) esriWorldImagery else TileSourceFactory.MAPNIK)
+
+                // Rebuild markers/polygons from current state every update — cheap for the
+                // handful of overlays this screen ever has, and keeps a single source of truth
+                // (Compose state) rather than hand-diffing osmdroid's own overlay list.
+                mapView.overlays.removeAll { it is Marker || it is Polygon }
+
+                mapController.selectedLocation?.let { loc ->
+                    mapView.overlays.add(
+                        Marker(mapView).apply {
+                            position = OsmGeoPoint(loc.latitude, loc.longitude)
+                            title = "Selected location"
+                        }
                     )
                 }
-            }
 
-            // The roof currently being traced, in solar yellow.
-            if (roofController.vertices.size >= 2) {
-                Polygon(
-                    points = roofController.vertices.map { LatLng(it.latitude, it.longitude) },
-                    fillColor = Color(0x4DFFD84D),
-                    strokeColor = Color(0xFFFFD84D),
-                    strokeWidth = 4f
-                )
+                // Already-saved roof planes for this draft site, in green.
+                state.roofPlanes.forEach { plane ->
+                    if (plane.vertices.size >= 3) {
+                        mapView.overlays.add(
+                            Polygon(mapView).apply {
+                                setPoints(plane.vertices.map { OsmGeoPoint(it.latitude, it.longitude) })
+                                setFillColor(0x3363E6A5)
+                                setStrokeColor(0xFF63E6A5.toInt())
+                                setStrokeWidth(3f)
+                            }
+                        )
+                    }
+                }
+
+                // The roof currently being traced, in solar yellow.
+                if (roofController.vertices.size >= 2) {
+                    mapView.overlays.add(
+                        Polygon(mapView).apply {
+                            setPoints(roofController.vertices.map { OsmGeoPoint(it.latitude, it.longitude) })
+                            setFillColor(0x4DFFD84D)
+                            setStrokeColor(0xFFFFD84D.toInt())
+                            setStrokeWidth(4f)
+                        }
+                    )
+                }
+                roofController.vertices.forEach { v ->
+                    mapView.overlays.add(Marker(mapView).apply { position = OsmGeoPoint(v.latitude, v.longitude) })
+                }
+
+                mapView.invalidate()
             }
-            roofController.vertices.forEach { v ->
-                Marker(state = rememberMarkerState(position = LatLng(v.latitude, v.longitude)))
-            }
-        }
+        )
 
         // Top bar: back button + search field + map-type switch. Same no-Scaffold situation as
         // the bottom panel below — statusBarsPadding() is what keeps this clear of the status
@@ -238,7 +293,7 @@ fun SolarSiteMapScreen(
                                     val result = geocodeAddress(context, searchQuery)
                                     if (result != null) {
                                         mapController.selectLocation(result)
-                                        cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(result, 17f))
+                                        animateTo(result, 17.0)
                                         searchError = false
                                     } else {
                                         searchError = true
@@ -268,40 +323,13 @@ fun SolarSiteMapScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             LumixIconButtonSurface(onClick = {
-                scope.launch { cameraPositionState.animate(CameraUpdateFactory.zoomIn()) }
+                mapViewRef.value?.controller?.zoomIn()
             }) { Icon(Icons.Default.Add, contentDescription = "Zoom in") }
             LumixIconButtonSurface(onClick = {
-                scope.launch { cameraPositionState.animate(CameraUpdateFactory.zoomOut()) }
+                mapViewRef.value?.controller?.zoomOut()
             }) { Icon(Icons.Default.Remove, contentDescription = "Zoom out") }
-            LumixIconButtonSurface(onClick = {
-                mapController.setMapType(
-                    when (mapController.mapType) {
-                        SiteMapType.SATELLITE -> SiteMapType.HYBRID
-                        SiteMapType.HYBRID -> SiteMapType.NORMAL
-                        SiteMapType.NORMAL -> SiteMapType.SATELLITE
-                    }
-                )
-            }) { Icon(Icons.Default.Layers, contentDescription = "Map type") }
-            LumixIconButtonSurface(onClick = {
-                mapController.toggle3D()
-                val target = mapController.selectedLocation ?: cameraPositionState.position.target
-                val newTilt = if (mapController.is3D) MapController.TILT_3D_DEGREES else MapController.TILT_FLAT_DEGREES
-                scope.launch {
-                    cameraPositionState.animate(
-                        CameraUpdateFactory.newCameraPosition(
-                            CameraPosition.Builder(cameraPositionState.position)
-                                .target(target)
-                                .tilt(newTilt)
-                                .build()
-                        )
-                    )
-                }
-            }) {
-                Icon(
-                    Icons.Default.ThreeDRotation,
-                    contentDescription = "Toggle 3D view",
-                    tint = if (mapController.is3D) palette.solarYellowText else palette.textPrimary
-                )
+            LumixIconButtonSurface(onClick = { mapController.cycleMapType() }) {
+                Icon(Icons.Default.Layers, contentDescription = "Map type")
             }
             LumixIconButtonSurface(onClick = {
                 if (locationManager.hasPermission()) {
@@ -380,7 +408,7 @@ fun SolarSiteMapScreen(
 
 /**
  * Shown whenever [NetworkConnectivityObserver] reports no internet — the one thing this screen
- * cannot function without (satellite tiles + address search both need a live connection), unlike
+ * cannot function without (map tiles + address search both need a live connection), unlike
  * the rest of Solar Site, which is pure local math. Points straight at the always-available
  * escape hatch rather than leaving the user staring at blank map tiles with no explanation.
  */
@@ -565,12 +593,12 @@ private fun RoofConfirmForm(
 }
 
 /** Blocking Geocoder call moved off the main thread; returns null (never throws) on any failure — no network, bad query, or no results. */
-private suspend fun geocodeAddress(context: Context, query: String): LatLng? = withContext(Dispatchers.IO) {
+private suspend fun geocodeAddress(context: Context, query: String): GeoPoint? = withContext(Dispatchers.IO) {
     if (query.isBlank()) return@withContext null
     try {
         val geocoder = Geocoder(context, Locale.getDefault())
         @Suppress("DEPRECATION")
-        geocoder.getFromLocationName(query, 1)?.firstOrNull()?.let { LatLng(it.latitude, it.longitude) }
+        geocoder.getFromLocationName(query, 1)?.firstOrNull()?.let { GeoPoint(it.latitude, it.longitude) }
     } catch (e: Exception) {
         null
     }

@@ -3,34 +3,35 @@ package com.lumix.estimator.site.map
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.google.android.gms.maps.model.LatLng
+import com.lumix.estimator.site.GeoPoint
 
-enum class SiteMapType { NORMAL, SATELLITE, HYBRID }
+/**
+ * OpenStreetMap has no built-in satellite+labels hybrid tile source the way Google Maps does —
+ * just the two real options here. STREET uses Mapnik (OSM's standard street map); SATELLITE
+ * uses Esri World Imagery, both tile sources requiring no API key.
+ */
+enum class SiteMapType { STREET, SATELLITE }
 
-/** Map UI state (type, selected pin, tilt) — kept separate from roof-drawing state and the simulation engine. */
+/** Map UI state (type, selected pin) — kept separate from roof-drawing state and the simulation engine. */
 class MapController {
     var mapType by mutableStateOf(SiteMapType.SATELLITE)
         private set
-    var selectedLocation by mutableStateOf<LatLng?>(null)
-        private set
-    var is3D by mutableStateOf(false)
+    var selectedLocation by mutableStateOf<GeoPoint?>(null)
         private set
 
     fun setMapType(type: SiteMapType) {
         mapType = type
     }
 
-    fun selectLocation(latLng: LatLng) {
-        selectedLocation = latLng
+    fun selectLocation(point: GeoPoint) {
+        selectedLocation = point
     }
 
-    /** A close, tilted satellite view reads more like standing on the roof than a flat top-down map. */
-    fun toggle3D() {
-        is3D = !is3D
-    }
-
-    companion object {
-        const val TILT_3D_DEGREES = 55f
-        const val TILT_FLAT_DEGREES = 0f
+    /** Cycles through the (now two) available tile sources. */
+    fun cycleMapType() {
+        mapType = when (mapType) {
+            SiteMapType.SATELLITE -> SiteMapType.STREET
+            SiteMapType.STREET -> SiteMapType.SATELLITE
+        }
     }
 }
