@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.QuoteInputs
-import com.lumix.estimator.domain.simulation.ApplianceRun
 import com.lumix.estimator.domain.simulation.ApplianceState
 import com.lumix.estimator.domain.simulation.DayType
 import com.lumix.estimator.domain.simulation.InverterMode
@@ -102,10 +101,13 @@ class SimulationViewModel(
         }
     }
 
-    /** Replaces an appliance's full schedule from the picker's quantity/hours/selected-periods. */
-    fun setApplianceSchedule(type: SimApplianceType, quantity: Int, hoursPerPeriod: Double, periods: Set<DayPeriod>) {
-        val (enabled, runs) = buildApplianceSchedule(quantity, hoursPerPeriod, periods)
-        val updated = _state.value.appliances.toMutableMap().apply { this[type] = ApplianceState(enabled = enabled, runs = runs) }
+    /**
+     * Replaces one appliance's full state (enabled flag + its real list of [ApplianceState.runs])
+     * directly — the schedule editor edits actual start-time/duration/day-type runs, not a
+     * lossy Morning/Noon/Night abstraction that used to get rebuilt from scratch on every edit.
+     */
+    fun setApplianceState(type: SimApplianceType, newState: ApplianceState) {
+        val updated = _state.value.appliances.toMutableMap().apply { this[type] = newState }
         rebuildTimeline(appliances = updated)
     }
 

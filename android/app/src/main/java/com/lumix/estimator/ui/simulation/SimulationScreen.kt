@@ -390,7 +390,7 @@ fun SimulationScreen(
                 AppliancesSheetContent(
                     appliances = state.appliances,
                     currentHour = state.currentHour,
-                    onSetSchedule = { type, quantity, hours, periods -> viewModel.setApplianceSchedule(type, quantity, hours, periods) },
+                    onSetAppliance = { type, applianceState -> viewModel.setApplianceState(type, applianceState) },
                     dayType = state.dayType
                 )
             }
