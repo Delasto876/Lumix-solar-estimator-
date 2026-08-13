@@ -1,10 +1,14 @@
 package com.lumix.estimator.ui.wizard.steps
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -14,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -27,7 +32,7 @@ import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
-import com.lumix.estimator.ui.theme.numberDisplayStyle
+import com.lumix.estimator.ui.theme.heroValueStyle
 import kotlin.math.min
 import kotlinx.coroutines.launch
 
@@ -106,16 +111,26 @@ fun StepSystemReview(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInput
     val confidencePercent = confidenceChecks.count { it.second } * 100 / confidenceChecks.size
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionCard(title = "Design confidence") {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("$confidencePercent%", style = numberDisplayStyle(size = 32.sp), color = palette.solarYellowText)
-                Text(
-                    "How much of this design rests on real project data vs. this estimator's own defaults — not an engineering certification.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = palette.textSecondary
-                )
-            }
-            confidenceChecks.forEach { (label, ok) -> CheckRow(label = label, pass = ok, detail = null) }
+        SectionCard(title = "") {
+            Text(
+                "DESIGN CONFIDENCE",
+                style = MaterialTheme.typography.labelMedium,
+                color = palette.textSecondary,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "$confidencePercent%",
+                style = heroValueStyle(size = 56.sp),
+                color = palette.textPrimary,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Text(
+                "How much of this design rests on real project data vs. this estimator's own defaults — not an engineering certification.",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary,
+                modifier = Modifier.padding(top = 4.dp, bottom = 6.dp)
+            )
+            confidenceChecks.forEach { (label, ok) -> ConfidenceRow(label = label, met = ok) }
         }
 
         SectionCard(title = "Engineering checks") {
@@ -188,19 +203,42 @@ private fun ReviewRow(label: String, value: String) {
     }
 }
 
+/** A confidence signal — a soft "provided vs. default" cue, not a pass/fail judgment. */
+@Composable
+private fun ConfidenceRow(label: String, met: Boolean) {
+    val palette = LocalLumixPalette.current
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(if (met) palette.energyGreen else palette.outline)
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (met) palette.textPrimary else palette.textSecondary
+        )
+    }
+}
+
 @Composable
 private fun CheckRow(label: String, pass: Boolean, detail: String?) {
     val palette = LocalLumixPalette.current
     Column {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(if (pass) "✓" else "⚠", color = if (pass) palette.energyGreenText else palette.warningRedText, fontWeight = FontWeight.Bold)
+            Text(if (pass) "✓" else "⚠", color = if (pass) palette.energyGreenText else palette.solarAmberText, fontWeight = FontWeight.Bold)
             Text(label, style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
         }
         if (detail != null) {
             Text(
                 detail,
                 style = MaterialTheme.typography.labelSmall,
-                color = palette.warningRedText,
+                color = palette.solarAmberText,
                 modifier = Modifier.padding(start = 24.dp, top = 2.dp)
             )
         }

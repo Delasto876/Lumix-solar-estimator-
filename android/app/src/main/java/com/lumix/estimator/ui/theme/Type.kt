@@ -24,10 +24,22 @@ val LumixTypography = Typography(
     labelSmall = TextStyle(fontWeight = FontWeight.Medium, fontSize = 11.sp, letterSpacing = 0.2.sp)
 )
 
-/** Dominant hero numbers ("$42,500", "7.2 kW") — bold, tight tracking, tabular figures. */
+/** Dominant numbers ("$42,500", "7.2 kW") — bold, tight tracking, tabular figures. */
 fun numberDisplayStyle(size: TextUnit = 44.sp, weight: FontWeight = FontWeight.Bold): TextStyle = TextStyle(
     fontWeight = weight,
     fontSize = size,
     letterSpacing = (-0.5).sp,
+    fontFeatureSettings = "tnum"
+)
+
+/**
+ * The single largest number on a screen — a dashboard's system size, a review's headline
+ * capacity. Reserved for the one figure that should be understood before anything else on
+ * the screen; using it more than once per screen defeats its own hierarchy.
+ */
+fun heroValueStyle(size: TextUnit = 72.sp): TextStyle = TextStyle(
+    fontWeight = FontWeight.Bold,
+    fontSize = size,
+    letterSpacing = (-1.5).sp,
     fontFeatureSettings = "tnum"
 )

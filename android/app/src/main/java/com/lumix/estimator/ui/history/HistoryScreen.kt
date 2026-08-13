@@ -63,18 +63,18 @@ fun HistoryScreen(
             Box(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        "Your energy story starts here.",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = palette.textPrimary
+                        "NO SYSTEMS YET",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = palette.textSecondary
                     )
                     Text(
-                        "Every system you size gets saved here, so you can revisit or share it later.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = palette.textSecondary,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 20.dp)
+                        "Design your first solar system.",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = palette.textPrimary,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
                     )
-                    LumixPrimaryButton(text = "Start your estimate", onClick = onStartQuote)
+                    LumixPrimaryButton(text = "Start Estimate", onClick = onStartQuote)
                 }
             }
             return@Scaffold

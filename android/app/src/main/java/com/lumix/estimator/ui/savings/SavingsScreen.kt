@@ -74,17 +74,18 @@ fun SavingsScreen(
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        "Your savings story starts here.",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = palette.textPrimary
+                        "NO SAVINGS YET",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = palette.textSecondary
                     )
                     Text(
-                        "Run an estimate to see how much a solar system could save you.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = palette.textSecondary,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 20.dp)
+                        "See what solar could save you.",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = palette.textPrimary,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
                     )
-                    LumixPrimaryButton(text = "Start your estimate", onClick = onStartQuote)
+                    LumixPrimaryButton(text = "Start Estimate", onClick = onStartQuote)
                 }
             }
             return@Scaffold

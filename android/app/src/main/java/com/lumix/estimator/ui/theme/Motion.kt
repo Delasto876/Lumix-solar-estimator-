@@ -29,4 +29,17 @@ object LumixMotion {
     val PressScaleDown = 0.97f
 
     val fadeThrough = tween<Float>(220)
+
+    // Named duration tiers so motion reads as deliberate rather than ad hoc — pick the tier
+    // that matches what's moving, not a duration that merely "looks fine" in isolation.
+    /** Micro-interactions: press feedback, toggle states, small value changes. */
+    const val DURATION_MICRO = 180
+    /** Screen-to-screen transitions: wizard steps, tab switches. */
+    const val DURATION_SCREEN = 300
+    /** Major transitions: calculation reveal, first-load hero entrance. */
+    const val DURATION_MAJOR = 420
+
+    fun <T> micro(): androidx.compose.animation.core.TweenSpec<T> = tween(DURATION_MICRO)
+    fun <T> screen(): androidx.compose.animation.core.TweenSpec<T> = tween(DURATION_SCREEN)
+    fun <T> major(): androidx.compose.animation.core.TweenSpec<T> = tween(DURATION_MAJOR)
 }

@@ -1206,3 +1206,73 @@ graph. `SavingsCalculator.project()` gained optional `billEscalationRate`/`panel
 params (defaulting to the existing 6%/0.5% constants, so both other call sites needed no changes)
 now sourced from two new `SettingsRepository` fields, editable in a new "Financial assumptions"
 Settings section, labeled ESTIMATE.
+
+## A22 — Premium UI overhaul
+
+A visual/interaction-layer pass toward a "premium energy operating system" feel — near-black
+graphite surfaces, large dominant numbers, almost no borders, one elegant status statement
+instead of competing badges. No domain/simulation/pricing logic changed in this round; every
+edit is in `ui/theme` or a `ui/*` screen file.
+
+**1. Design tokens.** `LumixColors` retuned to the requested near-black palette
+(`#080A0D`/`#101419`/`#151A20` background/surface/elevated, `#F5F5F5`/`#8E969F` text) and the
+five accent hues desaturated toward "restrained instrument-panel" rather than neon (solar amber,
+battery green, grid cyan, warning amber, error red — unchanged semantic roles, just quieter).
+`SurfaceCard`/`GlassSurface` (`ui/components/Cards.kt`) dropped their default 1dp border — depth
+now comes from the surface/elevated tonal step plus a very faint shadow (visible in light mode
+only; dark mode relies on tone alone, since shadows barely read on near-black anyway) — a
+`bordered` param stays available for the rare control that genuinely needs one. Added
+`heroValueStyle()` (`ui/theme/Type.kt`) for the one dominant number per screen, and named
+motion-duration tiers (`LumixMotion.DURATION_MICRO/SCREEN/MAJOR` = 180/300/420ms) so future
+animation work has a shared vocabulary instead of ad hoc tween values. Font stays the platform
+system sans (Roboto) rather than bundling Inter — wiring the AndroidX downloadable-Google-Fonts
+provider needs an on-device network fetch plus certificate-hash constants that can't be verified
+from this sandbox, and a wrong hash silently breaks font loading at runtime with no build-time
+signal, so it was judged too risky to add unverified.
+
+**2. Home dashboard rebuilt as one hero.** Replaced the multi-card layout (potential-card +
+snapshot-card) with a single flow: small greeting label + name, then one hero (PV size in
+`heroValueStyle`, a status dot, the existing ambient sun/roof visual), then a plain three-stat
+row (coverage/battery/monthly savings — no card wrapper), then one CTA. No quote yet shows a
+"NO SYSTEM YET" empty state instead of a small inline prompt.
+
+**3. Simulation screen decluttered.** The digital-twin scene is no longer boxed in a
+`SectionCard` — it, the time slider, and the inspect chips sit directly on the screen background
+so the scene reads as the centerpiece rather than one box among many. The status pill + mode
+toggle row was replaced with a single status statement (a colored dot + the existing
+`SystemStatus.label`, e.g. "SOLAR POWERING HOME") sized and weighted to read at a glance. The
+live Solar/Grid/Home/Battery stat row lost its card wrapper too.
+
+**4. Wizard: selection cards + minimal step indicator.** `StepQuoteMode`'s three-way segmented
+button became three large `SelectionCard`s (new reusable component) with a title, a one-line
+explanation, and a quiet tint + accent-colored title on selection — no checkmark badge. The
+"Step X of Y" progress text was replaced with a `01 / 09`-style numeric indicator next to a
+thinned-down (2dp) progress line.
+
+**5. Recommendations + Design Confidence.** New `RecommendationCard` component (cyan-tinted,
+"RECOMMENDED" eyebrow, always carries a real action — never a non-interactive warning in
+disguise, per the "don't make non-actionable things look like buttons" rule). Wired one real
+instance into the Simulation screen: when only lighting is scheduled, it recommends adding
+appliance schedules with a working button that opens the existing Appliances sheet. The System
+Review step's Design Confidence card now leads with a `heroValueStyle` percentage and uses quiet
+dot indicators (green/muted, not ✓/⚠ glyphs) for its five confidence signals, since those are
+soft "provided vs. default" cues rather than pass/fail judgments; the genuine engineering
+warnings below it now use muted amber instead of red, reserving red for real errors.
+
+**6. Calculation sequence + empty states.** `CalculationSequenceOverlay` (shown while a quote
+calculates) replaced its generic spinner with a five-stage checklist (PV / LOAD / BATTERY /
+INVERTER / SYSTEM, each pulsing then checking off) ending on a brief "SYSTEM READY" beat before
+navigating to Results. The Systems (history) and Savings tabs' empty states were reworded to the
+eyebrow-label + headline + button pattern used everywhere else ("NO SYSTEMS YET" / "NO SAVINGS
+YET") instead of a soft sentence.
+
+**Out of scope, and why.** The spec's Map/Roof-Trace screens (satellite view, corner-tap
+tracing) and a standalone Invoice screen with payment-progress don't exist in this app — both
+were deliberately removed in earlier rounds (A18 removed the map, A20 removed Solar Site
+entirely) at the user's explicit prior request. Building either from scratch would be new
+functionality, not a visual reskin, so this round left them out rather than silently resurrecting
+removed features; flagged back to the user instead. A full one-question-per-screen restructuring
+of every wizard step (Customer, Property, Roof, AC, Appliances, etc.) and animated horizontal
+step-to-step page transitions were also out of scope for this pass — the highest-visibility
+screens (Home, Simulation, Quote Mode selection, System Review, calculation sequence) were
+prioritized within the round instead of a shallower pass across all ~13 steps.

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
@@ -23,7 +24,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.QuoteMode
@@ -127,14 +130,24 @@ fun WizardScreen(
                 progress = { (stepIndex + 1f) / visibleSteps.size },
                 color = palette.solarYellow,
                 trackColor = palette.outline,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().height(2.dp)
             )
-            Text(
-                "Step ${stepIndex + 1} of ${visibleSteps.size}",
-                style = MaterialTheme.typography.labelSmall,
-                color = palette.textSecondary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Text(
+                    "%02d".format(stepIndex + 1),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.textPrimary
+                )
+                Text(
+                    " / %02d".format(visibleSteps.size),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = palette.textSecondary
+                )
+            }
 
             Column(
                 modifier = Modifier

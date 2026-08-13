@@ -54,6 +54,7 @@ import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.domain.simulation.TechnicalModel
 import com.lumix.estimator.domain.simulation.WeatherState
 import com.lumix.estimator.ui.components.AnimatedCounterText
+import com.lumix.estimator.ui.components.RecommendationCard
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixColors
@@ -138,51 +139,64 @@ fun SimulationScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            if (config.gridConnectable && !state.gridConnected) {
+                item { OutageBanner() }
+            }
+
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    StatusPill(frame)
+                    StatusStatement(frame)
                     ModeToggle(technicalMode = state.technicalMode, onToggle = viewModel::setTechnicalMode)
                 }
             }
 
-            if (config.gridConnectable && !state.gridConnected) {
-                item { OutageBanner() }
+            item {
+                EnergyFlowCanvas(
+                    flows = flows,
+                    cloudCoverage = cloudCoverage,
+                    sunProgress = sunProgress,
+                    sunIntensity = sunIntensity,
+                    daylightFactor = daylightFactor,
+                    isStorm = isStorm,
+                    batterySocFraction = batterySocFraction,
+                    batteryCharging = frame.batteryPowerKw > 0.0,
+                    simTimeText = formatSimTime(state.currentHour),
+                    modifier = Modifier.clip(RoundedCornerShape(LumixRadius.lg))
+                )
             }
 
             item {
-                SectionCard(title = "", accentColor = statusColor(frame.status)) {
-                    EnergyFlowCanvas(
-                        flows = flows,
-                        cloudCoverage = cloudCoverage,
-                        sunProgress = sunProgress,
-                        sunIntensity = sunIntensity,
-                        daylightFactor = daylightFactor,
-                        isStorm = isStorm,
-                        batterySocFraction = batterySocFraction,
-                        batteryCharging = frame.batteryPowerKw > 0.0,
-                        simTimeText = formatSimTime(state.currentHour),
-                        modifier = Modifier.clip(RoundedCornerShape(LumixRadius.md))
-                    )
+                Column {
                     TimeSlider(
                         hour = state.currentHour,
                         onScrub = viewModel::scrubTo,
-                        markerHour = state.batteryFullHour,
-                        modifier = Modifier.padding(top = 12.dp)
+                        markerHour = state.batteryFullHour
                     )
                     InspectChipRow(
                         hasBattery = config.hasBattery,
                         onSelect = { inspectTarget = it },
-                        modifier = Modifier.padding(top = 8.dp)
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
             }
 
             item {
                 LivePowerRow(frame)
+            }
+
+            if (state.appliances.values.count { it.enabled } <= 1) {
+                item {
+                    RecommendationCard(
+                        title = "Add appliance schedules",
+                        description = "Only lighting is set up right now. Adding your other appliances sharpens the backup estimate and makes the simulation match your real day.",
+                        actionLabel = "Add appliances",
+                        onAction = { showAppliances = true }
+                    )
+                }
             }
 
             if (state.technicalMode) {
@@ -477,22 +491,16 @@ private fun OutageBanner() {
     }
 }
 
+/** One elegant statement of what the system is doing right now — not a pill competing with four others. */
 @Composable
-private fun StatusPill(frame: SimFrame) {
+private fun StatusStatement(frame: SimFrame) {
     val palette = LocalLumixPalette.current
     val color = statusColor(frame.status)
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(LumixRadius.pill))
-            .background(color.copy(alpha = 0.14f))
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(color))
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(color))
         Text(
             frame.status.label.uppercase(),
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = palette.textPrimary
         )
@@ -502,20 +510,18 @@ private fun StatusPill(frame: SimFrame) {
 @Composable
 private fun LivePowerRow(frame: SimFrame) {
     val palette = LocalLumixPalette.current
-    SectionCard(title = "") {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            LiveStat(label = "SOLAR", valueKw = frame.pvKw, color = palette.solarYellowText, modifier = Modifier.weight(1f))
-            LiveStat(label = "GRID", valueKw = frame.gridPowerKw, color = palette.solarAmberText, modifier = Modifier.weight(1f))
-            LiveStat(label = "HOME", valueKw = frame.houseLoadKw, color = palette.textPrimary, modifier = Modifier.weight(1f))
-            if (frame.batterySocPercent > 0f) {
-                Column(modifier = Modifier.weight(1f)) {
-                    LiveStat(label = "BATTERY", valueKw = frame.batteryPowerKw, color = if (frame.batteryPowerKw >= 0) palette.energyGreenText else palette.technicalCyanText, showSign = true)
-                    Text(
-                        "${frame.batterySocPercent.toInt()}%",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = palette.textSecondary
-                    )
-                }
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        LiveStat(label = "SOLAR", valueKw = frame.pvKw, color = palette.solarYellowText, modifier = Modifier.weight(1f))
+        LiveStat(label = "GRID", valueKw = frame.gridPowerKw, color = palette.solarAmberText, modifier = Modifier.weight(1f))
+        LiveStat(label = "HOME", valueKw = frame.houseLoadKw, color = palette.textPrimary, modifier = Modifier.weight(1f))
+        if (frame.batterySocPercent > 0f) {
+            Column(modifier = Modifier.weight(1f)) {
+                LiveStat(label = "BATTERY", valueKw = frame.batteryPowerKw, color = if (frame.batteryPowerKw >= 0) palette.energyGreenText else palette.technicalCyanText, showSign = true)
+                Text(
+                    "${frame.batterySocPercent.toInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary
+                )
             }
         }
     }

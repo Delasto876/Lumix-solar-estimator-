@@ -3,22 +3,26 @@ package com.lumix.estimator.ui.theme
 import androidx.compose.ui.graphics.Color
 
 object LumixColors {
-    // Brand accents — stay vivid in both themes; used as fills, icon backgrounds,
-    // rings, progress indicators, and glow effects rather than as body text.
-    val SolarYellow = Color(0xFFFFD84D)
-    val EnergyGreen = Color(0xFF63E6A5)
-    val TechnicalCyan = Color(0xFF58C7FF)
-    val SolarAmber = Color(0xFFFFB454)
-    val WarningRed = Color(0xFFFF6B6B)
+    // Brand accents — restrained rather than neon (a premium instrument panel reads state
+    // through a handful of quiet, deliberate hues, not saturated highlighter color). Stay
+    // consistent in both themes; used as fills, icon backgrounds, rings, progress indicators —
+    // never as large decorative blocks or gradients.
+    val SolarYellow = Color(0xFFE8B04D)
+    val EnergyGreen = Color(0xFF5FCFA0)
+    val TechnicalCyan = Color(0xFF62B8E8)
+    val SolarAmber = Color(0xFFE8A25A)
+    val WarningRed = Color(0xFFD9695F)
 
-    // Dark theme — the "hero" experience
-    val BackgroundDark = Color(0xFF080B10)
-    val SurfaceDark = Color(0xFF11161D)
-    val SurfaceElevatedDark = Color(0xFF161C25)
-    val TextPrimaryDark = Color(0xFFF5F7FA)
-    val TextSecondaryDark = Color(0xFF8993A1)
-    val OutlineDark = Color(0x1FF5F7FA)
-    val GlassDark = Color(0x14F5F7FA)
+    // Dark theme — the "hero" experience. Near-black graphite, per the premium-automotive
+    // brief: background/surface/elevated read as three barely-distinct steps up, not three
+    // different colors — depth comes from that closeness, not contrast.
+    val BackgroundDark = Color(0xFF080A0D)
+    val SurfaceDark = Color(0xFF101419)
+    val SurfaceElevatedDark = Color(0xFF151A20)
+    val TextPrimaryDark = Color(0xFFF5F5F5)
+    val TextSecondaryDark = Color(0xFF8E969F)
+    val OutlineDark = Color(0x14F5F5F5)
+    val GlassDark = Color(0x14F5F5F5)
     val ScrimDark = Color(0xCC05070A)
 
     // Light theme — same language, softened
