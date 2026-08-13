@@ -46,11 +46,22 @@ enum class SimApplianceType(
     val watts: Int,
     val tier: ElectricalTier,
     val dutyFactor: Double,
-    val category: String
+    val category: String,
+    /**
+     * Locked-rotor inrush as a multiple of [watts] (e.g. 3.0 = a compressor briefly drawing 3x
+     * its running watts at startup). 1.0 (the default) means no meaningful motor inrush — true
+     * for every resistive/electronic load in this catalog. Typical figures for the appliance
+     * *class*, not a manufacturer nameplate — see [worstCaseStartupSurgeKw]'s own doc for why
+     * this is surfaced as a separate informational figure rather than folded into the 5-minute
+     * timestep simulation.
+     */
+    val startupSurgeMultiplier: Double = 1.0,
+    /** How long the inrush actually lasts — real motor starts settle in well under a second. */
+    val startupDurationSeconds: Double = 0.0
 ) {
     // Kitchen
-    REFRIGERATOR("Refrigerator/Freezer", 150, ElectricalTier.LOW, 0.35, "Kitchen"),
-    CHEST_FREEZER("Chest/Deep Freezer", 180, ElectricalTier.LOW, 0.35, "Kitchen"),
+    REFRIGERATOR("Refrigerator/Freezer", 150, ElectricalTier.LOW, 0.35, "Kitchen", startupSurgeMultiplier = 3.0, startupDurationSeconds = 0.5),
+    CHEST_FREEZER("Chest/Deep Freezer", 180, ElectricalTier.LOW, 0.35, "Kitchen", startupSurgeMultiplier = 3.0, startupDurationSeconds = 0.5),
     ELECTRIC_KETTLE("Electric Kettle", 1500, ElectricalTier.LOW, 1.0, "Kitchen"),
     MICROWAVE("Microwave", 1200, ElectricalTier.LOW, 1.0, "Kitchen"),
     TOASTER("Toaster", 1200, ElectricalTier.LOW, 1.0, "Kitchen"),
@@ -65,7 +76,7 @@ enum class SimApplianceType(
     CEILING_FAN("Ceiling Fan", 60, ElectricalTier.LOW, 1.0, "Cooling & Comfort"),
     STANDING_FAN("Pedestal/Standing Fan", 50, ElectricalTier.LOW, 1.0, "Cooling & Comfort"),
     BEDROOM_FAN("Bedroom Fan", 50, ElectricalTier.LOW, 1.0, "Cooling & Comfort"),
-    AIR_CONDITIONER("Air Conditioner", 1500, ElectricalTier.HIGH, 1.0, "Cooling & Comfort"),
+    AIR_CONDITIONER("Air Conditioner", 1500, ElectricalTier.HIGH, 1.0, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
 
     // Lighting
     LED_BEDROOM("LED Lighting — Bedroom", 10, ElectricalTier.LOW, 1.0, "Lighting"),
@@ -90,7 +101,7 @@ enum class SimApplianceType(
     // Water & heating
     WATER_HEATER("Electric Water Heater", 3800, ElectricalTier.HIGH, 0.50, "Water & Heating"),
     INSTANT_SHOWER("Instant Electric Shower", 4500, ElectricalTier.HIGH, 1.0, "Water & Heating"),
-    WATER_PUMP("Water Pump", 750, ElectricalTier.HIGH, 0.50, "Water & Heating"),
+    WATER_PUMP("Water Pump", 750, ElectricalTier.HIGH, 0.50, "Water & Heating", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
 
     // Personal care
     HAIR_DRYER("Hair Dryer", 1500, ElectricalTier.LOW, 1.0, "Personal Care"),
@@ -98,8 +109,8 @@ enum class SimApplianceType(
 
     // Laundry
     IRON("Clothes Iron", 1200, ElectricalTier.LOW, 0.60, "Laundry"),
-    WASHING_MACHINE("Washing Machine", 500, ElectricalTier.LOW, 0.60, "Laundry"),
-    CLOTHES_DRYER("Clothes Dryer", 5000, ElectricalTier.HIGH, 0.75, "Laundry"),
+    WASHING_MACHINE("Washing Machine", 500, ElectricalTier.LOW, 0.60, "Laundry", startupSurgeMultiplier = 2.0, startupDurationSeconds = 0.5),
+    CLOTHES_DRYER("Clothes Dryer", 5000, ElectricalTier.HIGH, 0.75, "Laundry", startupSurgeMultiplier = 2.0, startupDurationSeconds = 0.5),
 
     // Cleaning & misc
     VACUUM_CLEANER("Vacuum Cleaner", 900, ElectricalTier.LOW, 1.0, "Cleaning & Misc"),
@@ -107,12 +118,12 @@ enum class SimApplianceType(
 
     // Security & access
     SECURITY_SYSTEM("Security/CCTV System", 40, ElectricalTier.LOW, 1.0, "Security & Access"),
-    GATE_OPENER("Electric Gate/Garage Opener", 500, ElectricalTier.LOW, 1.0, "Security & Access"),
+    GATE_OPENER("Electric Gate/Garage Opener", 500, ElectricalTier.LOW, 1.0, "Security & Access", startupSurgeMultiplier = 2.5, startupDurationSeconds = 0.5),
 
     // EV & outdoor
     EV_CHARGER_L1("EV Charger — 110V (L1)", 1400, ElectricalTier.LOW, 0.80, "EV & Outdoor"),
     EV_CHARGER_L2("EV Charger — 220V (L2)", 5000, ElectricalTier.HIGH, 0.80, "EV & Outdoor"),
-    POOL_PUMP("Pool Pump", 1000, ElectricalTier.HIGH, 1.0, "EV & Outdoor")
+    POOL_PUMP("Pool Pump", 1000, ElectricalTier.HIGH, 1.0, "EV & Outdoor", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0)
 }
 
 /**
@@ -429,3 +440,47 @@ fun applianceLoadKwByTierAt(states: Map<SimApplianceType, ApplianceState>, hour:
         .filterValues { it > 0 }
         .entries.groupBy({ it.key.tier }, { it.key to it.value })
         .mapValues { (_, list) -> list.sumOf { (type, qty) -> qty * type.watts * type.dutyFactor } / 1000.0 }
+
+/**
+ * Which 110V leg (L1 or L2) a LOW-tier appliance is modeled as wired to. There's no real panel
+ * schedule to read this from (a genuine one would come from the customer's actual wiring), so
+ * this alternates by the appliance type's own catalog position — the same thing an electrician
+ * does by default: spread general-lighting/outlet circuits evenly across both legs rather than
+ * dumping them all on one. HIGH-tier (220V, line-to-line) appliances don't have a leg at all.
+ */
+private fun legFor(type: SimApplianceType): Int = type.ordinal % 2
+
+/**
+ * Splits the LOW-tier (110V) load active at [hour] on [dayType] across the two split-phase legs.
+ * Returns (L1 kW, L2 kW). HIGH-tier appliances are line-to-line and don't appear on either leg.
+ */
+fun applianceLoadKwByLegAt(states: Map<SimApplianceType, ApplianceState>, hour: Double, dayType: DayType = DayType.WEEKDAY): Pair<Double, Double> {
+    var l1 = 0.0
+    var l2 = 0.0
+    states.entries.filter { it.value.enabled }.forEach { (type, state) ->
+        if (type.tier != ElectricalTier.LOW) return@forEach
+        val qty = state.runs.filter { it.isActiveAt(hour, dayType) }.sumOf { it.quantity }
+        if (qty <= 0) return@forEach
+        val kw = qty * type.watts * type.dutyFactor / 1000.0
+        if (legFor(type) == 0) l1 += kw else l2 += kw
+    }
+    return l1 to l2
+}
+
+/**
+ * Worst-case instantaneous inrush if every currently-active motor/compressor appliance ([type]s
+ * with [SimApplianceType.startupSurgeMultiplier] above 1.0) happened to start at the exact same
+ * moment — refrigerator, AC, pumps, washer/dryer motors, gate opener. This is deliberately kept
+ * as a separate informational figure rather than folded into [SimulationEngine]'s 5-minute
+ * timestep timeline: a real motor start settles in well under a second (see
+ * [SimApplianceType.startupDurationSeconds]), so representing it as a sustained load for an
+ * entire timestep would overstate it by orders of magnitude. What this *does* answer honestly is
+ * "if the worst coincidence happened, would the inverter's short-term surge rating cover it" —
+ * most hybrid inverters tolerate roughly 2x their continuous rating for a few seconds, which is
+ * the comparison the Technical panel draws this figure against.
+ */
+fun worstCaseStartupSurgeKw(states: Map<SimApplianceType, ApplianceState>, hour: Double, dayType: DayType = DayType.WEEKDAY): Double =
+    states.entries.filter { it.value.enabled }.sumOf { (type, state) ->
+        val activeQty = state.runs.filter { it.isActiveAt(hour, dayType) }.sumOf { it.quantity }
+        activeQty * type.watts * type.startupSurgeMultiplier / 1000.0
+    }

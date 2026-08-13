@@ -1,5 +1,6 @@
 package com.lumix.estimator.domain.simulation
 
+import kotlin.math.abs
 import kotlin.math.sin
 
 /**
@@ -19,6 +20,12 @@ import kotlin.math.sin
  * no real-world losses at all. [temperatureLossPercent] and [fixedSystemLossPercent] are the two
  * itemized causes of that gap — see [SystemLosses] for the individual inverter/wiring/soiling
  * factors [fixedSystemLossPercent] combines.
+ *
+ * [gridNeutralCurrent] is the imbalance between the two 110V legs ([applianceLoadKwByLegAt]) —
+ * a balanced split-phase panel carries near-zero neutral current; the more one leg's load
+ * outweighs the other's, the more the shared neutral conductor actually carries.
+ * [startupSurgeKw] is a worst-case instantaneous figure, not something the timestep timeline
+ * ever sustains — see [worstCaseStartupSurgeKw]'s own doc for why it's kept separate.
  */
 data class TechnicalReadout(
     val pvVoltage: Double,
@@ -36,11 +43,13 @@ data class TechnicalReadout(
     val gridLowCurrent: Double,
     val gridHighVoltage: Double,
     val gridHighCurrent: Double,
+    val gridNeutralCurrent: Double,
     val gridServiceAmps: Double,
     val gridServiceUtilization: Float,
     val frequencyHz: Double,
     val energyTodayKwh: Double,
-    val energyMonthEstKwh: Double
+    val energyMonthEstKwh: Double,
+    val startupSurgeKw: Double
 )
 
 object TechnicalModel {
@@ -91,6 +100,16 @@ object TechnicalModel {
         val gridLowCurrent = if (gridActive) (gridLowKw * 1000.0) / GRID_LOW_VOLTAGE else 0.0
         val gridHighCurrent = if (gridActive) (gridHighKw * 1000.0) / GRID_HIGH_VOLTAGE else 0.0
 
+        // Neutral current is a property of the household wiring itself — it flows regardless of
+        // whether the 110V legs are ultimately sourced from JPS or the inverter — so this is
+        // computed from the appliances' own leg split, not apportioned by gridActive like the
+        // two currents above.
+        val (l1Kw, l2Kw) = applianceLoadKwByLegAt(appliances, frame.hour, dayType)
+        val l1Current = (l1Kw * 1000.0) / GRID_LOW_VOLTAGE
+        val l2Current = (l2Kw * 1000.0) / GRID_LOW_VOLTAGE
+        val gridNeutralCurrent = abs(l1Current - l2Current)
+        val startupSurgeKw = worstCaseStartupSurgeKw(appliances, frame.hour, dayType)
+
         val maxGridServiceKw = gridServiceAmps * GRID_HIGH_VOLTAGE / 1000.0
         val gridServiceUtilization = if (gridActive && maxGridServiceKw > 0) (gridTotalKw / maxGridServiceKw).toFloat() else 0f
 
@@ -118,11 +137,13 @@ object TechnicalModel {
             gridLowCurrent = gridLowCurrent,
             gridHighVoltage = gridHighVoltage,
             gridHighCurrent = gridHighCurrent,
+            gridNeutralCurrent = gridNeutralCurrent,
             gridServiceAmps = gridServiceAmps,
             gridServiceUtilization = gridServiceUtilization,
             frequencyHz = frequencyHz,
             energyTodayKwh = energyTodayKwh,
-            energyMonthEstKwh = energyTodayKwh * 30
+            energyMonthEstKwh = energyTodayKwh * 30,
+            startupSurgeKw = startupSurgeKw
         )
     }
 }

@@ -48,6 +48,18 @@ fun TechnicalDetailsContent(readout: TechnicalReadout, modifier: Modifier = Modi
             "Service Used", if (readout.gridServiceUtilization > 0f) "%.0f%%".format(readout.gridServiceUtilization * 100f) else "—"
         )
         TechRow("Energy Today", "%.1f kWh".format(readout.energyTodayKwh), "Energy This Month (est.)", "%.0f kWh".format(readout.energyMonthEstKwh))
+
+        Text(
+            "Neutral current is the imbalance between the two 110V legs — assumes lighting/outlet circuits are spread evenly across both, same as a real panel schedule.",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary
+        )
+        TechRow("Neutral Current", "%.2f A".format(readout.gridNeutralCurrent), "Worst-Case Startup Surge", "%.2f kW".format(readout.startupSurgeKw))
+        Text(
+            "Startup surge assumes every active motor (fridge, AC, pumps, washer/dryer) starts at the exact same instant — an edge case, not a sustained load. Most hybrid inverters tolerate roughly 2x their continuous rating for a few seconds.",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary
+        )
     }
 }
 

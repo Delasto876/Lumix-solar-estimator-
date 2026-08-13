@@ -1850,3 +1850,39 @@ Verified by re-checking every touched file's own paren/brace balance and by rend
 chip positions onto the real photo before writing them into Kotlin (`chip_candidates_full.png`
 plus per-component zoom crops) — same visual-verification discipline as every prior routing
 round, since this sandbox still has no Android build or emulator to test against directly.
+
+## A37 — Startup surge + split-phase neutral current
+
+Continuing the A36 backlog in priority order: the next two items were the appliance-model
+startup-surge figure (spec §36) and the split-phase neutral-current calculation (spec §33),
+both genuine domain-engine gaps, not UI work.
+
+**Startup surge.** `SimApplianceType` gained `startupSurgeMultiplier`/`startupDurationSeconds`,
+set for the motor/compressor loads that actually have real inrush — refrigerator, chest
+freezer, AC, water pump, pool pump (3x running watts, ~1s), washing machine, clothes dryer,
+gate opener (2-2.5x, ~0.5s). Everything else keeps the default 1.0x/0s (no meaningful inrush).
+Deliberately **not** folded into `SimulationEngine`'s 5-minute timestep timeline — a real motor
+start settles in well under a second, so treating it as a sustained load for an entire 5-minute
+frame would overstate it by roughly two orders of magnitude, the opposite of the correctness this
+whole audit is about. Instead, `worstCaseStartupSurgeKw()` is a separate, honestly-labeled
+instantaneous figure — "if every active motor happened to start at the same moment" — shown in
+the Technical panel next to a plain-language caption comparing it to a typical hybrid inverter's
+short-term surge tolerance (~2x continuous rating for a few seconds).
+
+**Split-phase neutral current.** The spec's own formula: "calculated from the difference in
+opposing 110V leg currents." There was no L1/L2 assignment at all before this — only a LOW/HIGH
+voltage tier. Added `applianceLoadKwByLegAt()`, which alternates each LOW-tier appliance type
+across L1/L2 by its own catalog position (`ordinal % 2`) — the same thing an electrician does by
+default when there's no real panel schedule to read from: spread general circuits evenly across
+both legs rather than dumping them on one. `TechnicalReadout.gridNeutralCurrent` is then simply
+`|L1 current − L2 current|`, computed from the household's own load (not apportioned by
+grid-vs-inverter source, since neutral current is a property of the house wiring itself,
+present regardless of where the power came from).
+
+Both figures are threaded through the same `dayType`/`hour` the rest of the Technical panel
+already uses, so they can't silently disagree with what the main screen shows.
+
+Still open from A36's scope note: the full six-plus-screen UI redesign (Load Audit screen,
+appliance detail sheets with source labels, calculation-transparency drill-downs, expanded
+recommendations, Home dashboard rebuild) and an automated test suite. Verified via the same
+paren/brace balance check and call-site grep as every prior round.
