@@ -1276,3 +1276,54 @@ of every wizard step (Customer, Property, Roof, AC, Appliances, etc.) and animat
 step-to-step page transitions were also out of scope for this pass — the highest-visibility
 screens (Home, Simulation, Quote Mode selection, System Review, calculation sequence) were
 prioritized within the round instead of a shallower pass across all ~13 steps.
+
+## A23 — New house diagram artwork + recalibrated energy paths
+
+`bg_house_energy_routes.png` was swapped for a new reference photo (a dusk aerial view with
+four white routed lines — pole/meter → inverter, panels → inverter, inverter → battery, plus
+dashed pointer lines from four baked "0 W"/"100%" placeholder labels) at a different resolution
+and aspect ratio (1173×1341 vs. the old 1536×1024) and, critically, completely different line
+geometry — the particle system's normalized coordinates only mean anything relative to one
+specific image, so swapping the artwork without recalibrating them would have sent particles
+drifting off into empty sky/lawn instead of riding the printed line.
+
+**Extraction method.** Same technique as the original A19 artwork (see the design-system section
+above), done properly this time with actual image-processing tooling rather than eyeballing:
+a Python/Pillow + scipy/scikit-image script thresholded the PNG for near-white, low-saturation
+pixels (`max(RGB) > 205, max−min < 22`), ran connected-component labeling to isolate each
+printed line from the others (and from the house/battery/car's own white surfaces) as a
+separate component, then traced each component with column- or row-wise centroid sampling
+(picking whichever scan axis that segment runs mostly along) to build an ordered polyline. The
+result was rendered back onto the source image as colored overlays and visually checked against
+the artwork before being written into `SolarSimulationPaths.kt` — every point in every path is
+now within a few pixels of the actual printed line, not an estimate.
+
+**What changed:**
+- `IMAGE_ASPECT_RATIO` (`EnergyFlowCanvas.kt`) updated to `1173/1341`.
+- `solarToInverterPath`, `gridToInverterPath`, `inverterToBatteryPath` recalibrated from the
+  pixel trace described above — particles now ride the new artwork's actual printed lines.
+- `inverterToHousePath` is the one exception: this artwork doesn't depict interior house wiring
+  (no distinct fourth line exists for "power to the load" the way the old artwork had one), so
+  its points are a short, explicitly-labeled *stylized* run from the inverter toward the visible
+  window rather than a pixel trace — documented as such in the code so a future artwork swap
+  doesn't mistake it for a real extraction.
+- `panelArrayBounds`/`batteryBounds` (used for the sun-glow and battery-fill overlays) re-derived
+  from the new artwork's panel and battery-unit footprints.
+- The four dashed "pointer" lines from the artwork's own baked labels down to the components
+  were deliberately **not** turned into animated `EnergyPath`s — they're annotation lines to a
+  number, not real electrical routes, and animating "flow toward a label" would mean inventing a
+  flow that doesn't correspond to any real [EnergyFlow]. They stay as static, unanimated parts of
+  the image.
+
+**Live wattage + battery percentage.** New `WattageOverlays` composable in `EnergyFlowCanvas.kt`
+draws a small opaque chip directly over each of the artwork's four baked "0 W" (and, for
+Battery, "100%") placeholders — Grid/Solar/Consumption read straight from the same `EnergyFlow`
+list already driving the particles (`grid_inverter`/`solar_inverter`/`inverter_house` power, in
+real watts, comma-grouped), so the number and the animation can never disagree; Battery shows a
+signed wattage (charging "+", discharging "−") plus the live state-of-charge percentage already
+passed into the canvas for the fill overlay. Four new `NormalizedRect`s
+(`gridLabelBounds`/`solarLabelBounds`/`consumptionLabelBounds`/`batteryLabelBounds`) mark where
+each placeholder sits in the artwork; the chip is positioned at that box's left edge (matching
+where the artwork's own icon+text started) and vertically centered on it, rather than sized to
+match the box exactly — that box is print-scale (a few dp once fitted to a phone screen), far
+too tight for a legible touch-target-adjacent chip.

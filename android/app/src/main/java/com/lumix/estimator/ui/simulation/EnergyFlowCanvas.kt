@@ -4,9 +4,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.align
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -27,15 +29,17 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.R
 import com.lumix.estimator.domain.simulation.EnergyFlow
 import com.lumix.estimator.domain.simulation.FlowDirection
 import com.lumix.estimator.ui.theme.LumixColors
 import com.lumix.estimator.ui.theme.rememberReduceMotion
+import kotlin.math.roundToInt
 
 /** The reference photo's own pixel aspect ratio — panels/inverter/battery only line up at this ratio. */
-internal const val IMAGE_ASPECT_RATIO = 1536f / 1024f
+internal const val IMAGE_ASPECT_RATIO = 1173f / 1341f
 
 private val WarmWhite = Color(0xFFFFF3D6)
 
@@ -103,6 +107,8 @@ fun EnergyFlowCanvas(
 
         ParticleOverlay(flows = flows, debugShowPaths = debugShowPaths)
 
+        WattageOverlays(flows = flows, batterySocFraction = batterySocFraction)
+
         if (simTimeText != null) {
             SimClockOverlay(text = simTimeText, modifier = Modifier.align(Alignment.TopEnd))
         }
@@ -125,6 +131,76 @@ private fun SimClockOverlay(text: String, modifier: Modifier = Modifier) {
             fontWeight = FontWeight.Bold,
             color = Color.White,
             fontFeatureSettings = "tnum"
+        )
+    }
+}
+
+/** "1,240 W", signed ("+1,240 W" / "-620 W") when [showSign] and the flow is genuinely nonzero. */
+private fun formatWatts(kw: Double, showSign: Boolean = false): String {
+    val watts = (kw * 1000.0).roundToInt()
+    val sign = if (showSign && watts > 0) "+" else ""
+    return "$sign${"%,d".format(watts)} W"
+}
+
+/**
+ * Live values drawn directly over the artwork's own baked "0 W" / "100%" placeholder text at
+ * the Grid/Solar/Consumption/Battery labels — each [flows] entry is the exact same resolved
+ * power already driving the particles on that same path, so the readout and the animation can
+ * never disagree.
+ */
+@Composable
+private fun WattageOverlays(flows: List<EnergyFlow>, batterySocFraction: Float?, modifier: Modifier = Modifier) {
+    val flowById = remember(flows) { flows.associateBy { it.id } }
+    val gridKw = flowById["grid_inverter"]?.powerKw ?: 0.0
+    val solarKw = flowById["solar_inverter"]?.powerKw ?: 0.0
+    val consumptionKw = flowById["inverter_house"]?.powerKw ?: 0.0
+    val batteryFlow = flowById["inverter_battery"]
+    val batteryKw = when {
+        batteryFlow == null || !batteryFlow.active -> 0.0
+        batteryFlow.direction == FlowDirection.FORWARD -> batteryFlow.powerKw
+        else -> -batteryFlow.powerKw
+    }
+    val batteryPercentText = batterySocFraction?.let { " ${(it * 100).roundToInt()}%" } ?: ""
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth().aspectRatio(IMAGE_ASPECT_RATIO)) {
+        WattageChip(text = formatWatts(gridKw), bounds = SolarSimulationPaths.gridLabelBounds, containerWidth = maxWidth, containerHeight = maxHeight)
+        WattageChip(text = formatWatts(solarKw), bounds = SolarSimulationPaths.solarLabelBounds, containerWidth = maxWidth, containerHeight = maxHeight)
+        WattageChip(text = formatWatts(consumptionKw), bounds = SolarSimulationPaths.consumptionLabelBounds, containerWidth = maxWidth, containerHeight = maxHeight)
+        WattageChip(
+            text = formatWatts(batteryKw, showSign = true) + batteryPercentText,
+            bounds = SolarSimulationPaths.batteryLabelBounds,
+            containerWidth = maxWidth,
+            containerHeight = maxHeight
+        )
+    }
+}
+
+/**
+ * Sized and centered on the artwork's own baked text box rather than matching it exactly —
+ * that box is drawn at print scale (a handful of dp once fitted to a phone width), too tight
+ * for a real touch/legibility-sized chip, so this only borrows its position, not its size.
+ */
+@Composable
+private fun WattageChip(text: String, bounds: NormalizedRect, containerWidth: Dp, containerHeight: Dp) {
+    // Left-aligned at the artwork's own text origin (where its icon+"0 W" started), so the
+    // live chip reads as a direct replacement rather than something floating nearby; vertically
+    // centered on that same box rather than matched to its (print-scale-tiny) exact height.
+    val originX = containerWidth * bounds.left
+    val centerY = containerHeight * (bounds.top + bounds.bottom) / 2f
+    Box(
+        modifier = Modifier
+            .offset(x = originX, y = centerY - 10.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .background(Color.Black.copy(alpha = 0.55f))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            fontFeatureSettings = "tnum",
+            maxLines = 1
         )
     }
 }
