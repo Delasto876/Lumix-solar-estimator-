@@ -172,14 +172,15 @@ private fun formatWatts(kw: Double, showSign: Boolean = false): String {
 }
 
 /**
- * Exactly four small value chips, one at each real component — PV, grid, battery, load — and
- * nothing else. Anchored at that component's own point on its [EnergyPath] (the panel end of
- * [SolarSimulationPaths.solarToInverterPath], the pole end of [SolarSimulationPaths.gridToInverterPath],
- * the battery end of [SolarSimulationPaths.inverterToBatteryPath], the junction-box end of
- * [SolarSimulationPaths.inverterToHousePath]) rather than a path midpoint, so each value reads as
- * "this is what that component is doing right now," not a generic label floating in space. Every
- * other number the app tracks (breakdowns, efficiency, grid service limits, etc.) lives in the
- * Technical section below the canvas, not here.
+ * Exactly four small value chips, one near each real component — PV, grid, battery, load — and
+ * nothing else. Positioned at [SolarSimulationPaths.gridChipPosition]/`solarChipPosition`/
+ * `batteryChipPosition`/`houseChipPosition` — a nearby *clear* patch of the scene next to each
+ * component, not the component's own route-line connection point. Earlier rounds anchored the
+ * chip directly on that connection point, which put the label on top of the printed glow line
+ * itself; confirmed against the real photo and moved off the line entirely, close enough to the
+ * component that the reading ("this is what that component is doing right now") is still
+ * unambiguous. Every other number the app tracks (breakdowns, efficiency, grid service limits,
+ * etc.) lives in the Technical section below the canvas, not here.
  */
 @Composable
 private fun NodeValueChips(flows: List<EnergyFlow>, batterySocFraction: Float?, modifier: Modifier = Modifier) {
@@ -199,28 +200,28 @@ private fun NodeValueChips(flows: List<EnergyFlow>, batterySocFraction: Float?, 
         NodeChip(
             accent = LumixColors.GridPink,
             text = formatWatts(gridKw),
-            anchor = SolarSimulationPaths.gridAnchor,
+            anchor = SolarSimulationPaths.gridChipPosition,
             containerWidth = maxWidth,
             containerHeight = maxHeight
         )
         NodeChip(
             accent = LumixColors.SolarYellow,
             text = formatWatts(solarKw),
-            anchor = SolarSimulationPaths.solarAnchor,
+            anchor = SolarSimulationPaths.solarChipPosition,
             containerWidth = maxWidth,
             containerHeight = maxHeight
         )
         NodeChip(
             accent = LumixColors.TechnicalCyan,
             text = formatWatts(batteryKw, showSign = true) + batteryPercentText,
-            anchor = SolarSimulationPaths.batteryAnchor,
+            anchor = SolarSimulationPaths.batteryChipPosition,
             containerWidth = maxWidth,
             containerHeight = maxHeight
         )
         NodeChip(
             accent = LumixColors.EnergyGreen,
             text = formatWatts(loadKw),
-            anchor = SolarSimulationPaths.houseLoadAnchor,
+            anchor = SolarSimulationPaths.houseChipPosition,
             containerWidth = maxWidth,
             containerHeight = maxHeight
         )

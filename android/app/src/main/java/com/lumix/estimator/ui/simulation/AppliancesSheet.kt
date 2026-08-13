@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumix.estimator.domain.simulation.ApplianceRun
 import com.lumix.estimator.domain.simulation.ApplianceState
+import com.lumix.estimator.domain.simulation.DayType
 import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.totalApplianceLoadKwAt
 import com.lumix.estimator.ui.components.AnimatedCounterText
@@ -111,10 +112,11 @@ fun AppliancesSheetContent(
     appliances: Map<SimApplianceType, ApplianceState>,
     currentHour: Double,
     onSetSchedule: (SimApplianceType, Int, Double, Set<DayPeriod>) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    dayType: DayType = DayType.WEEKDAY
 ) {
     val palette = LocalLumixPalette.current
-    val currentLoadKw = totalApplianceLoadKwAt(appliances, currentHour)
+    val currentLoadKw = totalApplianceLoadKwAt(appliances, currentHour, dayType)
 
     Column(
         modifier = modifier

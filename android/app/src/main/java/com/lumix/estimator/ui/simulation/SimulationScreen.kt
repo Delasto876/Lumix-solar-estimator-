@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lumix.estimator.domain.simulation.DayType
 import com.lumix.estimator.domain.simulation.EnergyFlowResolver
 import com.lumix.estimator.domain.simulation.InverterMode
 import com.lumix.estimator.domain.simulation.SimFrame
@@ -143,6 +144,20 @@ fun SimulationScreen(
                 item { OutageBanner() }
             }
 
+            // Section 63: an appliance schedule that asks the inverter for more than its rated
+            // continuous output is a real design problem, not something to silently absorb —
+            // surface it instead of pretending the inverter delivered power it physically can't.
+            val inverterOverloadKw = frame.inverterLoadKw - config.inverterKw
+            if (inverterOverloadKw > 0.05) {
+                item {
+                    InverterOverloadBanner(
+                        demandKw = frame.inverterLoadKw,
+                        inverterKw = config.inverterKw,
+                        onReviewLoads = { showAppliances = true }
+                    )
+                }
+            }
+
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -176,6 +191,11 @@ fun SimulationScreen(
                         onScrub = viewModel::scrubTo,
                         markerHour = state.batteryFullHour
                     )
+                    DayTypeSelector(
+                        selected = state.dayType,
+                        onSelect = viewModel::setDayType,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
                     InspectChipRow(
                         hasBattery = config.hasBattery,
                         onSelect = { inspectTarget = it },
@@ -203,8 +223,8 @@ fun SimulationScreen(
                 item {
                     SectionCard(title = "Technical") {
                         TechnicalDetailsContent(
-                            readout = remember(frame, config, state.timeline, state.appliances, state.gridServiceAmps) {
-                                TechnicalModel.compute(frame, config, state.timeline, state.appliances, state.gridServiceAmps)
+                            readout = remember(frame, config, state.timeline, state.appliances, state.gridServiceAmps, state.dayType) {
+                                TechnicalModel.compute(frame, config, state.timeline, state.appliances, state.gridServiceAmps, state.dayType)
                             }
                         )
                     }
@@ -357,7 +377,8 @@ fun SimulationScreen(
                 AppliancesSheetContent(
                     appliances = state.appliances,
                     currentHour = state.currentHour,
-                    onSetSchedule = { type, quantity, hours, periods -> viewModel.setApplianceSchedule(type, quantity, hours, periods) }
+                    onSetSchedule = { type, quantity, hours, periods -> viewModel.setApplianceSchedule(type, quantity, hours, periods) },
+                    dayType = state.dayType
                 )
             }
         }
@@ -403,6 +424,37 @@ private fun ModeToggle(technicalMode: Boolean, onToggle: (Boolean) -> Unit) {
                     .background(if (selected) palette.solarYellow.copy(alpha = 0.16f) else Color.Transparent)
                     .clickable { onToggle(isTechnical) }
                     .padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+        }
+    }
+}
+
+/** Weekday/Saturday/Sunday — the same household behaves differently by day type (section 27). */
+@Composable
+private fun DayTypeSelector(selected: DayType, onSelect: (DayType) -> Unit, modifier: Modifier = Modifier) {
+    val palette = LocalLumixPalette.current
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(LumixRadius.pill))
+            .background(palette.glass)
+            .padding(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        DayType.entries.forEach { dayType ->
+            val isSelected = dayType == selected
+            Text(
+                dayType.label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                color = if (isSelected) palette.solarYellowText else palette.textSecondary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(LumixRadius.pill))
+                    .background(if (isSelected) palette.solarYellow.copy(alpha = 0.16f) else Color.Transparent)
+                    .clickable { onSelect(dayType) }
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
             )
         }
     }
@@ -468,6 +520,39 @@ private fun GridServiceAmpsSelector(selected: Double, onSelect: (Double) -> Unit
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun InverterOverloadBanner(demandKw: Double, inverterKw: Double, onReviewLoads: () -> Unit) {
+    val palette = LocalLumixPalette.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(LumixRadius.md))
+            .background(LumixColors.WarningRed.copy(alpha = 0.14f))
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("⚠️", style = MaterialTheme.typography.titleMedium)
+            Column {
+                Text("INVERTER OVERLOADED", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = palette.warningRedText)
+                Text(
+                    "Your appliance schedule asks the inverter for %.2f kW, above its %.1f kW rating right now.".format(demandKw, inverterKw),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary
+                )
+            }
+        }
+        Text(
+            "REVIEW LOADS",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = palette.warningRedText,
+            modifier = Modifier
+                .padding(top = 10.dp)
+                .clickable { onReviewLoads() }
+        )
     }
 }
 

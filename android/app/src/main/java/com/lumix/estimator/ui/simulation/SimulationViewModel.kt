@@ -8,6 +8,7 @@ import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.simulation.ApplianceRun
 import com.lumix.estimator.domain.simulation.ApplianceState
+import com.lumix.estimator.domain.simulation.DayType
 import com.lumix.estimator.domain.simulation.InverterMode
 import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.SimFrame
@@ -45,10 +46,11 @@ data class SimulationUiState(
     val startSocFraction: Double = 0.6,
     val cloudEventActive: Boolean = false,
     val batteryFullHour: Double? = null,
-    val technicalMode: Boolean = false
+    val technicalMode: Boolean = false,
+    val dayType: DayType = DayType.WEEKDAY
 ) {
-    /** Total appliance load right now, at [currentHour] — reflects each appliance's own schedule. */
-    val applianceLoadKw: Double get() = totalApplianceLoadKwAt(appliances, currentHour)
+    /** Total appliance load right now, at [currentHour] on [dayType] — reflects each appliance's own schedule. */
+    val applianceLoadKw: Double get() = totalApplianceLoadKwAt(appliances, currentHour, dayType)
 }
 
 class SimulationViewModel(
@@ -78,7 +80,8 @@ class SimulationViewModel(
                 applianceStates = appliances,
                 inverterMode = inverterMode,
                 gridChargeEnabled = gridChargeEnabled,
-                gridServiceAmps = gridServiceAmps
+                gridServiceAmps = gridServiceAmps,
+                dayType = _state.value.dayType
             )
             val label = saved.inputs.customerName.takeIf { it.isNotBlank() } ?: "Your Solar System"
             _state.update {
@@ -134,6 +137,10 @@ class SimulationViewModel(
         _state.update { it.copy(technicalMode = enabled) }
     }
 
+    fun setDayType(dayType: DayType) {
+        rebuildTimeline(dayType = dayType)
+    }
+
     /** A brief, self-reverting dip in weather — clouds roll in, production drops, then clears. */
     fun triggerCloudEvent() {
         if (cloudEventJob?.isActive == true) return
@@ -154,7 +161,8 @@ class SimulationViewModel(
         gridChargeEnabled: Boolean = _state.value.gridChargeEnabled,
         gridServiceAmps: Double = _state.value.gridServiceAmps,
         weather: WeatherState = _state.value.weather,
-        startSocFraction: Double = _state.value.startSocFraction
+        startSocFraction: Double = _state.value.startSocFraction,
+        dayType: DayType = _state.value.dayType
     ) {
         val config = _state.value.config ?: return
         val effectiveGridConnected = gridConnected && config.gridConnectable
@@ -166,7 +174,8 @@ class SimulationViewModel(
             applianceStates = appliances,
             inverterMode = inverterMode,
             gridChargeEnabled = gridChargeEnabled,
-            gridServiceAmps = gridServiceAmps
+            gridServiceAmps = gridServiceAmps,
+            dayType = dayType
         )
         _state.update {
             it.copy(
@@ -177,6 +186,7 @@ class SimulationViewModel(
                 gridServiceAmps = gridServiceAmps,
                 weather = weather,
                 startSocFraction = startSocFraction,
+                dayType = dayType,
                 timeline = timeline,
                 currentFrame = SimulationEngine.frameAt(timeline, it.currentHour),
                 batteryFullHour = SimulationEngine.nextBatteryFullHour(timeline, it.currentHour)

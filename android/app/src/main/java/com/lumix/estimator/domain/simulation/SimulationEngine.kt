@@ -27,16 +27,30 @@ object SimulationEngine {
     const val GRID_SERVICE_VOLTAGE = 220.0
     const val DEFAULT_GRID_SERVICE_AMPS = 30.0
 
-    // Typical residential demand shape (higher morning + evening, lower overnight/midday).
+    // Typical WEEKDAY residential demand shape (higher morning + evening, lower overnight/
+    // midday — the working household is mostly out of the house 8am-5pm, per section 18).
     // Normalized by its own mean, so it only shapes the curve — total daily energy still
     // comes from the quote's actual calculated average load.
-    private val loadShape = doubleArrayOf(
+    private val weekdayLoadShape = doubleArrayOf(
         0.42, 0.36, 0.32, 0.30, 0.32, 0.40,
         0.62, 0.80, 0.68, 0.58, 0.52, 0.50,
         0.52, 0.54, 0.52, 0.50, 0.55, 0.72,
         0.92, 1.00, 0.94, 0.80, 0.62, 0.48
     )
-    private val loadShapeMean = loadShape.average()
+    // WEEKEND shape (Saturday/Sunday, section 27): the same morning/evening peaks, but no
+    // 8am-5pm occupancy dip — daytime hours stay meaningfully higher because the household
+    // is actually home (laundry, cleaning, cooking, kids), not away at work/school.
+    private val weekendLoadShape = doubleArrayOf(
+        0.46, 0.38, 0.34, 0.32, 0.34, 0.42,
+        0.60, 0.72, 0.70, 0.68, 0.66, 0.66,
+        0.68, 0.68, 0.66, 0.64, 0.66, 0.78,
+        0.90, 0.96, 0.90, 0.78, 0.64, 0.52
+    )
+    private val weekdayLoadShapeMean = weekdayLoadShape.average()
+    private val weekendLoadShapeMean = weekendLoadShape.average()
+
+    private fun loadShapeFor(dayType: DayType) = if (dayType == DayType.WEEKDAY) weekdayLoadShape else weekendLoadShape
+    private fun loadShapeMeanFor(dayType: DayType) = if (dayType == DayType.WEEKDAY) weekdayLoadShapeMean else weekendLoadShapeMean
 
     fun irradianceFactor(hour: Double): Double {
         val h = hour.mod(24.0)
@@ -53,13 +67,14 @@ object SimulationEngine {
         return ((h - SUNRISE_HOUR) / (SUNSET_HOUR - SUNRISE_HOUR)).toFloat()
     }
 
-    fun loadFactor(hour: Double): Double {
+    fun loadFactor(hour: Double, dayType: DayType = DayType.WEEKDAY): Double {
+        val shape = loadShapeFor(dayType)
         val h = hour.mod(24.0)
         val i0 = h.toInt().mod(24)
         val i1 = (i0 + 1).mod(24)
         val frac = h - h.toInt()
-        val v = loadShape[i0] * (1 - frac) + loadShape[i1] * frac
-        return v / loadShapeMean
+        val v = shape[i0] * (1 - frac) + shape[i1] * frac
+        return v / loadShapeMeanFor(dayType)
     }
 
     fun buildDayTimeline(
@@ -72,7 +87,8 @@ object SimulationEngine {
         applianceStates: Map<SimApplianceType, ApplianceState> = emptyMap(),
         inverterMode: InverterMode = InverterMode.SBU,
         gridChargeEnabled: Boolean = true,
-        gridServiceAmps: Double = DEFAULT_GRID_SERVICE_AMPS
+        gridServiceAmps: Double = DEFAULT_GRID_SERVICE_AMPS,
+        dayType: DayType = DayType.WEEKDAY
     ): List<SimFrame> {
         val maxSocKwh = config.batteryCapacityKwh * BATTERY_MAX_SOC_FRACTION
         val minSocKwh = config.batteryCapacityKwh * config.batteryDepthOfDischargeFraction
@@ -104,7 +120,7 @@ object SimulationEngine {
             val pv = (irradianceFraction * config.pvCapacityKw * temperatureDerate * SystemLosses.fixedSystemEfficiency)
                 .coerceIn(0.0, config.inverterKw)
 
-            val load = (loadFactor(hour) * backgroundPerHourKw + applianceLoadKw + totalApplianceLoadKwAt(applianceStates, hour))
+            val load = (loadFactor(hour, dayType) * backgroundPerHourKw + applianceLoadKw + totalApplianceLoadKwAt(applianceStates, hour, dayType))
                 .coerceAtLeast(0.0)
 
             // The grid connection is strictly import-only in every mode — solar never exports;
@@ -206,6 +222,10 @@ object SimulationEngine {
 
             val batteryPowerKw = (solarToBattery + gridToBattery) - batteryToHouse
             val gridPowerKw = gridToHouse + gridToBattery
+            // What the inverter's own inverting stage is actually carrying — house power sourced
+            // from solar/battery, plus whatever's charging the battery. Grid-to-house power
+            // bypasses this (see SimFrame's own doc comment), so it's excluded here.
+            val inverterLoadKw = solarToHouse + batteryToHouse + solarToBattery + gridToBattery
             val socPercent = if (config.batteryCapacityKwh > 0) {
                 (batterySocKwh / config.batteryCapacityKwh * 100.0).toFloat()
             } else 0f
@@ -239,6 +259,7 @@ object SimulationEngine {
                 gridPowerKw = gridPowerKw,
                 unmetLoadKw = unmet,
                 curtailedSolarKw = curtailedSolar,
+                inverterLoadKw = inverterLoadKw,
                 status = status
             )
         }
@@ -276,6 +297,7 @@ object SimulationEngine {
         gridPowerKw = lerp(a.gridPowerKw, b.gridPowerKw, t),
         unmetLoadKw = lerp(a.unmetLoadKw, b.unmetLoadKw, t),
         curtailedSolarKw = lerp(a.curtailedSolarKw, b.curtailedSolarKw, t),
+        inverterLoadKw = lerp(a.inverterLoadKw, b.inverterLoadKw, t),
         status = if (t < 0.5) a.status else b.status
     )
 

@@ -15,6 +15,20 @@ enum class ElectricalTier(val nominalVoltage: Double) {
 }
 
 /**
+ * Which kind of day the simulation is modeling — the same household behaves differently on a
+ * working weekday than on a Saturday or Sunday (more daytime occupancy, different laundry/
+ * cleaning/cooking timing). Affects both the background occupancy curve ([SimulationEngine]'s
+ * load shape) and a handful of appliances whose [ApplianceRun.dayTypes] scope them to specific
+ * days rather than running the same way every day.
+ */
+@Serializable
+enum class DayType(val label: String) {
+    WEEKDAY("Weekday"),
+    SATURDAY("Saturday"),
+    SUNDAY("Sunday")
+}
+
+/**
  * The full appliance database — expected running watts, electrical tier, duty factor, and
  * grouping — sourced from the Jamaica Residential Energy Audit Load Profile supplied for this
  * app (A33). [watts] is "expected running watts": the power drawn *while actually running*, not
@@ -110,10 +124,13 @@ enum class SimApplianceType(
 data class ApplianceRun(
     val quantity: Int = 1,
     val startHour: Double = 0.0,
-    val durationHours: Double = 24.0
+    val durationHours: Double = 24.0,
+    /** Which day(s) this run applies on — defaults to every day, matching prior behavior. */
+    val dayTypes: Set<DayType> = DayType.entries.toSet()
 ) {
-    /** Whether this run is contributing load at [hour] (0..24), handling wraparound past midnight. */
-    fun isActiveAt(hour: Double): Boolean {
+    /** Whether this run is contributing load at [hour] (0..24) on [dayType], handling wraparound past midnight. */
+    fun isActiveAt(hour: Double, dayType: DayType = DayType.WEEKDAY): Boolean {
+        if (dayType !in dayTypes) return false
         val h = hour.mod(24.0)
         val endHour = startHour + durationHours
         return if (endHour <= 24.0) {
@@ -163,22 +180,29 @@ fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type)
     )
     SimApplianceType.TOASTER -> listOf(ApplianceRun(startHour = 6.5, durationHours = 7.0 / 60.0))
     SimApplianceType.BLENDER -> listOf(ApplianceRun(startHour = 18.0, durationHours = 6.0 / 60.0))
+    // Weekend adds a real midday cooking session (section 19/27's "higher weekend daytime
+    // occupancy" pattern) — a weekday's empty-house midday never gets one.
     SimApplianceType.STOVE -> listOf(
         ApplianceRun(startHour = 6.0, durationHours = 0.75),
-        ApplianceRun(startHour = 18.0, durationHours = 1.0)
+        ApplianceRun(startHour = 18.0, durationHours = 1.0),
+        ApplianceRun(startHour = 12.0, durationHours = 1.0, dayTypes = setOf(DayType.SATURDAY, DayType.SUNDAY))
     )
     SimApplianceType.OVEN -> listOf(ApplianceRun(startHour = 18.0, durationHours = 1.5))
     SimApplianceType.AIR_FRYER -> listOf(ApplianceRun(startHour = 18.0, durationHours = 0.5))
     SimApplianceType.RICE_COOKER -> listOf(ApplianceRun(startHour = 18.0, durationHours = 1.0))
     SimApplianceType.PRESSURE_COOKER -> listOf(ApplianceRun(startHour = 18.0, durationHours = 0.5))
 
+    // Weekend adds a daytime run on top of the weekday morning/evening pair — people are
+    // actually home to feel the heat at 11am on a Saturday, unlike a weekday.
     SimApplianceType.CEILING_FAN -> listOf(
         ApplianceRun(startHour = 6.0, durationHours = 2.0),
-        ApplianceRun(startHour = 17.0, durationHours = 5.0)
+        ApplianceRun(startHour = 17.0, durationHours = 5.0),
+        ApplianceRun(startHour = 10.0, durationHours = 6.0, dayTypes = setOf(DayType.SATURDAY, DayType.SUNDAY))
     )
     SimApplianceType.STANDING_FAN -> listOf(
         ApplianceRun(startHour = 6.0, durationHours = 2.0),
-        ApplianceRun(startHour = 17.0, durationHours = 6.0)
+        ApplianceRun(startHour = 17.0, durationHours = 6.0),
+        ApplianceRun(startHour = 10.0, durationHours = 6.0, dayTypes = setOf(DayType.SATURDAY, DayType.SUNDAY))
     )
     // Overnight, wraps past midnight — isActiveAt handles the wraparound.
     SimApplianceType.BEDROOM_FAN -> listOf(ApplianceRun(startHour = 20.0, durationHours = 10.5))
@@ -202,7 +226,12 @@ fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type)
     )
     SimApplianceType.OUTDOOR_FLOODLIGHT -> listOf(ApplianceRun(startHour = 18.0, durationHours = 12.0))
 
-    SimApplianceType.TELEVISION -> listOf(ApplianceRun(startHour = 17.5, durationHours = 4.5))
+    // Weekend adds a daytime block — the working-household "unoccupied 8-5" assumption
+    // (section 18) only holds on a weekday.
+    SimApplianceType.TELEVISION -> listOf(
+        ApplianceRun(startHour = 17.5, durationHours = 4.5),
+        ApplianceRun(startHour = 10.0, durationHours = 6.0, dayTypes = setOf(DayType.SATURDAY, DayType.SUNDAY))
+    )
     SimApplianceType.SET_TOP_BOX -> listOf(ApplianceRun(startHour = 17.5, durationHours = 4.5))
     SimApplianceType.WIFI_ROUTER -> listOf(ApplianceRun(startHour = 0.0, durationHours = 24.0))
     SimApplianceType.MODEM -> listOf(ApplianceRun(startHour = 0.0, durationHours = 24.0))
@@ -238,10 +267,20 @@ fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type)
     SimApplianceType.CURLING_IRON -> listOf(ApplianceRun(startHour = 6.5, durationHours = 18.0 / 60.0))
 
     SimApplianceType.IRON -> listOf(ApplianceRun(startHour = 19.0, durationHours = 0.5))
-    SimApplianceType.WASHING_MACHINE -> listOf(ApplianceRun(startHour = 18.0, durationHours = 0.75))
+    // Saturday adds the household's real laundry batch (section 27) on top of an occasional
+    // weeknight load — Jamaican working households typically do the bulk of laundry on the
+    // weekend, not spread flat across every weekday.
+    SimApplianceType.WASHING_MACHINE -> listOf(
+        ApplianceRun(startHour = 18.0, durationHours = 0.75),
+        ApplianceRun(startHour = 10.0, durationHours = 1.0, dayTypes = setOf(DayType.SATURDAY))
+    )
     SimApplianceType.CLOTHES_DRYER -> listOf(ApplianceRun(startHour = 18.5, durationHours = 0.75))
 
-    SimApplianceType.VACUUM_CLEANER -> listOf(ApplianceRun(startHour = 9.0, durationHours = 0.5))
+    // Scoped to the weekend "cleaning day," not every single day (section 27) — a 9am vacuum
+    // run on a weekday when the house is meant to be empty (section 18) doesn't reflect real use.
+    SimApplianceType.VACUUM_CLEANER -> listOf(
+        ApplianceRun(startHour = 9.0, durationHours = 0.5, dayTypes = setOf(DayType.SATURDAY, DayType.SUNDAY))
+    )
     SimApplianceType.SEWING_MACHINE -> listOf(ApplianceRun(startHour = 14.0, durationHours = 1.0))
 
     SimApplianceType.SECURITY_SYSTEM -> listOf(ApplianceRun(startHour = 0.0, durationHours = 24.0))
@@ -377,16 +416,16 @@ fun defaultApplianceStates(inputs: QuoteInputs): Map<SimApplianceType, Appliance
  * water heater, stove) contribute their real average draw rather than their full nameplate
  * watts for the whole scheduled window.
  */
-fun totalApplianceLoadKwAt(states: Map<SimApplianceType, ApplianceState>, hour: Double): Double =
+fun totalApplianceLoadKwAt(states: Map<SimApplianceType, ApplianceState>, hour: Double, dayType: DayType = DayType.WEEKDAY): Double =
     states.entries.filter { it.value.enabled }.sumOf { (type, state) ->
-        val activeQty = state.runs.filter { it.isActiveAt(hour) }.sumOf { it.quantity }
+        val activeQty = state.runs.filter { it.isActiveAt(hour, dayType) }.sumOf { it.quantity }
         activeQty * type.watts * type.dutyFactor / 1000.0
     }
 
-/** Splits the appliance load active at [hour] by [ElectricalTier], for per-circuit current readings. */
-fun applianceLoadKwByTierAt(states: Map<SimApplianceType, ApplianceState>, hour: Double): Map<ElectricalTier, Double> =
+/** Splits the appliance load active at [hour] on [dayType] by [ElectricalTier], for per-circuit current readings. */
+fun applianceLoadKwByTierAt(states: Map<SimApplianceType, ApplianceState>, hour: Double, dayType: DayType = DayType.WEEKDAY): Map<ElectricalTier, Double> =
     states.entries.filter { it.value.enabled }
-        .associate { (type, state) -> type to state.runs.filter { it.isActiveAt(hour) }.sumOf { it.quantity } }
+        .associate { (type, state) -> type to state.runs.filter { it.isActiveAt(hour, dayType) }.sumOf { it.quantity } }
         .filterValues { it > 0 }
         .entries.groupBy({ it.key.tier }, { it.key to it.value })
         .mapValues { (_, list) -> list.sumOf { (type, qty) -> qty * type.watts * type.dutyFactor } / 1000.0 }

@@ -160,6 +160,18 @@ object SolarSimulationPaths {
     val batteryAnchor: NormalizedPoint get() = inverterToBatteryPath.points.last()
     val houseLoadAnchor: NormalizedPoint get() = inverterToHousePath.points.last()
 
+    // Floating value-chip positions — deliberately NOT the same points as the anchors above.
+    // A34/A35 anchored each chip directly at its route's own connection point, which put the
+    // label right on top of the printed glow line (confirmed against the real photo, then
+    // corrected here): each offset below was chosen by rendering candidate chip boxes onto the
+    // actual artwork and picking the nearest open patch of scene — sky, roof, wall, or patio —
+    // that clears every route line's full width, not just its centerline. Kept close to the
+    // relevant component so the reading is still unambiguous at a glance.
+    val gridChipPosition: NormalizedPoint get() = NormalizedPoint(gridAnchor.x + 0.045f, gridAnchor.y - 0.035f)
+    val solarChipPosition: NormalizedPoint get() = NormalizedPoint(solarAnchor.x + 0.045f, solarAnchor.y - 0.045f)
+    val batteryChipPosition: NormalizedPoint get() = NormalizedPoint(batteryAnchor.x + 0.045f, batteryAnchor.y - 0.025f)
+    val houseChipPosition: NormalizedPoint get() = NormalizedPoint(houseLoadAnchor.x - 0.075f, houseLoadAnchor.y - 0.035f)
+
     /** Bounding boxes for overlays that aren't particles (battery fill, panel/sun glow). */
     val panelArrayBounds = NormalizedRect(left = 0.3750f, top = 0.1950f, right = 0.8000f, bottom = 0.3350f)
     val batteryBounds = NormalizedRect(left = 0.6180f, top = 0.5670f, right = 0.7000f, bottom = 0.6650f)

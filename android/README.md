@@ -1786,3 +1786,67 @@ Verified the same way as always: rendered every waypoint of all four re-traced p
 real photo and read the composite back — full scene, a tight zoom on the inverter/battery
 junction, and a dedicated zoom on the green route's ground-level loop, the exact place the
 previous pass had gone wrong.
+
+## A36 — "Complete redesign" spec: audited first, fixed what was actually broken
+
+The user's next message was a 65-section "complete simulation + UI redesign" brief — appliance
+state machines, startup surge, day/night rendering, PSH curve modeling, split-phase current,
+battery SOC physics, a full 9-screen UI overhaul, automated tests, the works. Before touching
+anything, read the actual current engine (`SimulationEngine`, `SimFrame`, `EnergyFlowResolver`,
+`BatteryPowerCurve`, `SystemLosses`, `TechnicalReadout`, `SimAppliance`) against the spec's own
+claims, because several of them describe bugs this codebase doesn't have:
+
+- **PSH/solar curve** (spec §6-7): already `irradianceFactor` = `sin(π·x)^1.2` between sunrise
+  and sunset, not a flat 5.5-hour block. Untouched.
+- **Day/night rendering** (spec §5): `SceneAtmosphereOverlay` already interpolates continuously
+  from `SimulationEngine.irradianceFactor` — confirmed `HouseSimulationVisual.kt` (the one
+  visual that never got day/night) is dead code, unreferenced by any screen. The live
+  `EnergyFlowCanvas` was already correct. Untouched.
+- **Battery SOC integration, cutoff, taper curve, simultaneous grid+battery flows** (spec
+  §30-32): already a real `ΔE = P×Δt` integral with charge/discharge efficiency, a hard floor
+  at `BATTERY_MIN_SOC_FRACTION`, and `gridToHouseKw`/`gridToBatteryKw` as genuinely independent
+  fields that can both be nonzero in the same frame. Untouched.
+- **One `SystemConfiguration` driving both quote and simulation** (spec §37, §65): already
+  `SimSystemConfig.from(QuoteResult)` — the simulation has never had a second, hardcoded set of
+  numbers. Untouched.
+
+What the audit *did* find broken or missing, fixed/added this round:
+
+1. **Value chips sitting on the route lines** (spec §3 — confirmed real). `NodeChip` anchored
+   each label directly at its route's own connection point in `EnergyFlowCanvas`, which put the
+   chip on top of the printed glow line. Fixed by rendering candidate clear-area offsets onto the
+   real photo (same pixel-verification method as A35) and adding
+   `SolarSimulationPaths.gridChipPosition`/`solarChipPosition`/`batteryChipPosition`/
+   `houseChipPosition` — each chip now sits in open sky/wall/patio space next to its component,
+   never touching a line.
+2. **No Weekday/Saturday/Sunday distinction** (spec §27 — confirmed real gap).
+   `SimAppliance.kt` gained a `DayType` enum and `ApplianceRun.dayTypes`; a handful of
+   appliances (washing machine, vacuum, ceiling/standing fan, TV, stove) now carry extra
+   Saturday/Sunday-only runs reflecting real weekend occupancy, and `SimulationEngine` gained a
+   separate weekend background-load shape (no 8am-5pm dip) alongside the existing weekday one.
+   A `DayTypeSelector` pill row sits under the time slider; switching it rebuilds the timeline
+   and updates the appliance sheet's live total consistently (same `dayType` threaded through
+   both, so they can't silently disagree).
+3. **Silent inverter overload** (spec §63 — confirmed real gap). `SimFrame` gained
+   `inverterLoadKw` (solar+battery serving the house, plus whatever's charging the battery —
+   deliberately excluding grid-to-house power, which bypasses the inverter's own inverting
+   stage on a real hybrid unit). When it exceeds `config.inverterKw`, a red
+   `InverterOverloadBanner` now appears with the actual kW figures and a "REVIEW LOADS" action
+   into the appliance sheet, instead of the engine quietly delivering power the hardware
+   couldn't.
+
+**Scope note — what this round explicitly does not cover.** The spec asked for a full
+appliance state machine (OFF→STARTING→RUNNING with literal startup-surge timing), split-phase
+neutral-current calculation, and a ground-up redesign of six-plus screens (Load Audit screen,
+appliance detail sheets with nameplate/source-label fields, calculation-transparency
+drill-downs, an expanded recommendations engine, a Home-dashboard rebuild) plus an automated
+test suite. That is genuinely a multi-round project, not a fix — the duty-factor model already
+in place (A33) produces the same *average* energy as a literal state machine would, so the
+numbers are correct; what a real state machine would add is visible short-timescale cycling
+animation, which is a presentation feature, not a correctness one. Flagging this plainly rather
+than declaring "redesign complete" against a spec this large in one pass.
+
+Verified by re-checking every touched file's own paren/brace balance and by rendering the new
+chip positions onto the real photo before writing them into Kotlin (`chip_candidates_full.png`
+plus per-component zoom crops) — same visual-verification discipline as every prior routing
+round, since this sandbox still has no Android build or emulator to test against directly.

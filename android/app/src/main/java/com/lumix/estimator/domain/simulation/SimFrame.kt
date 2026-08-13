@@ -46,6 +46,12 @@ enum class SystemStatus(val label: String) {
  * [pvKw] is realized (loss-adjusted) production; [potentialPvKw] is the same instant with no
  * real-world losses applied — the gap between them is [SystemLosses]' itemized inverter/wiring/
  * soiling factors plus [temperatureDerateFraction], not something wasted or curtailed.
+ *
+ * [inverterLoadKw] is the power actually passing through the inverter's inverting stage this
+ * instant: solar/battery serving the house, plus whatever's charging the battery. It deliberately
+ * excludes [gridToHouseKw] — a real hybrid inverter routes grid-sourced house power through an
+ * internal bypass relay, not the inverter bridge itself, so it doesn't count against the
+ * inverter's own continuous kW rating the way inverted solar/battery power does.
  */
 data class SimFrame(
     val hour: Double,
@@ -65,5 +71,6 @@ data class SimFrame(
     val gridPowerKw: Double,
     val unmetLoadKw: Double,
     val curtailedSolarKw: Double,
+    val inverterLoadKw: Double,
     val status: SystemStatus
 )

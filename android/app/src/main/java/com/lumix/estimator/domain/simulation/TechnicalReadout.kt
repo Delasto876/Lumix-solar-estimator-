@@ -56,7 +56,8 @@ object TechnicalModel {
         config: SimSystemConfig,
         timeline: List<SimFrame>,
         appliances: Map<SimApplianceType, ApplianceState> = emptyMap(),
-        gridServiceAmps: Double = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS
+        gridServiceAmps: Double = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS,
+        dayType: DayType = DayType.WEEKDAY
     ): TechnicalReadout {
         val pvVoltage = if (frame.pvKw > 0.01) PV_NOMINAL_VOLTAGE else 0.0
         val pvCurrent = if (pvVoltage > 0) (frame.pvKw * 1000.0) / pvVoltage else 0.0
@@ -75,7 +76,7 @@ object TechnicalModel {
         // The frame only tracks one blended houseLoadKw; apportion the grid's actual delivered
         // power across the two circuits by the appliance mix actually scheduled to be running
         // at this instant, so the reading reflects what's really running right now.
-        val loadByTier = applianceLoadKwByTierAt(appliances, frame.hour)
+        val loadByTier = applianceLoadKwByTierAt(appliances, frame.hour, dayType)
         val lowTierKw = loadByTier[ElectricalTier.LOW] ?: 0.0
         val highTierKw = loadByTier[ElectricalTier.HIGH] ?: 0.0
         val tieredTotalKw = lowTierKw + highTierKw
