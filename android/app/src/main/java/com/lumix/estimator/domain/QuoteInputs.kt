@@ -53,20 +53,33 @@ enum class ApplianceType(val label: String, val watts: Int) {
 }
 
 @Serializable
-data class ApplianceLoad(val qty: Int = 0, val hours: Double = 0.0)
+data class ApplianceLoad(
+    val qty: Int = 0,
+    /**
+     * Explicit override, only consumed when [useAutoSchedule] is false — the estimator's default
+     * path sizes this appliance from the same realistic schedule/duty-cycle model the simulation
+     * itself uses ([com.lumix.estimator.domain.simulation.defaultDailyEnergyKwh]), not a manually
+     * entered hours/day figure. Kept (rather than removed) so an installer who deliberately wants
+     * an exact figure still can, and so older saved quotes still decode with their original value.
+     */
+    val hours: Double = 0.0,
+    val useAutoSchedule: Boolean = true
+)
 
 @Serializable
 data class AcLoad(
     val hasAc: Boolean = false,
     val counts: Map<Int, Int> = mapOf(9000 to 0, 12000 to 0, 18000 to 0, 24000 to 0),
+    // "Standard" now means the automatic realistic AC schedule (evening window, thermostat duty
+    // cycle) from the same engine the simulation uses — not a flat 4h/day guess, which is what
+    // this used to mean before the automatic schedule engine existed. "Custom" still lets an
+    // installer override with an explicit hours/day figure via [customHours].
     val useStandardHours: Boolean = true,
     val customHours: Double = 4.0
-) {
-    val hours: Double get() = if (!hasAc) 0.0 else if (useStandardHours) 4.0 else customHours
-}
+)
 
 fun defaultAppliances(): Map<ApplianceType, ApplianceLoad> = mapOf(
-    ApplianceType.FRIDGE to ApplianceLoad(qty = 1, hours = 24.0),
+    ApplianceType.FRIDGE to ApplianceLoad(qty = 1),
     ApplianceType.FREEZER to ApplianceLoad(),
     ApplianceType.FAN to ApplianceLoad(),
     ApplianceType.IRON to ApplianceLoad(),

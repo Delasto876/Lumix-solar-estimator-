@@ -1,11 +1,26 @@
 package com.lumix.estimator.domain
 
+import com.lumix.estimator.domain.simulation.SimApplianceType
+import com.lumix.estimator.domain.simulation.defaultDailyEnergyKwh
+import com.lumix.estimator.domain.simulation.defaultEffectiveDailyHours
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 object SystemCalculator {
+    /** The one mapping from the wizard's simple appliance picker to the simulation's real, richer catalog. */
+    private fun simTypeFor(type: ApplianceType): SimApplianceType = when (type) {
+        ApplianceType.FRIDGE -> SimApplianceType.REFRIGERATOR
+        ApplianceType.FREEZER -> SimApplianceType.CHEST_FREEZER
+        ApplianceType.FAN -> SimApplianceType.CEILING_FAN
+        ApplianceType.IRON -> SimApplianceType.IRON
+        ApplianceType.MICROWAVE -> SimApplianceType.MICROWAVE
+        ApplianceType.WASHER -> SimApplianceType.WASHING_MACHINE
+        ApplianceType.DRYER -> SimApplianceType.CLOTHES_DRYER
+        ApplianceType.TV -> SimApplianceType.TELEVISION
+    }
+
     /** Fallback only — every real calculation uses [QuoteInputs.peakSunHours] (per-quote, editable, default 5.5) instead. */
     const val PSH = 5.5
     const val BATTERY_DOD = 0.8
@@ -19,19 +34,33 @@ object SystemCalculator {
         var dailyKwh = 0.0
         var peakWatts = 0.0
 
-        if (data.ac.hasAc && data.ac.hours > 0) {
+        // Sizing load and simulation behavior come from the SAME schedule/duty-cycle model
+        // (SimAppliance.kt's defaultScheduleFor) by default — an installer no longer has to
+        // manually estimate hours/day for the estimator to size correctly. "Standard" AC hours
+        // uses the real evening-window + thermostat-duty-cycle shape (scaled by this appliance's
+        // own real per-BTU-tier wattage, not the simulation catalog's generic AC wattage);
+        // "Custom" still honors an explicit override.
+        if (data.ac.hasAc) {
+            val acEffectiveHours = defaultEffectiveDailyHours(SimApplianceType.AIR_CONDITIONER)
             data.ac.counts.forEach { (btu, count) ->
                 if (count > 0) {
                     val w = btu / 10.0
-                    dailyKwh += (w * data.ac.hours * count) / 1000.0
+                    val hours = if (data.ac.useStandardHours) acEffectiveHours else data.ac.customHours
+                    dailyKwh += (w * hours * count) / 1000.0
                     peakWatts += w * count
                 }
             }
         }
 
         data.appliances.forEach { (type, load) ->
-            dailyKwh += (type.watts * load.hours * load.qty) / 1000.0
-            peakWatts += type.watts * load.qty
+            if (load.qty > 0) {
+                dailyKwh += if (load.useAutoSchedule) {
+                    defaultDailyEnergyKwh(simTypeFor(type), load.qty)
+                } else {
+                    (type.watts * load.hours * load.qty) / 1000.0
+                }
+                peakWatts += type.watts * load.qty
+            }
         }
 
         dailyKwh += (data.otherWatts * data.otherHours) / 1000.0

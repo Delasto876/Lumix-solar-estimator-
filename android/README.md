@@ -2143,3 +2143,63 @@ which matters most.
 Verified via paren/brace balance on all four touched files (`QuoteResult.kt`,
 `SystemCalculator.kt`, `SimSystemConfig.kt`) and a grep confirming `QuoteResult(...)` has exactly
 one construction site, so the new fields can't be set inconsistently from a second place.
+
+## A43 — Wizard: stop asking for appliance hours, fix the real double-source-of-truth bug
+
+The user's next message named actual step numbers that didn't quite match the app's own (the
+wizard's real numbering, per `WizardViewModel.kt`'s own comment: 5 Air Conditioning, 6 Household
+Appliances, 12 System Review, 13 Pricing & Discount) — matched by content/intent rather than
+literal number, per the request's own instruction not to renumber anything.
+
+**The real bug this round found.** `StepHouseholdAppliances`/`StepAirConditioning` asked for
+"Hours/day" and fed it into `SystemCalculator`'s sizing math (`watts × hours × qty`). Completely
+separately, the simulation has used a rich, realistic default schedule per appliance since A33
+(`SimAppliance.kt`'s `defaultScheduleFor` — a kettle gets two 8-minute events, an AC gets one
+evening window with a duty cycle, etc.). These two numbers had zero connection to each other — an
+installer could enter "AC: 2 units, 8h/day" for sizing while the simulation itself only ever ran
+that AC 4.5h/day on its own schedule. That's exactly the "two configurations" problem the user's
+previous architecture message worried about, just not one the earlier audit's scope caught,
+because it's specific to the wizard's own simplified appliance model, not the
+`QuoteResult`/`SimSystemConfig` boundary that audit checked.
+
+**Fixed at the source.** Added `defaultEffectiveDailyHours`/`defaultDailyEnergyKwh` to
+`SimAppliance.kt` — the exact schedule/duty-cycle model the simulation already uses, exposed as a
+reusable daily-energy figure. `SystemCalculator.loadsKwhAndPeak()` now computes each appliance's
+sizing contribution from this by default (mapped through the wizard's simple 8-type
+`ApplianceType` → the simulation's richer `SimApplianceType`, the same pairing `SimAppliance.kt`
+already used for wizard-linked defaults). `ApplianceLoad` gained `useAutoSchedule` (default
+`true`); `AcLoad`'s existing `useStandardHours` toggle was repurposed to mean "automatic realistic
+schedule" instead of a flat 4h guess — same control, more accurate meaning. An installer who wants
+an exact override still can, via ADVANCED — never the default path.
+
+**Step 6 (Household Appliances) and Step 5 (Air Conditioning) UI.** Removed the "Hours/day" field
+as a primary control. Each appliance now shows quantity and estimated watts only; ADVANCED
+(appears once quantity > 0) reveals an explicit hours/day override, with a one-tap "Use automatic"
+to revert. AC's existing Standard/Custom segmented control got relabeled ("Automatic" vs "Custom
+hours/day") and an explanatory line rather than a new control being added.
+
+**Step 12 (System Review) — the "jumbled" screen.** Was seven always-expanded `SectionCard`s
+stacked vertically (Design Confidence, Engineering Checks, Load, Solar, Inverter, Battery, Grid).
+Reorganized into three: a primary at-a-glance summary (Solar/Inverter/Battery/Load/Backup
+Coverage, matching the requested structure), a compact "SYSTEM CHECK — all clear" or "— N need
+review" status line that expands into the existing engineering checks + design confidence rows,
+and a "VIEW CALCULATIONS" disclosure holding the full Load/Solar/Inverter/Battery/Grid detail.
+Every number is the exact same `preview`/`checks`/`confidenceChecks` this step already computed —
+pure layout reorganization, no recalculation logic touched.
+
+**Step 13 (Pricing & Discount) — made explicitly skippable.** It was already functionally
+optional (`Validation.pricingErrors` never required a discount; `DiscountType.NONE` was always
+the default), just not framed that way — a dropdown defaulting to "No extra discount" doesn't
+read as "you can skip this." Now an ADD DISCOUNT / SKIP choice fronts the discount section
+specifically (Budget range and Delivery charge, which aren't discount fields, stay in their own
+always-visible Pricing card above it).
+
+**Already satisfied, not touched:** the simulation's own "advanced schedule control" ask (edit
+the automatically-generated schedule after estimate creation) is exactly what A39's
+`ApplianceScheduleEditorContent` already does — per-run start time, duration, and day-type
+editing, reachable by tapping SCHEDULE on any appliance card in the Simulation's Appliances
+sheet. No new work needed there.
+
+Verified via paren/brace balance on all seven touched files and a grep confirming every step
+composable's call signature in `WizardScreen.kt` is unchanged (`StepHouseholdAppliances(inputs,
+onUpdate)` etc.), so no navigation wiring needed to change.

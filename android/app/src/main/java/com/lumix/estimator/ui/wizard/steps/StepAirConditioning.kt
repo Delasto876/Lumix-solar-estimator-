@@ -52,7 +52,7 @@ fun StepAirConditioning(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteIn
                     }
                 }
 
-                Text("AC hours per day", style = MaterialTheme.typography.bodyMedium)
+                Text("Schedule", style = MaterialTheme.typography.bodyMedium)
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     listOf(true, false).forEachIndexed { index, standard ->
                         SegmentedButton(
@@ -60,15 +60,25 @@ fun StepAirConditioning(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteIn
                             onClick = { onUpdate { it.copy(ac = it.ac.copy(useStandardHours = standard)) } },
                             shape = SegmentedButtonDefaults.itemShape(index, 2)
                         ) {
-                            Text(if (standard) "Standard (4h)" else "Custom")
+                            Text(if (standard) "Automatic" else "Custom hours/day")
                         }
                     }
                 }
+                Text(
+                    if (inputs.ac.useStandardHours) {
+                        "Estimates a realistic evening-window schedule with thermostat cycling — the same model the simulation itself uses, not a flat guess."
+                    } else {
+                        "Enter an explicit hours/day figure for all AC units combined instead."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 if (!inputs.ac.useStandardHours) {
                     NumberField(
                         label = "Custom AC hours/day (all units)",
                         value = inputs.ac.customHours,
-                        onValueChange = { v -> onUpdate { it.copy(ac = it.ac.copy(customHours = v)) } }
+                        onValueChange = { v -> onUpdate { it.copy(ac = it.ac.copy(customHours = v)) } },
+                        modifier = Modifier.padding(top = 8.dp)
                     )
                 }
             }

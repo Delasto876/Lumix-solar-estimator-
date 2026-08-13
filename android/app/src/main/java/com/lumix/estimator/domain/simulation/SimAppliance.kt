@@ -426,6 +426,27 @@ fun defaultApplianceStates(inputs: QuoteInputs): Map<SimApplianceType, Appliance
 }
 
 /**
+ * The real default schedule's total "effective" daily hours for [type] — each run's own
+ * duration, tapered by [SimApplianceType.dutyFactor] — on [dayType]. Multiplying this by a
+ * per-unit wattage gives real daily energy without assuming the schedule's own catalog wattage;
+ * this is what lets a caller combine "this type's real timing/duty-cycle shape" with a different,
+ * more specific wattage figure (e.g. a wizard's own per-BTU-tier AC wattage).
+ */
+fun defaultEffectiveDailyHours(type: SimApplianceType, dayType: DayType = DayType.WEEKDAY): Double =
+    defaultScheduleFor(type).filter { dayType in it.dayTypes }.sumOf { it.durationHours * type.dutyFactor }
+
+/**
+ * Real default daily energy for [quantity] units of [type] on [dayType] — the exact same
+ * schedule/duty-cycle model [totalApplianceLoadKwAt] uses for the simulation, so a caller sizing
+ * a system from this (e.g. the estimator wizard) can never disagree with what the simulation
+ * itself will actually show for the same appliance selection.
+ */
+fun defaultDailyEnergyKwh(type: SimApplianceType, quantity: Int, dayType: DayType = DayType.WEEKDAY): Double {
+    if (quantity <= 0) return 0.0
+    return quantity * type.watts / 1000.0 * defaultEffectiveDailyHours(type, dayType)
+}
+
+/**
  * Total appliance load at a given hour (0..24) — only runs whose window is active contribute,
  * scaled by each type's [SimApplianceType.dutyFactor] so cycling/thermostatic loads (fridge,
  * water heater, stove) contribute their real average draw rather than their full nameplate
