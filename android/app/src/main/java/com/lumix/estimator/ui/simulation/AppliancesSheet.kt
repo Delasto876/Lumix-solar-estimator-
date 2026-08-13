@@ -146,17 +146,26 @@ fun AppliancesSheetContent(
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
-        SimApplianceType.entries.forEach { type ->
-            val state = appliances[type] ?: ApplianceState()
-            val (quantity, hours, periods) = remember(state) { derivePickerState(state) }
-            ApplianceScheduleRow(
-                type = type,
-                quantity = quantity,
-                hours = hours,
-                periods = periods,
-                onChange = { q, h, p -> onSetSchedule(type, q, h, p) }
+        SimApplianceType.entries.groupBy { it.category }.forEach { (category, types) ->
+            Text(
+                category.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = palette.solarYellowText,
+                modifier = Modifier.padding(top = 14.dp, bottom = 4.dp)
             )
-            HorizontalDivider()
+            types.forEach { type ->
+                val state = appliances[type] ?: ApplianceState()
+                val (quantity, hours, periods) = remember(state) { derivePickerState(state) }
+                ApplianceScheduleRow(
+                    type = type,
+                    quantity = quantity,
+                    hours = hours,
+                    periods = periods,
+                    onChange = { q, h, p -> onSetSchedule(type, q, h, p) }
+                )
+                HorizontalDivider()
+            }
         }
     }
 }

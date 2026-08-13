@@ -1635,3 +1635,58 @@ read the new endpoints automatically since they're computed from the path data, 
 Verified the same way as every round since A23: rendered all four re-traced paths, in their real
 app colors, onto the actual background photo via Python/PIL — full-scene and a tight zoom on the
 gap-bridged awning stretch — and read the result back before touching any Kotlin.
+
+## A33 — Jamaica Residential Energy Audit Load Profile replaces the old 14-appliance defaults
+
+The user supplied a genuine reference document this round — a 45-appliance Jamaica Residential
+Energy Audit Load Profile (CSV + a fuller XLSX with quantity, scheduled hours, duty/utilization
+factor, voltage, and source notes per appliance), grounded in JPS's own energy-saving materials
+and a DOE reference worksheet for appliances Jamaican public sources don't publish nameplate
+wattages for. The ask: this becomes the appliance simulation's real default data source — picking
+an appliance should auto-fill realistic wattage and schedule, not require manual entry, with the
+user only ever needing to turn it off or retime it.
+
+`SimApplianceType` (`domain/simulation/SimAppliance.kt`) went from 14 entries to 46 — the 45 from
+the load profile, plus air conditioner kept from the old set (a major Jamaican residential load
+per JPS's own materials, absent from the new spreadsheet only because the spreadsheet didn't
+cover it, not because it isn't real). Each entry now carries a `category` (Kitchen, Cooling &
+Comfort, Lighting, Electronics & Networking, Water & Heating, Personal Care, Laundry, Cleaning &
+Misc, Security & Access, EV & Outdoor) so the appliance picker groups them into labeled sections
+instead of one 46-row flat list.
+
+**New: genuine duty-factor modeling.** The source spreadsheet's own Engineering Logic sheet is
+explicit that thermostatic/cycling loads should be modeled as `Pavg = Pnameplate × duty factor`,
+not nameplate watts for the whole scheduled window — "Refrigerator cycling: ... Do not model
+refrigerator as drawing nameplate power continuously" is spelled out directly. The app's watts
+field was always nameplate/expected-running power with no duty-factor concept at all before this
+round, meaning a refrigerator scheduled 24h/day was previously modeled as drawing 150W
+*continuously* for all 24 hours. Added `dutyFactor: Double` to `SimApplianceType` (0.35 for the
+fridge/freezer, 0.50-0.65 for stove/oven/water-heater/cooking-appliance cycling loads, 1.0 for
+non-cycling loads like lighting and short "event" appliances) and wired it into both
+`totalApplianceLoadKwAt` and `applianceLoadKwByTierAt`, the two functions the engine and the
+technical per-circuit readout both already depended on — so this is a real physical-accuracy
+fix, not just new appliance types.
+
+**Default schedules** for all 46 types were re-derived from the load profile's own
+"Typical Jamaica workday time" descriptions — e.g. the water heater's two short pre-bathing
+windows, ceiling fans running morning-and-evening, kitchen LEDs covering three separate daily
+windows (breakfast/lunch/dinner) — following the same "realistic multi-window shape, not a flat
+all-day block" pattern the original 14-type defaults already established.
+
+**Default enabled/quantity state** (`defaultApplianceStates`) keeps the existing precedent for
+appliances the wizard actually asks about (fridge, fans→ceiling fan, TV, microwave, washer,
+dryer, iron, AC — enabled only if the customer reported owning one). Appliances new to this round
+default enabled per the load profile's own quantities, *except* a documented handful that default
+off for a specific reason each — never "just because": chest freezer and desktop computer are
+usually a second unit alongside something already on (fridge, laptop) rather than universal;
+instant electric shower is a genuine *alternative* to the electric water heater, not an addition
+to it, so both defaulting on would double-count the same hot-water need; the two EV chargers and
+the pool pump are marked "Optional" in the source spreadsheet itself. On a completely fresh quote
+(before any wizard customization, so the wizard-linked appliances are all still at their own
+zero-quantity defaults), this works out to roughly 15 kWh/day from the fridge plus the
+always-on-by-default appliances — water heater and stove account for nearly half of that, which
+tracks with JPS's own framing of those as among the biggest residential draws.
+
+Also checked for other files with an exhaustive `when` over the old enum's 14 cases that the
+expansion could silently break — found none; every other usage treats `SimApplianceType` generically
+(iterating `.entries`, using it as a map key), so nothing outside `SimAppliance.kt` needed changes.
