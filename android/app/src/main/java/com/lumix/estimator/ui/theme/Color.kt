@@ -12,6 +12,11 @@ object LumixColors {
     val TechnicalCyan = Color(0xFF62B8E8)
     val SolarAmber = Color(0xFFE8A25A)
     val WarningRed = Color(0xFFD9695F)
+    // Grid import — this artwork's own printed grid-to-inverter line is a genuine hot pink/
+    // magenta (A34), not the warm red used for the previous background photo. Toned down from
+    // the artwork's saturated #E41E6E to the app's restrained register, same as every other
+    // accent here.
+    val GridPink = Color(0xFFD9599A)
 
     // Dark theme — the "hero" experience. Near-black graphite, per the premium-automotive
     // brief: background/surface/elevated read as three barely-distinct steps up, not three

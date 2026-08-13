@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -45,22 +46,23 @@ import com.lumix.estimator.ui.theme.rememberReduceMotion
 import kotlin.math.roundToInt
 
 /** The reference photo's own pixel aspect ratio — panels/inverter/battery only line up at this ratio. */
-internal const val IMAGE_ASPECT_RATIO = 1536f / 1024f
+internal const val IMAGE_ASPECT_RATIO = 1181f / 1331f
 
 /**
  * The four real electrical routes, and the one color each is drawn in everywhere it appears
- * (line, particles, per-line chip accent, legend swatch) — a single mapping so those four
- * places can never drift apart from each other. Matched to the artwork's own printed glow-line
- * colors (A29): warm red for grid, gold for solar, green for battery, cyan-blue for house/load —
- * see [SolarSimulationPaths]'s class doc for why green/battery and blue/house pair the way they
- * do (the artwork's own printed endpoints, not the color names alone, decide the mapping).
+ * (line, particles, per-line chip accent) — a single mapping so those places can never drift
+ * apart from each other. Matched to the artwork's own printed glow-line colors and its own
+ * explicit legend (A34): pink for grid, yellow for solar, green for house/load, cyan-blue for
+ * battery — see [SolarSimulationPaths]'s class doc for why this is the reverse of the
+ * green/blue pairing used for the previous (A29/A32) background photo, which had its own
+ * different printed routing.
  */
 private fun colorFor(path: EnergyPath): Color = when (path.id) {
     "solar_inverter" -> LumixColors.SolarYellow
-    "inverter_battery" -> LumixColors.EnergyGreen
-    "inverter_house" -> LumixColors.TechnicalCyan
+    "inverter_house" -> LumixColors.EnergyGreen
+    "inverter_battery" -> LumixColors.TechnicalCyan
     // Import-only: this path only ever carries JPS power inbound.
-    "grid_inverter" -> LumixColors.WarningRed
+    "grid_inverter" -> LumixColors.GridPink
     else -> LumixColors.TechnicalCyan
 }
 
@@ -163,30 +165,30 @@ private fun NodeValueChips(flows: List<EnergyFlow>, batterySocFraction: Float?, 
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth().aspectRatio(IMAGE_ASPECT_RATIO)) {
         NodeChip(
-            accent = LumixColors.WarningRed,
+            accent = LumixColors.GridPink,
             text = formatWatts(gridKw),
-            anchor = SolarSimulationPaths.gridToInverterPath.points.first(),
+            anchor = SolarSimulationPaths.gridAnchor,
             containerWidth = maxWidth,
             containerHeight = maxHeight
         )
         NodeChip(
             accent = LumixColors.SolarYellow,
             text = formatWatts(solarKw),
-            anchor = SolarSimulationPaths.solarToInverterPath.points.first(),
-            containerWidth = maxWidth,
-            containerHeight = maxHeight
-        )
-        NodeChip(
-            accent = LumixColors.EnergyGreen,
-            text = formatWatts(batteryKw, showSign = true) + batteryPercentText,
-            anchor = SolarSimulationPaths.inverterToBatteryPath.points.last(),
+            anchor = SolarSimulationPaths.solarAnchor,
             containerWidth = maxWidth,
             containerHeight = maxHeight
         )
         NodeChip(
             accent = LumixColors.TechnicalCyan,
+            text = formatWatts(batteryKw, showSign = true) + batteryPercentText,
+            anchor = SolarSimulationPaths.batteryAnchor,
+            containerWidth = maxWidth,
+            containerHeight = maxHeight
+        )
+        NodeChip(
+            accent = LumixColors.EnergyGreen,
             text = formatWatts(loadKw),
-            anchor = SolarSimulationPaths.inverterToHousePath.points.last(),
+            anchor = SolarSimulationPaths.houseLoadAnchor,
             containerWidth = maxWidth,
             containerHeight = maxHeight
         )
@@ -259,6 +261,16 @@ private fun ParticleOverlay(flows: List<EnergyFlow>, debugShowPaths: Boolean) {
     }
 
     val flowById = remember(flows) { flows.associateBy { it.id } }
+    // Debug-only "SHOW ROUTE POINTS": a numbered label at every vertex (e.g. "GRID P3") so a
+    // misaligned point is easy to call out by name. Built once, not per-frame — this whole
+    // block only runs when debugShowPaths is on, which is never true in production.
+    val debugTextPaint = remember {
+        android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 24f
+            isAntiAlias = true
+        }
+    }
 
     Canvas(modifier = Modifier.fillMaxWidth().aspectRatio(IMAGE_ASPECT_RATIO)) {
         val w = size.width
@@ -274,6 +286,16 @@ private fun ParticleOverlay(flows: List<EnergyFlow>, debugShowPaths: Boolean) {
                         end = toOffset(path.points[i + 1]),
                         strokeWidth = 2f,
                         pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f))
+                    )
+                }
+                path.points.forEachIndexed { index, p ->
+                    val center = toOffset(p)
+                    drawCircle(color = Color.White, radius = 4f, center = center)
+                    drawContext.canvas.nativeCanvas.drawText(
+                        "${path.id} P$index",
+                        center.x + 8f,
+                        center.y - 8f,
+                        debugTextPaint
                     )
                 }
             }

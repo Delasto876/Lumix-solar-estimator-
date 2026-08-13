@@ -1690,3 +1690,52 @@ tracks with JPS's own framing of those as among the biggest residential draws.
 Also checked for other files with an exhaustive `when` over the old enum's 14 cases that the
 expansion could silently break — found none; every other usage treats `SimApplianceType` generically
 (iterating `.entries`, using it as a map key), so nothing outside `SimAppliance.kt` needed changes.
+
+## A34 — New background photo (genuine file upload) + full deterministic route re-trace
+
+The user supplied a very detailed routing specification this round, plus a new 1181x1331
+reference photo (a "LUXIN"-branded inverter/battery, pink/yellow/green/blue printed lines) —
+and, notably, this was the **first time in this whole multi-round saga that a replacement
+background image actually landed as a real file attachment** rather than a chat paste. Verified
+its dimensions matched the spec's stated 1181x1331 exactly before touching anything.
+
+Swapped it into `bg_house_energy_routes.png`, updated `IMAGE_ASPECT_RATIO` to `1181f/1331f`, and
+re-traced all four routes from scratch using the same grid-overlay-and-read method as A29/A32 —
+rendered a fine coordinate grid onto the real photo, cropped tightly around each line and the
+inverter/battery junction where all four converge, and read vertices directly off the gridded
+crops. This artwork's lines are mostly axis-aligned with only a couple of diagonal segments, so
+reading them was straightforward and didn't need the pixel-mask/skeletonize pipeline A32 needed
+for a noisier photo.
+
+**Color mapping is the reverse of the previous background.** This artwork's own explicit
+legend — and the traced endpoints confirming it — put **green** on the inverter→house/load line
+(it ends at a point by the front door) and **blue** on the inverter↔battery line (it ends at the
+battery casing). The A29/A32 photo had it the other way around for its own printed routing.
+Colors are not a fixed assumption that carries between background images — each new artwork gets
+its endpoints traced and its own colors read fresh, matching the artwork it's actually printed
+on. Grid's line here is a genuine hot pink/magenta (`#E41E6E` in the artwork), not the warm red
+used previously — added `LumixColors.GridPink`, toned down to the app's restrained register like
+every other accent.
+
+**New this round, matching the spec's explicit asks:**
+- Named component anchors (`gridAnchor`, `solarAnchor`, `inverterGridAnchor`, `inverterPvAnchor`,
+  `inverterLoadAnchor`, `inverterBatteryAnchor`, `batteryAnchor`, `houseLoadAnchor`) as derived
+  properties on `SolarSimulationPaths` — each just reads the relevant path's own first/last
+  point, so they can never drift out of sync with the actual route geometry.
+- Debug mode now numbers every point when `DEBUG_SHOW_PATHS` is on (e.g. "grid_inverter P3"),
+  not just drawing the dashed debug line — makes a single misaligned vertex easy to call out by
+  name, per the spec's "SHOW ROUTE POINTS" ask.
+
+**Everything else the spec asked for was already true of the existing architecture**, not new
+work: routes are already deterministic ordered polylines walked point-to-point
+(`EnergyFlowPathManager.pointAt`, arc-length interpolation, never a shortest-path or straight
+source-to-destination jump); power level already only changes particle count/speed/intensity via
+`particleCountFor`/`particleSpeedFor`, never the geometry; the battery route was already
+`bidirectional = true` with `FlowDirection` reversal on the same physical line, no second hidden
+route; which routes are active already comes from the simulation engine
+(`EnergyFlowResolver`/`SOL`/`SBU`/`UTI` logic), not the animation layer; `DEBUG_SHOW_PATHS`
+already existed as the debug/production toggle.
+
+Verified by rendering all four re-traced paths, in the app's real `LumixColors` tokens, back onto
+the actual photo — full scene and a tight zoom on the inverter/battery junction — before writing
+any of it into `SolarSimulationPaths.kt`.
