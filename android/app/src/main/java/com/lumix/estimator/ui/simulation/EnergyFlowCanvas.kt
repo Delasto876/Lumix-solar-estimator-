@@ -176,23 +176,23 @@ private fun WattageOverlays(flows: List<EnergyFlow>, batterySocFraction: Float?,
 }
 
 /**
- * Sized and centered on the artwork's own baked text box rather than matching it exactly —
- * that box is drawn at print scale (a handful of dp once fitted to a phone width), too tight
- * for a real touch/legibility-sized chip, so this only borrows its position, not its size.
+ * Anchored to the top-left of the artwork's own baked icon+"0 W" text box — the same spot
+ * the artwork's own live-value row occupies, sitting above its static "Grid"/"Solar"/etc. word
+ * (which is left alone; only the number line is ever covered). The backing is nearly opaque
+ * so the baked digits are genuinely erased rather than dimmed-and-visible-through, and the box
+ * is sized a little larger than the artwork's own print-scale text so the replacement reads as
+ * a clean patch, not a translucent watermark sitting on top of the original.
  */
 @Composable
 private fun WattageChip(text: String, bounds: NormalizedRect, containerWidth: Dp, containerHeight: Dp) {
-    // Left-aligned at the artwork's own text origin (where its icon+"0 W" started), so the
-    // live chip reads as a direct replacement rather than something floating nearby; vertically
-    // centered on that same box rather than matched to its (print-scale-tiny) exact height.
-    val originX = containerWidth * bounds.left
-    val centerY = containerHeight * (bounds.top + bounds.bottom) / 2f
+    val originX = containerWidth * bounds.left - 4.dp
+    val originY = containerHeight * bounds.top - 3.dp
     Box(
         modifier = Modifier
-            .offset(x = originX, y = centerY - 10.dp)
-            .clip(RoundedCornerShape(5.dp))
-            .background(Color.Black.copy(alpha = 0.55f))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .offset(x = originX, y = originY)
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color.Black.copy(alpha = 0.92f))
+            .padding(horizontal = 5.dp, vertical = 3.dp)
     ) {
         Text(
             text,

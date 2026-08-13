@@ -1337,3 +1337,34 @@ each placeholder sits in the artwork; the chip is positioned at that box's left 
 where the artwork's own icon+text started) and vertically centered on it, rather than sized to
 match the box exactly — that box is print-scale (a few dp once fitted to a phone screen), far
 too tight for a legible touch-target-adjacent chip.
+
+## A24 — Wattage overlay: erase properly, anchor at the top
+
+Two follow-up fixes to the A23 wattage overlay, plus confirmation the shared-line grid/house
+routing already covers what was asked.
+
+**1. Grid-in and house-out already share one line.** `SolarSimulationPaths.kt`'s
+`inverterToHousePath.points = gridToInverterPath.points.reversed()` (landed in the same A23
+round the artwork was recalibrated) already puts both flows on the exact same printed line:
+`grid_inverter` particles (amber) travel pole → inverter, `inverter_house` particles (warm
+white) travel inverter → pole/street-side, in opposite directions on that identical polyline.
+Whatever mix of solar, battery, and grid is actually feeding the house, `inverter_house`'s
+power is their combined total (`solarToHouseKw + batteryToHouseKw + gridToHouseKw`, resolved in
+`EnergyFlowResolver`) — one aggregate flow, one shared line, regardless of source mix. No
+code change was needed here; included for the record since it's easy to miss this was already
+in place from the prior round.
+
+**2. Wattage chips: erase, don't dim — and anchor at the top, not the center.** The chip's
+backing went from 55% to 92% opacity — at 55%, the artwork's own bold white digits were still
+visible underneath, reading as "written over" rather than replaced. Positioning changed from
+"vertically centered on the label box, minus an arbitrary 10dp" to anchored directly at the
+box's own top-left corner (`bounds.left`/`bounds.top`, with a few dp of padding) — the same spot
+the artwork's icon+"0 W" row occupies, sitting above its unmodified "Grid"/"Solar"/"Consumption"/
+"Battery" word underneath. Only the numeric readout is ever touched; the static word labels are
+untouched pixels.
+
+**3. Weather and day/night — unaffected, confirmed.** Neither this round nor A23 touched
+`WeatherState.kt`, `SceneAtmosphereOverlay`, `CloudOverlay`, or `SunIndicator` — Clear/Partly
+Cloudy/Cloudy/Heavy Cloud/Storm and the sunrise-to-sunset daylight curve work exactly as before;
+`WattageOverlays` and the recalibrated particle paths are additive layers on top of that
+existing pipeline, not a replacement for it.
