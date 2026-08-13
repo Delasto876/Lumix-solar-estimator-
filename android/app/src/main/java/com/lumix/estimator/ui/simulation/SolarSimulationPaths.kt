@@ -32,18 +32,24 @@ data class EnergyPath(
 /**
  * Anchor coordinates for `bg_house_energy_routes.png` (A23 artwork, 1173x1341 — a utility
  * pole/ground run to the inverter, panels down to the inverter, and a short inverter-to-
- * battery hop), extracted the same way as the prior A19 artwork: a per-color pixel scan of
- * the actual PNG (white-line threshold + connected-component isolation + column/row centroid
- * tracing), not eyeballed. See A23 in the README for the extraction method.
+ * battery hop), read directly off the printed line's own corners in the artwork (each bend
+ * verified against a pixel-gridded crop, not an automated trace) — a per-column/row pixel
+ * scan was tried first but over-sampled the line into a slightly wavy polyline instead of the
+ * artwork's actual straight segments; a small set of precise corner points reproduces the real
+ * line far more faithfully. See A23 in the README for the correction history.
  *
  * The image also prints four dashed "pointer" lines from each of its own baked labels (Grid/
  * Solar/Consumption/Battery, each showing a static "0 W" placeholder) down to the artwork —
  * those are deliberately NOT traced as [EnergyPath]s here, since they're annotation lines to
  * a number, not real electrical routes; [WattageOverlays] covers their numbers with live text
- * instead of animating particles along them. [inverterToHousePath] is the one path with no
- * distinct traced wire in this artwork (the image doesn't depict interior house wiring) — its
- * points are a short, deliberately unclaimed stylized run from the inverter toward the visible
- * window, not a pixel-sampled trace like the other three.
+ * instead of animating particles along them.
+ *
+ * [inverterToHousePath] is not a separately traced line — this artwork only draws ONE physical
+ * line between the inverter and the ground/street side (the same one [gridToInverterPath]
+ * follows), which in real installations genuinely is shared: the meter/main-panel connection
+ * carries both JPS's incoming supply and the house's outgoing load on the same conductor run.
+ * Its points are [gridToInverterPath]'s own points, reversed, so "house" particles travel that
+ * exact line from the inverter back toward the street junction, opposite grid's incoming ones.
  *
  * Still worth a visual sanity check in Android Studio (enable [SolarSimulationPaths.DEBUG_SHOW_PATHS])
  * if the artwork asset is ever swapped again.
@@ -57,14 +63,9 @@ object SolarSimulationPaths {
         source = EnergyNode.SOLAR,
         destination = EnergyNode.INVERTER,
         points = listOf(
-            NormalizedPoint(0.4962f, 0.3818f),
-            NormalizedPoint(0.5055f, 0.3982f),
-            NormalizedPoint(0.5166f, 0.4146f),
-            NormalizedPoint(0.5200f, 0.4310f),
-            NormalizedPoint(0.5200f, 0.4482f),
-            NormalizedPoint(0.5200f, 0.4646f),
-            NormalizedPoint(0.5200f, 0.4810f),
-            NormalizedPoint(0.5200f, 0.4981f)
+            NormalizedPoint(0.5090f, 0.3788f),
+            NormalizedPoint(0.4970f, 0.4191f),
+            NormalizedPoint(0.5013f, 0.5071f)
         ),
         bidirectional = false
     )
@@ -75,22 +76,10 @@ object SolarSimulationPaths {
         destination = EnergyNode.INVERTER,
         points = listOf(
             NormalizedPoint(0.0870f, 0.4855f),
-            NormalizedPoint(0.0870f, 0.5302f),
-            NormalizedPoint(0.0870f, 0.5757f),
-            NormalizedPoint(0.0870f, 0.6204f),
-            NormalizedPoint(0.0853f, 0.6659f),
-            NormalizedPoint(0.0938f, 0.6711f),
-            NormalizedPoint(0.1381f, 0.6949f),
-            NormalizedPoint(0.1833f, 0.7189f),
-            NormalizedPoint(0.2285f, 0.7226f),
-            NormalizedPoint(0.2728f, 0.7301f),
-            NormalizedPoint(0.3180f, 0.7740f),
-            NormalizedPoint(0.3632f, 0.7636f),
-            NormalizedPoint(0.4075f, 0.7532f),
-            NormalizedPoint(0.4527f, 0.7420f),
-            NormalizedPoint(0.4979f, 0.7308f),
-            NormalizedPoint(0.5150f, 0.7264f),
-            NormalizedPoint(0.5175f, 0.6540f),
+            NormalizedPoint(0.0853f, 0.6674f),
+            NormalizedPoint(0.1833f, 0.7233f),
+            NormalizedPoint(0.3069f, 0.7755f),
+            NormalizedPoint(0.5158f, 0.7457f),
             NormalizedPoint(0.5183f, 0.5817f)
         ),
         // Import-only: the grid connection never carries power the other way (no export).
@@ -102,12 +91,9 @@ object SolarSimulationPaths {
         source = EnergyNode.INVERTER,
         destination = EnergyNode.BATTERY,
         points = listOf(
-            NormalizedPoint(0.5294f, 0.5839f),
-            NormalizedPoint(0.5388f, 0.6145f),
-            NormalizedPoint(0.5490f, 0.6115f),
-            NormalizedPoint(0.5592f, 0.6100f),
-            NormalizedPoint(0.5695f, 0.6070f),
-            NormalizedPoint(0.5797f, 0.6055f)
+            NormalizedPoint(0.5294f, 0.5779f),
+            NormalizedPoint(0.5584f, 0.5966f),
+            NormalizedPoint(0.5814f, 0.6055f)
         ),
         bidirectional = true
     )
@@ -116,13 +102,7 @@ object SolarSimulationPaths {
         id = "inverter_house",
         source = EnergyNode.INVERTER,
         destination = EnergyNode.HOUSE,
-        points = listOf(
-            NormalizedPoint(0.5439f, 0.5220f),
-            NormalizedPoint(0.5798f, 0.5071f),
-            NormalizedPoint(0.6138f, 0.4847f),
-            NormalizedPoint(0.6480f, 0.4661f),
-            NormalizedPoint(0.6735f, 0.4549f)
-        ),
+        points = gridToInverterPath.points.reversed(),
         bidirectional = false
     )
 

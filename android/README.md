@@ -1287,26 +1287,29 @@ geometry — the particle system's normalized coordinates only mean anything rel
 specific image, so swapping the artwork without recalibrating them would have sent particles
 drifting off into empty sky/lawn instead of riding the printed line.
 
-**Extraction method.** Same technique as the original A19 artwork (see the design-system section
-above), done properly this time with actual image-processing tooling rather than eyeballing:
-a Python/Pillow + scipy/scikit-image script thresholded the PNG for near-white, low-saturation
-pixels (`max(RGB) > 205, max−min < 22`), ran connected-component labeling to isolate each
-printed line from the others (and from the house/battery/car's own white surfaces) as a
-separate component, then traced each component with column- or row-wise centroid sampling
-(picking whichever scan axis that segment runs mostly along) to build an ordered polyline. The
-result was rendered back onto the source image as colored overlays and visually checked against
-the artwork before being written into `SolarSimulationPaths.kt` — every point in every path is
-now within a few pixels of the actual printed line, not an estimate.
+**Extraction method, and a correction.** The first attempt used a Python/Pillow + scipy/
+scikit-image script — threshold the PNG for near-white, low-saturation pixels, connected-
+component-label each printed line apart from the others, then trace each component with
+column/row centroid sampling — and got the *pixels each path belongs to* right, but the
+centroid sampling over-fit noise (arrowheads, anti-aliasing) into a slightly wavy polyline
+instead of the artwork's actual straight segments, and `inverterToHousePath` was invented as a
+stylized stub toward a window that doesn't exist as a line in the artwork at all. Caught after
+review and re-done properly: each path's corners were read directly off pixel-gridded crops of
+the source image (exact pixel coordinates at each bend, cross-checked against the artwork), and
+`inverterToHousePath` was rebuilt as `gridToInverterPath.points.reversed()` — this artwork draws
+only *one* physical line between the inverter and the street side, and in a real installation
+that line genuinely is shared (the meter/main-panel connection carries both JPS's incoming
+supply and the house's outgoing load on the same conductor), so "house" particles now travel
+that exact printed line from the inverter back toward the street junction, opposite grid's
+incoming ones, instead of an invented separate route. Both versions were rendered back onto the
+source image as colored overlays and visually compared before either was committed.
 
 **What changed:**
 - `IMAGE_ASPECT_RATIO` (`EnergyFlowCanvas.kt`) updated to `1173/1341`.
-- `solarToInverterPath`, `gridToInverterPath`, `inverterToBatteryPath` recalibrated from the
-  pixel trace described above — particles now ride the new artwork's actual printed lines.
-- `inverterToHousePath` is the one exception: this artwork doesn't depict interior house wiring
-  (no distinct fourth line exists for "power to the load" the way the old artwork had one), so
-  its points are a short, explicitly-labeled *stylized* run from the inverter toward the visible
-  window rather than a pixel trace — documented as such in the code so a future artwork swap
-  doesn't mistake it for a real extraction.
+- `solarToInverterPath`, `gridToInverterPath`, `inverterToBatteryPath` rebuilt from precise
+  corner coordinates read off the new artwork — particles now ride its actual printed lines.
+- `inverterToHousePath` reuses `gridToInverterPath`'s own points, reversed, rather than any
+  separately traced or invented line (see above).
 - `panelArrayBounds`/`batteryBounds` (used for the sun-glow and battery-fill overlays) re-derived
   from the new artwork's panel and battery-unit footprints.
 - The four dashed "pointer" lines from the artwork's own baked labels down to the components
