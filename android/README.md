@@ -2484,6 +2484,59 @@ Deferred rather than silently decided either way: "Custom Appliance" (§2's OTHE
 genuine free-text name/wattage input flowing through to a typed `SimApplianceType` is its own
 feature, not a same-round addition.
 
+## A49 — Gave GUIDED/LOAD/MANUAL genuinely different responsibilities, not three skins on one flow
+
+The user's next message ("CORRECT THE THREE DESIGN MODES") argued the three modes had blurred
+together. Auditing `SystemCalculator.calculate()` confirmed the specific gap: GUIDED and LOAD
+sharing one sizing path was already correct (the message's own §17 says they should — "the
+difference is the INPUT METHOD"), and MANUAL already never silently overwrote an installer's
+equipment choice. What was actually missing was that GUIDED/LOAD's "equipment selection" wasn't
+really searching anything — panel wattage was a single hardcoded value (595W hybrid / 550W
+off-grid) with a count computed to fit it, not a comparison across this catalog's actual four
+wattages; battery tier selection was three flat nominal-kWh thresholds, never comparing *usable*
+energy; and MANUAL's undersized-equipment case surfaced only as a passive, easy-to-miss expandable
+row — never the explicit "change it or accept the risk" decision the message asked for.
+
+**New `EquipmentSelectionEngine.kt`** — `selectBestPanelConfiguration()`, `selectBestInverter()`,
+`selectBestBattery` (as `selectBestHybridBattery()`), each taking a calculated requirement and
+this app's own real, priced `Catalog` and returning the least-oversized fit plus a plain-language
+reason string. Panel selection now genuinely evaluates all four catalog wattages (415/550/595/600W)
+against the required kW and the chosen inverter's DC input ceiling, instead of assuming one
+wattage. Battery selection now compares *usable* energy per tier (via `EquipmentSpecs`' real
+datasheet DOD where a tier has a matched spec, else the existing flat 80% design assumption) rather
+than nominal kWh alone, per the message's own §14 worked example. `SystemCalculator`'s GUIDED/LOAD
+branch now calls this engine instead of its old inline single-wattage/fixed-threshold logic;
+MANUAL is untouched — it still never calls this engine, exactly as the message specified.
+
+**MANUAL's review gate is now an actual decision, not a passive list.** `QuoteResult` gained
+`manualInverterWarning`/`manualBatteryWarning` (only ever set for MANUAL, comparing the installer's
+own choice against the same calculated requirement figures GUIDED/LOAD size against) plus
+`requiredPvKw`/`requiredInverterKw`/`requiredBatteryUsableKwh`/`*SelectionReason` fields so the
+Review step can show "required" next to "recommended." `StepSystemReview.kt` now shows, for
+MANUAL only, a "⚠ SYSTEM REVIEW REQUIRED" card with **CHANGE INVERTER/BATTERY** (jumps straight to
+that step via the wizard's new `goToStep()`) and **ACCEPT WITH WARNING** — and the Calculate button
+(`WizardScreen.kt`, via `SystemCalculator.hasUnacknowledgedManualWarnings()`) stays disabled until
+one of those is taken. Acceptance is tracked as the exact warning text in a new
+`QuoteInputs.manualWarningsAcknowledged: Set<String>`, not a bare boolean — changing equipment to
+something with a *different* problem automatically re-opens the gate, with no separate reset wiring
+needed in the equipment-selection steps themselves. For GUIDED/LOAD, a new "CALCULATED REQUIREMENTS
+→ RECOMMENDED EQUIPMENT" card shows the required figure beside what was picked and why, per the
+message's own §26 mock.
+
+**Scope note — a real, disclosed limitation.** The equipment-selection engine searches this app's
+own priced `Catalog` tiers (415/550/595/600W panels; 3/6/8/10/12kW hybrid inverters; 5/10/15kWh
+batteries) — the actual sellable, quotable inventory — not the raw `EquipmentSpecs` real-product
+library (Trina/Jinko/Growatt/Deye/LuxPower/SRNE) the message's own worked examples describe (its
+"595/615/620/700/720W" panel list is exactly `EquipmentSpecs`' wattages). That replacement is the
+same one flagged back in A45 and again after A48 ("the update of battery and inverter and panels
+have not been done") and remains blocked on the same unresolved item: real JMD pricing per specific
+product, which hasn't been provided yet. Off-grid PV sizing also intentionally stayed on its
+existing simpler fixed-550W/max-4-panel logic rather than the new multi-wattage search — the
+message's own sizing examples are all hybrid/grid-interactive arrays, and off-grid's small,
+capped-module arrays are a different design pattern than the one being corrected here. Voc/MPPT
+string-configuration compatibility checking (§31) was not built — this catalog's own data doesn't
+carry per-panel string-voltage specs to check against.
+
 Verified via paren/brace balance on all four touched files, a grep confirming `ApplianceType.`
 usage is contained to exactly the files that should reference the wizard's catalog (the one
 `SimApplianceType.entries` hit in `AppliancesSheet.kt` is an unrelated substring match, not a

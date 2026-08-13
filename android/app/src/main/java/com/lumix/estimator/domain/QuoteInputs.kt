@@ -168,6 +168,13 @@ data class QuoteInputs(
     val manualBatt15k: Int = 0,
     val manualAgmCount: Int = 0,
     val manualOffgridUseAutoTransfer: Boolean = true,
+    /**
+     * A49: the exact warning message text(s) the installer has explicitly accepted via MANUAL
+     * mode's "ACCEPT WITH WARNING" gate (see StepSystemReview.kt). A set rather than a plain
+     * boolean so that changing equipment to something with a *different* warning automatically
+     * re-triggers the gate — no separate reset wiring needed in the equipment-selection steps.
+     */
+    val manualWarningsAcknowledged: Set<String> = emptySet(),
 
     val budgetBand: String = "none",
     val deliveryCharge: Double = 0.0,

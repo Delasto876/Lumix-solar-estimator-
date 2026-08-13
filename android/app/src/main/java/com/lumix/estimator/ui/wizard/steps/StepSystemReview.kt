@@ -39,6 +39,8 @@ import com.lumix.estimator.domain.QuoteMode
 import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.domain.UsageMode
 import com.lumix.estimator.domain.simulation.SimulationEngine
+import com.lumix.estimator.ui.components.LumixPrimaryButton
+import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
@@ -55,7 +57,12 @@ private data class EngineeringCheck(val label: String, val pass: Boolean, val de
  * this is a layout change, not a recalculation.
  */
 @Composable
-fun StepSystemReview(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> Unit, settingsRepository: SettingsRepository) {
+fun StepSystemReview(
+    inputs: QuoteInputs,
+    onUpdate: ((QuoteInputs) -> QuoteInputs) -> Unit,
+    settingsRepository: SettingsRepository,
+    onJumpToStep: (Int) -> Unit = {}
+) {
     val palette = LocalLumixPalette.current
     val scope = rememberCoroutineScope()
     val gridServiceAmps by settingsRepository.defaultGridServiceAmps.collectAsState(initial = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS)
@@ -71,8 +78,20 @@ fun StepSystemReview(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInput
 
     val checks = remember(preview, requiredInverterKw, batteryMaxDischargeKw, peakLoadKw) {
         listOf(
+            // A49: this is distinct from the backup-coverage check below it — it fires whenever the
+            // *selected* inverter can't cover ordinary peak household load, regardless of what
+            // backup coverage was requested. GUIDED/LOAD equipment is chosen specifically to avoid
+            // this (EquipmentSelectionEngine), so it should only ever realistically fire for MANUAL.
             EngineeringCheck(
-                label = "Inverter capacity suitable",
+                label = "Inverter capacity suitable for peak load",
+                pass = preview.inverterKw >= requiredInverterKw - 0.05,
+                detail = if (preview.inverterKw < requiredInverterKw - 0.05) {
+                    "Selected inverter (%s, %.1f kW) is below the calculated peak-load requirement (%.2f kW)."
+                        .format(preview.inverterName, preview.inverterKw, requiredInverterKw)
+                } else null
+            ),
+            EngineeringCheck(
+                label = "Inverter capacity suitable for backup coverage",
                 pass = preview.backupCapacityWarningKw == null,
                 detail = preview.backupCapacityWarningKw?.let {
                     "Requested backup coverage implies about %.1f kW — above what the %s (%.1f kW) can deliver."
@@ -119,12 +138,58 @@ fun StepSystemReview(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInput
     val confidencePercent = confidenceChecks.count { it.second } * 100 / confidenceChecks.size
     val issueCount = checks.count { !it.pass }
 
+    // A49 — MANUAL mode never has its equipment silently replaced (spec §4/§29), so an undersized
+    // choice instead blocks Calculate (see WizardScreen's SystemCalculator.hasUnacknowledgedManualWarnings)
+    // until the installer explicitly reviews it here: change the equipment, or accept the warning.
+    val manualWarnings = remember(preview) { listOfNotNull(preview.manualInverterWarning, preview.manualBatteryWarning) }
+    val manualReviewBlocked = inputs.quoteMode == QuoteMode.MANUAL &&
+        manualWarnings.any { it !in inputs.manualWarningsAcknowledged }
+
     var systemCheckOpen by remember { mutableStateOf(issueCount > 0) }
     var calculationsOpen by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("SYSTEM DESIGN", style = MaterialTheme.typography.labelMedium, color = palette.textSecondary, fontWeight = FontWeight.SemiBold)
         Text("Your recommended solar system", style = MaterialTheme.typography.titleMedium, color = palette.textPrimary, modifier = Modifier.padding(bottom = 4.dp))
+
+        if (manualReviewBlocked) {
+            SectionCard(title = "") {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("⚠", color = palette.warningRedText, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text("SYSTEM REVIEW REQUIRED", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                }
+                Column(modifier = Modifier.padding(top = 8.dp, bottom = 12.dp)) {
+                    manualWarnings.forEach { w ->
+                        Text(w, style = MaterialTheme.typography.bodyMedium, color = palette.textSecondary, modifier = Modifier.padding(vertical = 3.dp))
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LumixSecondaryButton(
+                        text = if (preview.manualInverterWarning != null) "CHANGE INVERTER" else "CHANGE BATTERY",
+                        onClick = { onJumpToStep(if (preview.manualInverterWarning != null) 10 else 11) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    LumixPrimaryButton(
+                        text = "ACCEPT WITH WARNING",
+                        onClick = { onUpdate { it.copy(manualWarningsAcknowledged = it.manualWarningsAcknowledged + manualWarnings) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+
+        if (inputs.quoteMode != QuoteMode.MANUAL) {
+            SectionCard(title = "") {
+                Text("CALCULATED REQUIREMENTS → RECOMMENDED EQUIPMENT", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = palette.solarYellowText, modifier = Modifier.padding(bottom = 10.dp))
+                RequirementRow("☀ SOLAR", "≈ %.2f kW required".format(preview.requiredPvKw), "${preview.panelCount} × ${preview.panelWatts} W = %.2f kW".format(preview.pvKw), preview.panelSelectionReason)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+                RequirementRow("⚡ INVERTER", "≈ %.2f kW required".format(preview.requiredInverterKw), "${preview.inverterName}", preview.inverterSelectionReason)
+                if (preview.totalBatteryKwh > 0) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+                    RequirementRow("🔋 BATTERY", "≈ %.1f kWh usable required".format(preview.requiredBatteryUsableKwh), "%.1f kWh".format(preview.totalBatteryKwh), preview.batterySelectionReason)
+                }
+            }
+        }
 
         SectionCard(title = "") {
             SummaryRow("SOLAR", "%.2f kW".format(preview.pvKw), "${preview.panelCount} × ${preview.panelWatts} W panels")
@@ -265,6 +330,27 @@ private fun SummaryRow(label: String, value: String, detail: String?) {
             }
         }
         Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+    }
+}
+
+/** A49 — LOAD-BASED/GUIDED "required vs recommended" row, with the plain-language selection reason underneath. */
+@Composable
+private fun RequirementRow(label: String, required: String, recommended: String, reason: String?) {
+    val palette = LocalLumixPalette.current
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column {
+                Text(label, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary, fontWeight = FontWeight.SemiBold)
+                Text(required, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(recommended, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                Text("✓", color = palette.energyGreenText, fontWeight = FontWeight.Bold)
+            }
+        }
+        if (reason != null) {
+            Text(reason, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary, modifier = Modifier.padding(top = 4.dp))
+        }
     }
 }
 

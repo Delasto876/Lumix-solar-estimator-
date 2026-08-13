@@ -127,6 +127,10 @@ object SystemCalculator {
         }
         val backupFractionOfDay = input.backupHours / 24.0
         var batteryRequiredKwh = (criticalDailyKwh * backupFractionOfDay) / BATTERY_DOD
+        // The real energy the backup load must draw (before the flat-DOD nominal-capacity
+        // conversion above) — what EquipmentSelectionEngine actually sizes batteries against,
+        // per spec §14 (compare usable energy, not nominal kWh alone).
+        val requiredBatteryUsableKwh = criticalDailyKwh * backupFractionOfDay
 
         var panelW = 595
         var effectiveSystemMode = input.systemMode
@@ -135,32 +139,44 @@ object SystemCalculator {
         var chosenBattery: BatteryOption? = null
         var batteryModuleCount = 0
         var totalBatteryKwh = 0.0
+        var requiredPvKw = designDailyKwh / psh
+        var panelSelectionReason: String? = null
+        var inverterSelectionReason: String? = null
+        var batterySelectionReason: String? = null
 
+        // GUIDED and LOAD deliberately share this one equipment-aware sizing path (per spec §17 —
+        // "Guided Mode should eventually call the same ... Equipment Selection Engine ... used by
+        // Load-Based Mode. The difference is the INPUT METHOD."). What makes LOAD "Load-Based" is
+        // that its requirement figures come straight from the appliance load audit rather than a
+        // JPS bill estimate — not a separate sizing engine.
         if (input.quoteMode == QuoteMode.GUIDED || input.quoteMode == QuoteMode.LOAD) {
-            panelW = if (input.systemMode == SystemMode.OFFGRID) 550 else 595
             var pvKw = designDailyKwh / psh
 
-            chosenInverter = when (input.systemMode) {
-                SystemMode.HYBRID -> Catalog.hybridInverters.firstOrNull { it.kw >= requiredInverterKw } ?: Catalog.hybridInverters.last()
-                SystemMode.OFFGRID -> Catalog.offgridInverters.firstOrNull { it.kw >= requiredInverterKw } ?: Catalog.offgridInverters.last()
-                SystemMode.GRIDTIE -> Catalog.gridtieInverters.first()
+            val inverterPool = when (input.systemMode) {
+                SystemMode.HYBRID -> Catalog.hybridInverters
+                SystemMode.OFFGRID -> Catalog.offgridInverters
+                SystemMode.GRIDTIE -> Catalog.gridtieInverters
             }
+            val inverterChoice = EquipmentSelectionEngine.selectBestInverter(requiredInverterKw, inverterPool)
+            val selectedInverter = inverterChoice.option
+            chosenInverter = selectedInverter
+            inverterSelectionReason = inverterChoice.reason
 
             when (input.systemMode) {
                 SystemMode.HYBRID -> {
-                    when {
-                        batteryRequiredKwh <= 5 -> { chosenBattery = Catalog.hybridBatteries[0]; batteryModuleCount = 1 }
-                        batteryRequiredKwh <= 10 -> { chosenBattery = Catalog.hybridBatteries[1]; batteryModuleCount = 1 }
-                        batteryRequiredKwh <= 15 -> { chosenBattery = Catalog.hybridBatteries[2]; batteryModuleCount = 1 }
-                        else -> { chosenBattery = Catalog.hybridBatteries[1]; batteryModuleCount = ceil(batteryRequiredKwh / 10.0).toInt() }
-                    }
-                    totalBatteryKwh = chosenBattery!!.kwh * batteryModuleCount
+                    val batteryChoice = EquipmentSelectionEngine.selectBestHybridBattery(requiredBatteryUsableKwh)
+                    chosenBattery = batteryChoice.option
+                    batteryModuleCount = batteryChoice.moduleCount
+                    totalBatteryKwh = batteryChoice.totalKwh
+                    batterySelectionReason = batteryChoice.reason
                 }
                 SystemMode.OFFGRID -> {
                     if (batteryRequiredKwh > 0) {
                         batteryModuleCount = max(1, ceil(batteryRequiredKwh / Catalog.offgridModuleKwh).toInt())
                         chosenBattery = BatteryOption("12V AGM (approx 2.4kWh)", Catalog.offgridModuleKwh) { it.batteryAGM12V }
                         totalBatteryKwh = batteryModuleCount * Catalog.offgridModuleKwh
+                        batterySelectionReason = "%.1f kWh usable backup required — %d × 12V AGM modules covers it."
+                            .format(requiredBatteryUsableKwh, batteryModuleCount)
                     }
                 }
                 SystemMode.GRIDTIE -> {
@@ -174,10 +190,24 @@ object SystemCalculator {
             if (totalBatteryKwh > 0) {
                 pvKw = max(pvKw, totalBatteryKwh / 4.0)
             }
+            requiredPvKw = pvKw
 
-            panelCount = enforceEvenPanels((pvKw * 1000) / panelW)
             if (input.systemMode == SystemMode.OFFGRID) {
-                panelCount = min(panelCount, 4)
+                // Off-grid systems here stay on the simpler fixed-550W/max-4-panel sizing this
+                // catalog has always used for them (small stand-alone arrays) rather than the full
+                // multi-wattage search — scope note, not an oversight: the multi-wattage search
+                // below is aimed at hybrid/grid-interactive arrays, which is where the spec's own
+                // "10 × 620W" style examples live.
+                panelW = 550
+                panelCount = min(enforceEvenPanels((pvKw * 1000) / panelW), 4)
+                panelSelectionReason = "%.2f kW required — %d × %dW panels (off-grid arrays capped at 4)."
+                    .format(pvKw, panelCount, panelW)
+            } else {
+                val maxPvKw = selectedInverter.kw * 1.3
+                val panelChoice = EquipmentSelectionEngine.selectBestPanelConfiguration(pvKw, maxPvKw)
+                panelW = panelChoice.panelWatts
+                panelCount = panelChoice.panelCount
+                panelSelectionReason = panelChoice.reason
             }
         } else {
             if (input.manualInverterId != null) {
@@ -283,6 +313,22 @@ object SystemCalculator {
                 input.backupCoverage != BackupCoverage.CRITICAL_LOADS &&
                 requiredInverterKw > inverter.kw
             ) requiredInverterKw else null
+
+        // MANUAL only — GUIDED/LOAD equipment is chosen by EquipmentSelectionEngine specifically to
+        // satisfy these same figures, so these should never fire there. Per spec §4/§29: an
+        // installer's manual choice is never silently replaced — this is surfaced as a warning the
+        // installer must explicitly review and accept (see StepSystemReview's Manual-mode gate),
+        // not auto-corrected.
+        val manualInverterWarning: String? =
+            if (input.quoteMode == QuoteMode.MANUAL && inverter.kw < requiredInverterKw - 0.05) {
+                "Selected inverter (%s, %.1f kW) may be undersized for the calculated peak load (%.2f kW required)."
+                    .format(inverter.name, inverter.kw, requiredInverterKw)
+            } else null
+        val manualBatteryWarning: String? =
+            if (input.quoteMode == QuoteMode.MANUAL && totalBatteryKwh > 0.0 && totalBatteryKwh < batteryRequiredKwh - 0.05) {
+                "Selected battery (%.1f kWh) may be undersized for the requested backup (%.1f kWh needed)."
+                    .format(totalBatteryKwh, batteryRequiredKwh)
+            } else null
 
         val panelUnitPrice = prices.panelPrice(panelW)
         val inverterCost = inverter.price(prices)
@@ -523,7 +569,29 @@ object SystemCalculator {
             grandTotal = grandTotal,
             backupCapacityWarningKw = backupCapacityWarningKw,
             batteryMaxChargeKw = batteryMaxChargeKw,
-            batteryMaxDischargeKw = batteryMaxDischargeKw
+            batteryMaxDischargeKw = batteryMaxDischargeKw,
+            requiredPvKw = requiredPvKw,
+            requiredInverterKw = requiredInverterKw,
+            requiredBatteryUsableKwh = requiredBatteryUsableKwh,
+            panelSelectionReason = panelSelectionReason,
+            inverterSelectionReason = inverterSelectionReason,
+            batterySelectionReason = batterySelectionReason,
+            manualInverterWarning = manualInverterWarning,
+            manualBatteryWarning = manualBatteryWarning
         )
+    }
+
+    /**
+     * A49: whether MANUAL mode's own equipment choice currently has an undersized-equipment
+     * warning the installer hasn't explicitly accepted yet — used to gate the wizard's Calculate
+     * button (see WizardScreen.kt). Runs a no-pricing-needed preview calc, the same
+     * [PriceList.DEFAULT] pattern already used by StepSystemReview/StepHouseholdAppliances for
+     * cheap previews that don't need the real, repository-loaded price list.
+     */
+    fun hasUnacknowledgedManualWarnings(input: QuoteInputs): Boolean {
+        if (input.quoteMode != QuoteMode.MANUAL) return false
+        val preview = calculate(input, PriceList.DEFAULT, PriceList.DEFAULT)
+        return listOfNotNull(preview.manualInverterWarning, preview.manualBatteryWarning)
+            .any { it !in input.manualWarningsAcknowledged }
     }
 }

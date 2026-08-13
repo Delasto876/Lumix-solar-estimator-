@@ -63,7 +63,25 @@ data class QuoteResult(
      * reproduce the same numbers regardless of any equipment-catalog updates released since.
      */
     val batteryMaxChargeKw: Double? = null,
-    val batteryMaxDischargeKw: Double? = null
+    val batteryMaxDischargeKw: Double? = null,
+
+    /**
+     * A49: the engineering requirement GUIDED/LOAD's [EquipmentSelectionEngine] sized equipment
+     * against (and MANUAL's warnings are checked against) — independent of what was actually
+     * chosen, so the UI can show "required" next to "recommended"/"selected". Default 0.0 for
+     * quotes saved before this field existed, the historically accurate reading since no such
+     * figure was tracked separately yet either.
+     */
+    val requiredPvKw: Double = 0.0,
+    val requiredInverterKw: Double = 0.0,
+    val requiredBatteryUsableKwh: Double = 0.0,
+    /** Plain-language "why this was picked" text — populated for GUIDED/LOAD only; null for MANUAL, where the installer picked it. */
+    val panelSelectionReason: String? = null,
+    val inverterSelectionReason: String? = null,
+    val batterySelectionReason: String? = null,
+    /** MANUAL only — set when the installer's own equipment choice may be undersized. Never set for GUIDED/LOAD, whose equipment is chosen specifically to avoid this. */
+    val manualInverterWarning: String? = null,
+    val manualBatteryWarning: String? = null
 ) {
     val pvKw: Double get() = panelCount * panelWatts / 1000.0
 }

@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.QuoteMode
+import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.theme.LocalLumixPalette
@@ -117,7 +118,8 @@ fun WizardScreen(
                     LumixPrimaryButton(
                         text = "Calculate",
                         onClick = { showCalculationSequence = true },
-                        enabled = viewModel.errorsForStep(13).isEmpty()
+                        enabled = viewModel.errorsForStep(13).isEmpty() &&
+                            !SystemCalculator.hasUnacknowledgedManualWarnings(inputs)
                     )
                 } else {
                     LumixPrimaryButton(text = "Next", onClick = { viewModel.goNext() })
@@ -168,7 +170,7 @@ fun WizardScreen(
                     9 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepManualMode(inputs, viewModel::update)
                     10 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepInverterPanels(inputs, viewModel::update)
                     11 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepBatteryBank(inputs, viewModel::update)
-                    12 -> StepSystemReview(inputs, viewModel::update, settingsRepository)
+                    12 -> StepSystemReview(inputs, viewModel::update, settingsRepository, viewModel::goToStep)
                     13 -> Step7Pricing(inputs, viewModel::update)
                 }
             }

@@ -93,6 +93,13 @@ class WizardViewModel(
         }
     }
 
+    /** A49 — MANUAL mode's "CHANGE INVERTER"/"CHANGE BATTERY" review warnings jump straight to the relevant step. */
+    fun goToStep(step: Int) {
+        if (step in visibleSteps()) {
+            _currentStep.value = step
+        }
+    }
+
     fun isLastStep(): Boolean {
         val visible = visibleSteps()
         return visible.indexOf(_currentStep.value) == visible.lastIndex
