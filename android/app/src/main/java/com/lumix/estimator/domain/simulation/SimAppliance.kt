@@ -76,7 +76,11 @@ enum class SimApplianceType(
     CEILING_FAN("Ceiling Fan", 60, ElectricalTier.LOW, 1.0, "Cooling & Comfort"),
     STANDING_FAN("Pedestal/Standing Fan", 50, ElectricalTier.LOW, 1.0, "Cooling & Comfort"),
     BEDROOM_FAN("Bedroom Fan", 50, ElectricalTier.LOW, 1.0, "Cooling & Comfort"),
-    AIR_CONDITIONER("Air Conditioner", 1500, ElectricalTier.HIGH, 1.0, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
+    // dutyFactor 0.60: a thermostat-cycling compressor doesn't hold nameplate watts for its
+    // whole scheduled window — it satisfies the room and cycles off, then back on. 60% is a
+    // typical residential figure, not a measured one; the average draw during an active window
+    // becomes 1500W x 0.60 = 900W, matching the exact worked example this app's own AC spec used.
+    AIR_CONDITIONER("Air Conditioner", 1500, ElectricalTier.HIGH, 0.60, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
 
     // Lighting
     LED_BEDROOM("LED Lighting — Bedroom", 10, ElectricalTier.LOW, 1.0, "Lighting"),

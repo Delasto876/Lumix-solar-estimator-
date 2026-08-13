@@ -11,8 +11,14 @@ import kotlin.math.sin
  * the time dial is a cheap lookup + interpolation rather than a re-simulation.
  */
 object SimulationEngine {
-    const val SUNRISE_HOUR = 5.5
-    const val SUNSET_HOUR = 18.5
+    // A representative Jamaica daylight window, not a date/location-specific astronomical
+    // calculation — sunrise ~5:30-6:00am, sunset ~5:30-6:00pm, so the midpoint of each
+    // (5:45am/5:45pm) gives a clean ~12h day, matching Jamaica's real near-equatorial average.
+    // This is the solar *curve's* window (irradianceFactor's own shape) — separate from
+    // SystemCalculator.PSH (5.5h), which is the energy-equivalent figure used for panel sizing,
+    // not the number of hours the sun is actually up.
+    const val SUNRISE_HOUR = 5.75
+    const val SUNSET_HOUR = 17.75
     // SOL/SBU reserve the battery down to this floor before ever importing from JPS —
     // a 20% DOD cutoff, per the real hybrid-inverter behavior this models. Public so the UI
     // (battery runtime estimates, cutoff display) stays in sync with the engine's own value.

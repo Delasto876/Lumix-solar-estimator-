@@ -1977,3 +1977,33 @@ Verified via paren/brace balance on every touched file, an unused-import sweep (
 `CircleShape` were dead after the rewrite, removed), and a repo-wide grep confirming no leftover
 references to `DayPeriod`, `MAX_DAY_PERIOD_SPAN`, `buildApplianceSchedule`, `derivePickerState`,
 or the old `onSetSchedule` callback shape.
+
+## A40 — AC compressor duty cycle + Jamaica sunrise/sunset window
+
+Two small, targeted corrections requested directly.
+
+**AC duty cycle.** `AIR_CONDITIONER` had `dutyFactor = 1.0` — during its scheduled window it was
+still modeled as holding nameplate wattage the whole time, i.e. exactly the "flat 1500W line for
+the entire runtime" the earlier spec's own AC section explicitly said not to do. That correction
+never actually landed in A36-A39 (those rounds fixed *when* the AC runs, not how it draws power
+while running). Fixed now: `dutyFactor = 0.60`, the same thermostat-cycling figure that spec's
+own worked example used (1500W × 0.60 = 900W average while active) — a typical residential
+compressor-cycling figure, not a measured one, same honesty standard as every other duty factor
+in this catalog.
+
+**Sunrise/sunset window.** `SimulationEngine.SUNRISE_HOUR`/`SUNSET_HOUR` — the window the solar
+curve (`irradianceFactor`), the sun marker, and the day/night sky wash all derive from — were
+5:30am/6:30pm. Moved to 5:45am/5:45pm, the midpoint of the requested "5:30-6:00am" and
+"5:30-6:00pm" ranges: a clean ~12-hour day, which is also astronomically correct for Jamaica's
+near-equatorial latitude (real day length there runs ~11.3-13.1h across the year, averaging
+almost exactly 12). This is a single source of truth — both `irradianceFactor` and
+`daylightProgress` read the same two constants, so the curve shape, the sun marker's position,
+and the sky's day/night wash all move together automatically.
+
+Confirmed **not** touching `SystemCalculator.PSH` (still 5.5h) — that's a separate concept from
+the simulation's sunrise/sunset window: PSH is the energy-equivalent figure the wizard uses to
+size the panel count, not a literal "hours the sun is up" value, and it was already correct.
+
+Verified via paren/brace balance on both touched files and a grep confirming `SUNRISE_HOUR`/
+`SUNSET_HOUR` have exactly the two call sites they've always had (no second hardcoded copy
+anywhere to drift out of sync).
