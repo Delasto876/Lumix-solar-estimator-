@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.align
 import androidx.compose.foundation.layout.aspectRatio
@@ -128,6 +129,37 @@ fun EnergyFlowCanvas(
 
         if (simTimeText != null) {
             SimClockOverlay(text = simTimeText, modifier = Modifier.align(Alignment.TopEnd))
+        }
+
+        if (debugShowPaths) {
+            DebugRouteInfoOverlay(modifier = Modifier.align(Alignment.TopStart))
+        }
+    }
+}
+
+/**
+ * Calibration-only readout, per-route: name, waypoint count, and total length in normalized
+ * units (a screen-size-independent stand-in for pixel length, since these routes are defined in
+ * 0f..1f image space, not device pixels). Only ever visible when [SolarSimulationPaths.DEBUG_SHOW_PATHS]
+ * is on — off in production alongside the numbered waypoint dots.
+ */
+@Composable
+private fun DebugRouteInfoOverlay(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .padding(8.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color.Black.copy(alpha = 0.75f))
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        SolarSimulationPaths.allPaths.forEach { path ->
+            Text(
+                "${path.id} — ${path.points.size} pts — %.3f".format(EnergyFlowPathManager.pathLength(path)),
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White,
+                fontFeatureSettings = "tnum"
+            )
         }
     }
 }

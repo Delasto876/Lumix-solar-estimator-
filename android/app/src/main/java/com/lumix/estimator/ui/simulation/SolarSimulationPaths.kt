@@ -35,14 +35,17 @@ data class EnergyPath(
 
 /**
  * Anchor coordinates for `bg_house_energy_routes.png` — A34 swapped in a new reference photo
- * (1181x1331, a "LUXIN"-branded inverter/battery, supplied as a genuine file upload this round —
- * the first time a *replacement* background image landed as an actual attachment rather than a
- * chat paste, so this trace used real pixel measurement from the start instead of working around
- * a missing file). All four routes are printed in flat, distinct, non-crossing colors with mostly
- * axis-aligned bends, so hand-reading vertices off a fine coordinate grid (render the grid onto
- * the real image, crop tightly around each line, read intersections) was reliable — the same
- * method used successfully for the A29/A32 artwork, just against an image built specifically for
- * this kind of tracing.
+ * (1181x1331, a "LUXIN"-branded inverter/battery, supplied as a genuine file upload). A35
+ * replaced A34's hand-read-off-a-grid points with a real pixel measurement pass: per-color HSV
+ * threshold → connected-component isolation → `skimage.morphology.skeletonize` → shortest-path
+ * walk between the component's two farthest-apart endpoints. Each of the four lines came back as
+ * a single clean connected component (no gaps to bridge, unlike the A32 artwork), so this was
+ * reliable end to end. The hand-read version had genuinely cut corners — confirmed by overlaying
+ * both against the real photo — most visibly on the green route, which turned out to have a full
+ * multi-bend loop down at ground level (down the wall, along it, down again, then a zigzag
+ * across the patio) that the hand-read version had shortcut into a plain rectangle. Every point
+ * below is real pixel data, not a simplification; nothing here is an approximation of the
+ * printed line, it *is* the printed line's own centerline.
  *
  * Explicit per this artwork's own legend and confirmed by tracing where each line actually
  * terminates: **pink** = grid→inverter, **yellow** = solar→inverter, **green** = inverter→house
@@ -51,9 +54,10 @@ data class EnergyPath(
  * different photo with its own printed routing; this one's colors and endpoints are unrelated to
  * it and were re-verified from scratch, not assumed to carry over.
  *
- * Verified before writing any of this by rendering all four traced polylines, in these exact
- * colors, back onto the real photo and reading the composite — full-scene and a tight zoom on
- * the inverter/battery junction where all four lines converge.
+ * Verified before writing any of this by rendering all four traced polylines, with every
+ * waypoint marked, back onto the real photo and reading the composite at full scene and at a
+ * tight zoom on both the inverter/battery junction and the green route's ground-level loop —
+ * the exact two places the previous hand-read pass had drifted.
  */
 object SolarSimulationPaths {
     /** Development-only: draws the raw path polylines (and, when true, numbers each point) so misalignment is easy to spot. Off in prod. */
@@ -63,14 +67,18 @@ object SolarSimulationPaths {
         id = "solar_inverter",
         source = EnergyNode.SOLAR,
         destination = EnergyNode.INVERTER,
-        // Straight down from the panel array, a single left-then-down jog, then into the
-        // inverter's PV input on its top-left.
         points = listOf(
-            NormalizedPoint(0.5080f, 0.3280f),
-            NormalizedPoint(0.5080f, 0.4600f),
-            NormalizedPoint(0.4480f, 0.4600f),
-            NormalizedPoint(0.4480f, 0.5150f),
-            NormalizedPoint(0.5080f, 0.5200f)
+            NormalizedPoint(0.5140f, 0.3351f),
+            NormalizedPoint(0.5123f, 0.4493f),
+            NormalizedPoint(0.5064f, 0.4530f),
+            NormalizedPoint(0.4564f, 0.4568f),
+            NormalizedPoint(0.4488f, 0.4613f),
+            NormalizedPoint(0.4471f, 0.4658f),
+            NormalizedPoint(0.4462f, 0.5131f),
+            NormalizedPoint(0.4488f, 0.5199f),
+            NormalizedPoint(0.4539f, 0.5222f),
+            NormalizedPoint(0.4886f, 0.5199f),
+            NormalizedPoint(0.4903f, 0.5147f)
         ),
         bidirectional = false
     )
@@ -79,16 +87,17 @@ object SolarSimulationPaths {
         id = "grid_inverter",
         source = EnergyNode.GRID,
         destination = EnergyNode.INVERTER,
-        // Down the utility pole, a diagonal drop to ground level, right along the lawn/patio
-        // edge, then straight up into the inverter's grid connection on its lower-left.
         points = listOf(
-            NormalizedPoint(0.0860f, 0.3350f),
-            NormalizedPoint(0.0860f, 0.6850f),
-            NormalizedPoint(0.2450f, 0.8280f),
-            NormalizedPoint(0.3500f, 0.8150f),
-            NormalizedPoint(0.5100f, 0.7900f),
-            NormalizedPoint(0.5350f, 0.7750f),
-            NormalizedPoint(0.5350f, 0.5720f)
+            NormalizedPoint(0.0838f, 0.3434f),
+            NormalizedPoint(0.0838f, 0.6987f),
+            NormalizedPoint(0.0898f, 0.7062f),
+            NormalizedPoint(0.2549f, 0.8332f),
+            NormalizedPoint(0.2608f, 0.8355f),
+            NormalizedPoint(0.2752f, 0.8340f),
+            NormalizedPoint(0.5080f, 0.7791f),
+            NormalizedPoint(0.5191f, 0.7739f),
+            NormalizedPoint(0.5207f, 0.7686f),
+            NormalizedPoint(0.5216f, 0.5838f)
         ),
         // Import-only: the grid connection never carries power the other way (no export).
         bidirectional = false
@@ -98,14 +107,26 @@ object SolarSimulationPaths {
         id = "inverter_house",
         source = EnergyNode.INVERTER,
         destination = EnergyNode.HOUSE,
-        // Left out of the inverter's load output, straight down along the wall, then across
-        // the patio to a point at the front door — the house's load connection.
+        // The full ground-level loop the hand-read A34 pass had shortcut: down the wall, along
+        // it, down again to the patio, then a genuine zigzag (not a straight run) across the
+        // patio before reaching the door. Every one of these points is load-bearing — the
+        // printed line really does bend this many times.
         points = listOf(
-            NormalizedPoint(0.5080f, 0.5520f),
-            NormalizedPoint(0.4400f, 0.5520f),
-            NormalizedPoint(0.4400f, 0.7600f),
-            NormalizedPoint(0.2450f, 0.7650f),
-            NormalizedPoint(0.3180f, 0.7350f)
+            NormalizedPoint(0.4903f, 0.5485f),
+            NormalizedPoint(0.4843f, 0.5530f),
+            NormalizedPoint(0.4479f, 0.5575f),
+            NormalizedPoint(0.4437f, 0.5650f),
+            NormalizedPoint(0.4437f, 0.7498f),
+            NormalizedPoint(0.4420f, 0.7588f),
+            NormalizedPoint(0.4318f, 0.7641f),
+            NormalizedPoint(0.3116f, 0.7911f),
+            NormalizedPoint(0.3040f, 0.7911f),
+            NormalizedPoint(0.2667f, 0.7678f),
+            NormalizedPoint(0.2625f, 0.7633f),
+            NormalizedPoint(0.2625f, 0.7596f),
+            NormalizedPoint(0.2718f, 0.7543f),
+            NormalizedPoint(0.3192f, 0.7400f),
+            NormalizedPoint(0.3260f, 0.7408f)
         ),
         bidirectional = false
     )
@@ -114,13 +135,14 @@ object SolarSimulationPaths {
         id = "inverter_battery",
         source = EnergyNode.INVERTER,
         destination = EnergyNode.BATTERY,
-        // A short hop off the inverter's lower-right, down then right into the battery casing.
         // Bidirectional: charging animates inverter→battery, discharging reverses the same
         // physical line rather than drawing a second hidden route.
         points = listOf(
-            NormalizedPoint(0.5620f, 0.5720f),
-            NormalizedPoint(0.5650f, 0.6050f),
-            NormalizedPoint(0.6220f, 0.6100f)
+            NormalizedPoint(0.5411f, 0.5800f),
+            NormalizedPoint(0.5402f, 0.6078f),
+            NormalizedPoint(0.5436f, 0.6146f),
+            NormalizedPoint(0.5563f, 0.6153f),
+            NormalizedPoint(0.6173f, 0.6071f)
         ),
         bidirectional = true
     )

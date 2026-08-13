@@ -1739,3 +1739,50 @@ already existed as the debug/production toggle.
 Verified by rendering all four re-traced paths, in the app's real `LumixColors` tokens, back onto
 the actual photo — full scene and a tight zoom on the inverter/battery junction — before writing
 any of it into `SolarSimulationPaths.kt`.
+
+## A35 — Real pixel measurement replaces A34's hand-read points (all four routes were off)
+
+The user confirmed all four A34 routes had real errors — green cutting a corner, blue/yellow/pink
+each landing slightly off their true inverter/battery connection points — and gave a long,
+explicit spec re-stating requirements the app already met (ordered polylines, no shortest-path
+particle movement, bidirectional battery on one physical line, same image/route transform,
+DEBUG_SHOW_PATHS) plus two genuinely new asks: numbered waypoints in debug mode and a
+name/waypoint-count/length readout per route.
+
+The actual bug: A34's points were hand-read off a rendered coordinate grid — reliable for
+getting the right general shape, but imprecise on exact pixel position, and on green specifically
+it missed that the printed line's ground-level routing isn't a simple rectangle. Replaced that
+with the same rigorous pipeline A32 used for the previous artwork: per-color HSV threshold →
+`scipy.ndimage.label` connected-component isolation → `skimage.morphology.skeletonize` → BFS
+shortest-path walk between the component's two farthest-apart endpoints. All four lines in this
+artwork came back as a single clean connected component each (no gaps to bridge, unlike A32's
+photo) — this one appears to have been built specifically for tracing, exactly per the generation
+guidance given earlier this session.
+
+The difference was substantial: `solar_inverter` went from 5 hand-read points to 11, `grid_inverter`
+from 7 to 10, `inverter_battery` from 3 to 5, and `inverter_house` from 5 to **15** — the green
+route's real shape is a full loop (down the wall, along it, down again to the patio, then a
+genuine zigzag across the patio, not a straight run) that the hand-read version had shortcut into
+a plain rectangle, exactly matching the reported bug. Every inverter/battery connection point
+also moved by real, measurable amounts (e.g. the blue route's inverter end moved from x≈0.562 to
+the pixel-measured x≈0.541) — confirmed by overlaying both the old and new traces on the real
+photo side by side before committing either.
+
+Added the two new asks: `EnergyFlowCanvas`'s numbered debug dots (added last round) already
+labeled each point by ID; added `DebugRouteInfoOverlay`, a small panel — visible only when
+`DEBUG_SHOW_PATHS` is on — listing each route's ID, waypoint count, and total length (via the
+existing `EnergyFlowPathManager.pathLength`, already computed in normalized 0f..1f units so it's
+screen-size-independent rather than a raw pixel count).
+
+**Scope note on what wasn't built:** the spec also asked for a full interactive "EDIT ROUTES"
+mode — draggable waypoint handles, a "SAVE ROUTE GEOMETRY" persistence step, live pixel-length
+readouts while dragging. That's a genuinely large standalone feature (gesture handling,
+coordinate persistence, a whole editor UI), not a "calibrate the existing routes" fix, and this
+sandbox has no Android build/emulator to verify interactive touch behavior against even if it
+were built blind. Didn't build it, flagging that explicitly rather than silently skipping it —
+happy to scope it as its own round if still wanted now that the geometry itself is correct.
+
+Verified the same way as always: rendered every waypoint of all four re-traced paths onto the
+real photo and read the composite back — full scene, a tight zoom on the inverter/battery
+junction, and a dedicated zoom on the green route's ground-level loop, the exact place the
+previous pass had gone wrong.
