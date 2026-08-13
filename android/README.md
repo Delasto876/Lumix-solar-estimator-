@@ -2253,3 +2253,54 @@ a sandbox with no way to click through and confirm nothing broke.
 Verified via paren/brace balance on all three touched files and a grep confirming `previewLoadShape`/
 `ApplianceLoadShape` have exactly one call site each, so the new load-audit card can't drift out
 of sync with the function that computes it.
+
+## A45 — Audited a specific claimed bug (4×600W → 4000W); hardened quote isolation instead
+
+The user's next message opened with a precise, testable claim: selecting 4×600W panels
+(2,400W STC) could show the simulation producing 4,000W of PV. Investigated the actual code
+path rather than assuming either way.
+
+**Not reproducible.** Traced `panelCount`/`panelWatts` all the way from MANUAL mode's own input
+fields (`StepInverterPanels.kt`) through every `SystemCalculator.calculate()` branch to
+`QuoteResult.pvKw` (a computed property, `panelCount * panelWatts / 1000.0` — not a second stored
+field that could drift) to `SimSystemConfig.pvCapacityKw` to `SimulationEngine.buildDayTimeline()`,
+where PV output is `irradianceFraction × pvCapacityKw × temperatureDerate × fixedSystemEfficiency`,
+every factor ≤ 1.0, then additionally `.coerceIn(0.0, config.inverterKw)`. Mathematically this can
+never exceed the real array capacity — confirmed again, not just recalled from earlier rounds.
+No code path was found where a MANUAL-mode panel selection could produce a mismatched
+count/wattage pair either. If this was actually observed on-device, it isn't reproducible from
+the source as it stands today; happy to dig further with more specifics (which mode, which
+screen showed the number) if it recurs.
+
+**What the audit found instead: a real, if currently-dormant, quote-isolation fragility.**
+`SimulationViewModel.load(quoteId)` was reading `inverterMode`/`gridChargeEnabled`/`dayType` off
+whatever `_state.value` already held, and never reset `weather`/`startSocFraction`/`currentHour`/
+`isPlaying`/`playJob` at all — silently correct only because `LumixNavHost.kt` currently always
+constructs a fresh `SimulationViewModel` instance per navigation to Simulation (verified: no
+`launchSingleTop`, no shared backstack entry across two different quote IDs). That's an
+accident of the current nav wiring, not a structural guarantee — a future change (e.g. adding
+`launchSingleTop` for back-stack hygiene) could silently start leaking one quote's weather/
+day-type/playback state into the next quote's initial render. Fixed: `load()` now cancels any
+running jobs and resets to a clean `SimulationUiState()` before loading, so quote isolation no
+longer depends on the VM happening to be freshly constructed. `WizardViewModel` has the same
+class of fragility (it *is* a true app-wide singleton, per `LumixNavHost.kt`, and its 5
+navigate-to-wizard call sites each manually call `.reset()` first) — currently correct at every
+call site found, but enforced by convention, not structurally; noted here rather than changed
+blind, since restructuring nav-graph scoping is a bigger, riskier change than this round's
+finding justified.
+
+**Equipment catalog replacement (spec's own §16-19) — flagged as blocked, not attempted.** No new
+equipment file was attached to this message; the only real equipment data this project has is the
+`Lumix_Solar_Equipment_Spec_Library_2026` library from a previous round (`EquipmentSpecs.kt`).
+Confirmed that library is currently an *enrichment* layer only — `Catalog.kt`'s actual selectable
+panel wattages (415/550/595/600W) and generic-named inverter/battery tiers are still what every
+wizard step selects from; no wizard file imports `EquipmentSpecs` at all. Making the real named
+products (Trina/Jinko panels, Growatt/Deye/LuxPower/SRNE inverters, SRNE batteries) the actual
+selectable catalog is a real, well-defined piece of work — but every existing catalog entry
+carries a price lookup (`(PriceList) -> Double`, e.g. `it.inverterHybrid6k`), and the supplied
+equipment library has electrical specs only, no JMD pricing for those specific SKUs. Swapping the
+catalog without real per-product pricing would either break the quote engine or require inventing
+prices for real commercial products — asked the user directly rather than guessing at numbers
+that would appear on a real customer quote.
+
+Verified via paren/brace balance on the one touched file.

@@ -66,24 +66,39 @@ class SimulationViewModel(
     private var playJob: Job? = null
     private var cloudEventJob: Job? = null
 
+    /**
+     * A45: quote isolation, structurally rather than by nav-graph convention alone. This VM
+     * currently only ever gets a fresh instance per navigation to Simulation (verified — no
+     * `launchSingleTop`/backstack reuse across quote IDs exists in `LumixNavHost`), so this was
+     * never actually reachable as a live bug. But `load()` used to read `inverterMode`/
+     * `gridChargeEnabled`/`dayType` off whatever `_state.value` already held rather than a clean
+     * default, and never reset `weather`/`startSocFraction`/`currentHour`/`isPlaying` at all —
+     * silently correct only because nothing currently reuses the instance. Resetting to a clean
+     * [SimulationUiState] before loading removes that reliance entirely, so a future nav-graph
+     * change (e.g. `launchSingleTop`) can't leak one quote's simulation settings into another's.
+     */
     fun load(quoteId: Long) {
+        playJob?.cancel()
+        playJob = null
+        cloudEventJob?.cancel()
+        cloudEventJob = null
+        _state.value = SimulationUiState(loading = true)
         viewModelScope.launch {
             val saved = quoteRepository.getSavedQuote(quoteId) ?: return@launch
             val config = SimSystemConfig.from(saved.result)
             val appliances = defaultApplianceStates(saved.inputs)
             val gridConnected = config.gridConnectable
-            val inverterMode = _state.value.inverterMode
-            val gridChargeEnabled = _state.value.gridChargeEnabled
             val technicalMode = settingsRepository.defaultTechnicalMode.first()
             val gridServiceAmps = settingsRepository.defaultGridServiceAmps.first()
+            // No inverterMode/gridChargeEnabled/dayType/startSocFraction passed here — the clean
+            // SimulationUiState() set above and buildDayTimeline's own defaults already agree
+            // (SBU / true / WEEKDAY / 0.6), so this quote starts from the same known-clean state
+            // every time, never a leftover from whatever quote was viewed previously.
             val timeline = SimulationEngine.buildDayTimeline(
                 config,
                 gridConnected = gridConnected,
                 applianceStates = appliances,
-                inverterMode = inverterMode,
-                gridChargeEnabled = gridChargeEnabled,
-                gridServiceAmps = gridServiceAmps,
-                dayType = _state.value.dayType
+                gridServiceAmps = gridServiceAmps
             )
             val label = saved.inputs.customerName.takeIf { it.isNotBlank() } ?: "Your Solar System"
             _state.update {
