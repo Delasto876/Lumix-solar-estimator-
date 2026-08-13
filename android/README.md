@@ -1577,3 +1577,25 @@ time pill in the top-right corner — the same minimal footprint the simulation 
 A27. The below-canvas `LivePowerRow` (Solar/Grid/Home/Battery figures) was never touched and is
 still where those numbers live; nothing about the actual data or its accuracy changed, only how
 much of it sits on top of the picture.
+
+## A31 — Time + one value chip per component, everything else stays in Technical
+
+Follow-up to A30's full HUD removal: the ask wasn't "show nothing," it was time-of-day plus PV,
+battery, grid, and load consumption data each shown "in its respective place," with anything
+beyond that moved into the existing Technical section rather than floating on the image.
+
+Added `NodeValueChips` — exactly four small pills, nothing more, each anchored to that
+component's own endpoint on its `EnergyPath` rather than a path midpoint or a generic label
+position: grid's value sits at the pole (`gridToInverterPath.points.first()`), solar's at the
+panel (`solarToInverterPath.points.first()`), battery's at the battery casing
+(`inverterToBatteryPath.points.last()`, plus its state-of-charge percent), and load's at the
+junction/breaker box (`inverterToHousePath.points.last()`). Each is just a color dot and the
+number — no descriptive "Grid → Inverter" text, no icon row, no card chrome beyond a minimal
+dark pill — so it reads as "this component, this value" rather than a dashboard tile. `SimClockOverlay`
+(top-right time pill) is unchanged from A30. Nothing else was added back: the legend, system
+summary, and per-line labels stay out, since the existing "Technical" toggle in `SimulationScreen.kt`
+already surfaces the deeper breakdown when the user wants it — that's the "fitted in the technical
+area" the request asked for, and it needed no changes to already do that job.
+
+Verified by rendering the four chips at their real anchor coordinates onto the actual A29
+background photo before committing.

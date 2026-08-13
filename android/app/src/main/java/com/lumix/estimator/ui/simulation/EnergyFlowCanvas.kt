@@ -3,11 +3,17 @@ package com.lumix.estimator.ui.simulation
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.align
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,12 +35,14 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.R
 import com.lumix.estimator.domain.simulation.EnergyFlow
 import com.lumix.estimator.domain.simulation.FlowDirection
 import com.lumix.estimator.ui.theme.LumixColors
 import com.lumix.estimator.ui.theme.rememberReduceMotion
+import kotlin.math.roundToInt
 
 /** The reference photo's own pixel aspect ratio — panels/inverter/battery only line up at this ratio. */
 internal const val IMAGE_ASPECT_RATIO = 1536f / 1024f
@@ -60,12 +68,12 @@ private fun colorFor(path: EnergyPath): Color = when (path.id) {
  * The full photoreal digital-twin visual: `bg_house_energy_routes.png` (a fixed, never-
  * redrawn background asset) with every dynamic layer composited above it — a full-scene
  * lighting/rain wash, cloud coverage, a sun position/intensity marker, an animated battery
- * fill wash, and glowing color-coded flow lines with particles riding them. Deliberately
- * minimal on-image text (A30: the earlier stat-card/legend/battery/system-card HUD and
- * per-line chips were pulled back out — too much floating data was competing with the house
- * and the animation itself for attention; the below-canvas `LivePowerRow` in
- * `SimulationScreen.kt` is where those numbers actually live). Every layer is driven by real
- * simulation state passed in by the caller; nothing here fabricates its own numbers.
+ * fill wash, glowing color-coded flow lines with particles riding them, the simulated time,
+ * and one small value chip at each of the four real components (PV, grid, battery, load) —
+ * nothing more (A31: everything else the earlier HUD showed — the legend, the system summary,
+ * per-line labels — belongs in the Technical section below the canvas instead, not floating
+ * over the house). Every layer is driven by real simulation state passed in by the caller;
+ * nothing here fabricates its own numbers.
  *
  * @param cloudCoverage 0f (clear) .. 1f (fully overcast), from the selected weather state.
  * @param sunProgress 0f at sunrise, 1f at sunset; null hides the sun marker (nighttime).
@@ -114,9 +122,100 @@ fun EnergyFlowCanvas(
 
         ParticleOverlay(flows = flows, debugShowPaths = debugShowPaths)
 
+        NodeValueChips(flows = flows, batterySocFraction = batterySocFraction)
+
         if (simTimeText != null) {
             SimClockOverlay(text = simTimeText, modifier = Modifier.align(Alignment.TopEnd))
         }
+    }
+}
+
+/** "1,240 W", signed ("+1,240 W" / "-620 W") when [showSign] and the flow is genuinely nonzero. */
+private fun formatWatts(kw: Double, showSign: Boolean = false): String {
+    val watts = (kw * 1000.0).roundToInt()
+    val sign = if (showSign && watts > 0) "+" else ""
+    return "$sign${"%,d".format(watts)} W"
+}
+
+/**
+ * Exactly four small value chips, one at each real component — PV, grid, battery, load — and
+ * nothing else. Anchored at that component's own point on its [EnergyPath] (the panel end of
+ * [SolarSimulationPaths.solarToInverterPath], the pole end of [SolarSimulationPaths.gridToInverterPath],
+ * the battery end of [SolarSimulationPaths.inverterToBatteryPath], the junction-box end of
+ * [SolarSimulationPaths.inverterToHousePath]) rather than a path midpoint, so each value reads as
+ * "this is what that component is doing right now," not a generic label floating in space. Every
+ * other number the app tracks (breakdowns, efficiency, grid service limits, etc.) lives in the
+ * Technical section below the canvas, not here.
+ */
+@Composable
+private fun NodeValueChips(flows: List<EnergyFlow>, batterySocFraction: Float?, modifier: Modifier = Modifier) {
+    val flowById = remember(flows) { flows.associateBy { it.id } }
+    val gridKw = flowById["grid_inverter"]?.powerKw ?: 0.0
+    val solarKw = flowById["solar_inverter"]?.powerKw ?: 0.0
+    val loadKw = flowById["inverter_house"]?.powerKw ?: 0.0
+    val batteryFlow = flowById["inverter_battery"]
+    val batteryKw = when {
+        batteryFlow == null || !batteryFlow.active -> 0.0
+        batteryFlow.direction == FlowDirection.FORWARD -> batteryFlow.powerKw
+        else -> -batteryFlow.powerKw
+    }
+    val batteryPercentText = batterySocFraction?.let { " · ${(it * 100).roundToInt()}%" } ?: ""
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth().aspectRatio(IMAGE_ASPECT_RATIO)) {
+        NodeChip(
+            accent = LumixColors.WarningRed,
+            text = formatWatts(gridKw),
+            anchor = SolarSimulationPaths.gridToInverterPath.points.first(),
+            containerWidth = maxWidth,
+            containerHeight = maxHeight
+        )
+        NodeChip(
+            accent = LumixColors.SolarYellow,
+            text = formatWatts(solarKw),
+            anchor = SolarSimulationPaths.solarToInverterPath.points.first(),
+            containerWidth = maxWidth,
+            containerHeight = maxHeight
+        )
+        NodeChip(
+            accent = LumixColors.EnergyGreen,
+            text = formatWatts(batteryKw, showSign = true) + batteryPercentText,
+            anchor = SolarSimulationPaths.inverterToBatteryPath.points.last(),
+            containerWidth = maxWidth,
+            containerHeight = maxHeight
+        )
+        NodeChip(
+            accent = LumixColors.TechnicalCyan,
+            text = formatWatts(loadKw),
+            anchor = SolarSimulationPaths.inverterToHousePath.points.last(),
+            containerWidth = maxWidth,
+            containerHeight = maxHeight
+        )
+    }
+}
+
+/** A single value pill anchored at [anchor] — just a color dot and the number, nothing else. */
+@Composable
+private fun NodeChip(accent: Color, text: String, anchor: NormalizedPoint, containerWidth: Dp, containerHeight: Dp) {
+    val originX = containerWidth * anchor.x - 4.dp
+    val originY = containerHeight * anchor.y - 3.dp
+    Row(
+        modifier = Modifier
+            .offset(x = originX, y = originY)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color.Black.copy(alpha = 0.85f))
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(accent))
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            fontFeatureSettings = "tnum",
+            maxLines = 1
+        )
     }
 }
 
