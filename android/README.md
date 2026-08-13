@@ -1599,3 +1599,39 @@ area" the request asked for, and it needed no changes to already do that job.
 
 Verified by rendering the four chips at their real anchor coordinates onto the actual A29
 background photo before committing.
+
+## A32 — Precise pixel-measured re-trace of all four lines (the animation was drifting)
+
+Feedback this round: the animated lines were "off" — specifically, misaligned against the
+printed conduit in the photo (not a routing/shape complaint) — and should hug the house's
+architectural edges tightly. A29's points were hand-read off gridded crops, good enough to get
+the right general shape and endpoints but coarse (6-9 points per line, mostly straight segments)
+— on the two longest runs (grid and house) that meant the animated dashed line visibly cut
+across open space between waypoints instead of tracking the printed conduit's actual bends.
+
+Replaced the hand-read points with a proper pixel-measurement pipeline this round, now that a
+precise reference color was available for each line: per-color HSV thresholding (each line's hue
+is distinct enough from the house/foliage/sky to isolate — confirmed by rendering each mask and
+checking it visually before trusting it) → `scipy.ndimage.label` to isolate the connected
+component → `skimage.morphology.skeletonize` → BFS shortest-path between the component's two
+farthest-apart endpoints → Ramer–Douglas–Peucker simplification to drop redundant near-collinear
+points. Unlike the older A23-A26 artwork, none of these four lines self-cross, so skeleton
+shortest-path has no self-crossing failure mode to worry about here.
+
+Two of the four lines (grid, house) have genuine gaps in the printed artwork — a shadowed stretch
+under the awning and a stretch that dips too dim for the color threshold — where this broke the
+mask into 2-3 disconnected pieces. Traced each piece independently, then stitched them with a
+couple of interpolated points bridging the gap. Everything else uses the pipeline's shortest-path
+output directly. Net result: `grid_inverter` went from 6 hand-read points to 18 pixel-measured
+ones, `inverter_house` from 7 to 14 — both now hug the printed line through every roofline bend
+and downpipe kink instead of the coarser straight-segment approximation. `solar_inverter` and
+`inverter_battery` were already short, clean single-component traces (8 and 7 points) with no
+gaps to bridge.
+
+`NodeValueChips`' anchors (`.points.first()` / `.points.last()`) needed no code changes — they
+read the new endpoints automatically since they're computed from the path data, not hardcoded.
+`batteryBounds` was checked against the refined battery endpoint and already covered it.
+
+Verified the same way as every round since A23: rendered all four re-traced paths, in their real
+app colors, onto the actual background photo via Python/PIL — full-scene and a tight zoom on the
+gap-bridged awning stretch — and read the result back before touching any Kotlin.
