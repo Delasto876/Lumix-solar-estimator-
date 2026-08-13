@@ -3,6 +3,7 @@ package com.lumix.estimator.domain
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 object SystemCalculator {
     /** Fallback only — every real calculation uses [QuoteInputs.peakSunHours] (per-quote, editable, default 5.5) instead. */
@@ -434,6 +435,22 @@ object SystemCalculator {
 
         val grandTotal = preDiscountTotal - discountAmount
 
+        // Resolved once, here, at calculation time — never re-matched against a possibly-newer
+        // equipment catalog when a saved quote's simulation is opened later. See
+        // QuoteResult.batteryMaxChargeKw's own doc for why this matters for reproducibility.
+        val matchedBattery = EquipmentSpecs.batterySpecFor(chosenBattery?.name)
+        val batteryMaxChargeKw: Double?
+        val batteryMaxDischargeKw: Double?
+        if (matchedBattery != null && totalBatteryKwh > 0) {
+            val units = (totalBatteryKwh / matchedBattery.ratedEnergyKwh).roundToInt().coerceAtLeast(1)
+            val inverterCeilingKw = inverter.kw.coerceAtLeast(0.1)
+            batteryMaxChargeKw = (matchedBattery.maxChargeA * matchedBattery.voltageV / 1000.0 * units).coerceAtMost(inverterCeilingKw)
+            batteryMaxDischargeKw = (matchedBattery.maxDischargeA * matchedBattery.voltageV / 1000.0 * units).coerceAtMost(inverterCeilingKw)
+        } else {
+            batteryMaxChargeKw = null
+            batteryMaxDischargeKw = null
+        }
+
         return QuoteResult(
             effectiveSystemMode = effectiveSystemMode,
             designDailyKwh = designDailyKwh,
@@ -460,7 +477,9 @@ object SystemCalculator {
             deliveryCharge = input.deliveryCharge,
             discountAmount = discountAmount,
             grandTotal = grandTotal,
-            backupCapacityWarningKw = backupCapacityWarningKw
+            backupCapacityWarningKw = backupCapacityWarningKw,
+            batteryMaxChargeKw = batteryMaxChargeKw,
+            batteryMaxDischargeKw = batteryMaxDischargeKw
         )
     }
 }

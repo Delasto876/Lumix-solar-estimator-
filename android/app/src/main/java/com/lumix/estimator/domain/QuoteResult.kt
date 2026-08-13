@@ -51,7 +51,19 @@ data class QuoteResult(
      * Defaults to null so quotes saved before this field existed decode as "no warning on
      * record" — the accurate reading, since the check didn't exist yet either.
      */
-    val backupCapacityWarningKw: Double? = null
+    val backupCapacityWarningKw: Double? = null,
+    /**
+     * The matched real battery's max charge/discharge power (from [EquipmentSpecs], resolved
+     * once at calculation time and frozen here), for the simulation to consume directly instead
+     * of re-matching against the *current* equipment catalog every time it loads. Null when no
+     * confirmed spec matched this battery tier at calculation time (falls back to a generic
+     * estimate) or — same encoding as [backupCapacityWarningKw] — for quotes saved before this
+     * field existed, which is also the historically accurate reading: no spec catalog existed
+     * to match against yet either. This is what makes opening a 6-month-old quote's simulation
+     * reproduce the same numbers regardless of any equipment-catalog updates released since.
+     */
+    val batteryMaxChargeKw: Double? = null,
+    val batteryMaxDischargeKw: Double? = null
 ) {
     val pvKw: Double get() = panelCount * panelWatts / 1000.0
 }

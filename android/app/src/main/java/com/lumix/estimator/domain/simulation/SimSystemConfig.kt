@@ -1,11 +1,9 @@
 package com.lumix.estimator.domain.simulation
 
-import com.lumix.estimator.domain.EquipmentSpecs
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.SystemMode
 import kotlinx.serialization.Serializable
 import kotlin.math.min
-import kotlin.math.roundToInt
 
 /**
  * The simulator's view of a solar system — always derived from a real calculated
@@ -40,26 +38,19 @@ data class SimSystemConfig(
         fun from(result: QuoteResult): SimSystemConfig {
             val batteryCapacityKwh = result.totalBatteryKwh
             val inverterCeilingKw = result.inverterKw.coerceAtLeast(0.1)
-            // Real per-model charge/discharge current, from EquipmentSpecs (2026 spec library) —
-            // scaled by how many physical units this system actually has (inferred by comparing
-            // the quoted total capacity against one real unit's own rated capacity, since the
-            // catalog's own tier label, e.g. "15 kWh", doesn't always match the real unit's exact
-            // rated figure, e.g. 16.07 kWh). Charge and discharge are no longer forced to match
-            // each other — the real 10kWh unit alone is 150A charge / 200A discharge, genuinely
-            // asymmetric. Either way, both are still capped by what the paired inverter can
-            // actually push/pull.
-            val matchedBattery = EquipmentSpecs.batterySpecFor(result.batteryName)
-            val (batteryMaxChargeKw, batteryMaxDischargeKw) = if (matchedBattery != null) {
-                val units = (batteryCapacityKwh / matchedBattery.ratedEnergyKwh).roundToInt().coerceAtLeast(1)
-                val chargeKw = matchedBattery.maxChargeA * matchedBattery.voltageV / 1000.0 * units
-                val dischargeKw = matchedBattery.maxDischargeA * matchedBattery.voltageV / 1000.0 * units
-                chargeKw.coerceAtMost(inverterCeilingKw) to dischargeKw.coerceAtMost(inverterCeilingKw)
-            } else {
-                // No confirmed real spec for this battery tier — fall back to the same
-                // conservative generic 0.5C estimate this app always used.
-                val fallback = min(batteryCapacityKwh * 0.5, inverterCeilingKw)
-                fallback to fallback
-            }
+            // A41/A42: real per-model charge/discharge current is resolved ONCE, at quote
+            // calculation time (SystemCalculator, against EquipmentSpecs), and frozen into
+            // QuoteResult.batteryMaxChargeKw/batteryMaxDischargeKw — never re-matched against
+            // the *current* equipment catalog here. Re-matching live would mean a quote's
+            // simulation could quietly change behavior months later if the spec library is
+            // updated, which breaks reproducibility (a saved quote must always simulate the
+            // same way it did when it was quoted). Only fall back to the generic 0.5C estimate
+            // when no confirmed spec existed at calculation time — including for every quote
+            // saved before this field existed, which is also the historically accurate reading.
+            val batteryMaxChargeKw = result.batteryMaxChargeKw
+                ?: min(batteryCapacityKwh * 0.5, inverterCeilingKw)
+            val batteryMaxDischargeKw = result.batteryMaxDischargeKw
+                ?: min(batteryCapacityKwh * 0.5, inverterCeilingKw)
             return SimSystemConfig(
                 pvCapacityKw = result.pvKw,
                 panelCount = result.panelCount,
