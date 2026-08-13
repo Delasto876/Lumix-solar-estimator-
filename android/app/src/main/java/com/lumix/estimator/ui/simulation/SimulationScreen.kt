@@ -50,10 +50,12 @@ import androidx.compose.ui.unit.sp
 import com.lumix.estimator.domain.simulation.DayType
 import com.lumix.estimator.domain.simulation.EnergyFlowResolver
 import com.lumix.estimator.domain.simulation.InverterMode
+import com.lumix.estimator.domain.simulation.LoadAudit
 import com.lumix.estimator.domain.simulation.SimFrame
 import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.domain.simulation.TechnicalModel
 import com.lumix.estimator.domain.simulation.WeatherState
+import com.lumix.estimator.domain.simulation.applianceDailyEnergyByCategoryKwh
 import com.lumix.estimator.ui.components.AnimatedCounterText
 import com.lumix.estimator.ui.components.RecommendationCard
 import com.lumix.estimator.ui.components.SectionCard
@@ -365,6 +367,17 @@ fun SimulationScreen(
                             modifier = Modifier.padding(top = 16.dp)
                         )
                     }
+                }
+            }
+
+            item {
+                SectionCard(title = "Load Audit") {
+                    LoadAuditContent(
+                        summary = remember(state.timeline) { LoadAudit.compute(state.timeline) },
+                        categoryBreakdown = remember(state.appliances, state.dayType) {
+                            applianceDailyEnergyByCategoryKwh(state.appliances, state.dayType)
+                        }
+                    )
                 }
             }
         }

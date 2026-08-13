@@ -484,3 +484,20 @@ fun worstCaseStartupSurgeKw(states: Map<SimApplianceType, ApplianceState>, hour:
         val activeQty = state.runs.filter { it.isActiveAt(hour, dayType) }.sumOf { it.quantity }
         activeQty * type.watts * type.startupSurgeMultiplier / 1000.0
     }
+
+/**
+ * "HOW WAS THIS CALCULATED?" (spec §46): each category's real contribution to daily energy, in
+ * kWh — an exact analytic sum over every enabled run's own quantity/watts/dutyFactor/duration
+ * (each run genuinely is "on" for its declared window, so summing directly is exact; no timestep
+ * discretization to introduce error), scoped to the runs that actually apply on [dayType].
+ * Categories with zero enabled load are omitted rather than shown as a zero row.
+ */
+fun applianceDailyEnergyByCategoryKwh(states: Map<SimApplianceType, ApplianceState>, dayType: DayType = DayType.WEEKDAY): Map<String, Double> =
+    states.entries.filter { it.value.enabled }
+        .flatMap { (type, state) ->
+            state.runs.filter { dayType in it.dayTypes }
+                .map { run -> type.category to (run.quantity * type.watts * type.dutyFactor * run.durationHours / 1000.0) }
+        }
+        .groupBy({ it.first }, { it.second })
+        .mapValues { (_, contributions) -> contributions.sum() }
+        .filterValues { it > 0.0 }

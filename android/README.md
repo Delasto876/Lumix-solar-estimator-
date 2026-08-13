@@ -1886,3 +1886,37 @@ Still open from A36's scope note: the full six-plus-screen UI redesign (Load Aud
 appliance detail sheets with source labels, calculation-transparency drill-downs, expanded
 recommendations, Home dashboard rebuild) and an automated test suite. Verified via the same
 paren/brace balance check and call-site grep as every prior round.
+
+## A38 — Load Audit section + calculation transparency
+
+Next item off the A36 backlog: spec §44 (a load-audit summary: daily energy, average/peak load,
+evening peak, base load, daytime/night averages) and §46 ("HOW WAS THIS CALCULATED?" — a
+per-category kWh breakdown). Delivered as a new collapsible "Load Audit" section on the existing
+Simulation screen, in the same place as the "Energy Graph" section right above it, rather than a
+brand-new navigation route — the app's Simulation screen is already a single scrollable surface
+built from independent section cards, and a new top-level screen would mean touching the nav
+graph in a sandbox with no way to actually launch and click through it. The content the spec
+asked for is all here; only the "screen" packaging differs from the letter of the request.
+
+New domain code, in its own file since it's a genuinely separate concern from `SimulationEngine`
+proper:
+
+- `LoadAudit.compute(timeline)` → `LoadAuditSummary` — reads the exact same `SimFrame` timeline
+  the digital twin and 24h graph already use, so these numbers can never disagree with what's
+  on screen above them. Evening peak scoped to 5-10pm, daytime average to 8am-5pm, night average
+  to 10pm-6am, matching the spec's own windows.
+- `applianceDailyEnergyByCategoryKwh()` — an *exact* analytic sum (quantity × watts × dutyFactor
+  × each run's own declared duration, added up directly) rather than a timestep-loop
+  approximation, scoped to the runs active on the selected day type. Zero-load categories are
+  omitted rather than shown as a padding row of zeroes.
+
+`LoadAuditContent` (new `LoadAuditCard.kt`) shows the seven headline stats, an evening-peak-vs-
+daytime callout when the gap is real (>40%, matching the spec's own "significantly higher"
+framing rather than firing on any nonzero difference), and the tappable breakdown with a total
+that's reconciled against Daily Energy (the gap being background/standby load not tied to a
+specific appliance, stated plainly rather than left as an unexplained mismatch).
+
+Still open: the appliance detail sheet redesign (nameplate fields, source labels, per-appliance
+tap-through), an expanded recommendations engine (unusual-schedule detection etc.), the Home
+dashboard rebuild, and automated tests. Verified via paren/brace balance on every touched file
+and a call-site grep confirming no orphaned references.
