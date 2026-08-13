@@ -2061,3 +2061,25 @@ engineering-detail visibility, not renegotiating what a tier costs.
 Verified via paren/brace balance on all three touched files and a grep confirming the only
 `SimSystemConfig(...)` construction site is inside `.from()` itself (no second copy to fall out
 of sync with the new battery-rate logic).
+
+## A42 — Default simulation start time, and a flow-direction re-verification
+
+Two concrete asks alongside a much larger architecture request (that larger piece is still being
+scoped — see the next README entry once it lands). Both landed here first since they're small,
+self-contained, and didn't need to wait on that investigation.
+
+**Default start time.** `SimulationUiState.currentHour` was `12.0` (noon); now `4.5` (4:30am) —
+pre-dawn, before `SimulationEngine.SUNRISE_HOUR` (5.75). Confirmed nothing else in the ViewModel
+overwrites this on load (`load()` never touches `currentHour`; only `scrubTo`/`play` do, via
+`setHourInternal`), so this single default is the only place that needed to change.
+
+**Flow-direction re-verification.** Re-read `EnergyFlowPathManager.pointAt` line by line rather
+than relying on memory of earlier rounds: it's a genuine arc-length walk along each path's own
+`points` array in stored order — `t=0` always resolves to `points.first()` (the path's own
+`source` end), `t=1` to `points.last()` (`destination`). Cross-checked every path's actual point
+order against `EnergyFlowResolver`'s `source`/`destination`/`direction` assignment: `solar_inverter`
+and `grid_inverter` are FORWARD-only and their arrays already run source→destination; `inverter_house`
+is the same; `inverter_battery` is the only bidirectional one, and its array runs inverter→battery,
+so charging (FORWARD) walks the array forward and discharging (REVERSE) walks it backward —
+exactly the physically correct direction in both cases. No bug found; this was already correct
+by construction from earlier rounds' work, now confirmed rather than assumed.

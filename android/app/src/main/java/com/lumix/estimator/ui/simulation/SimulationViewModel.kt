@@ -32,7 +32,10 @@ data class SimulationUiState(
     val inputs: QuoteInputs? = null,
     val config: SimSystemConfig? = null,
     val timeline: List<SimFrame> = emptyList(),
-    val currentHour: Double = 12.0,
+    // Default view: pre-dawn, before solar production starts (SUNRISE_HOUR = 5.75) — the
+    // installer opens the simulation and immediately sees the day begin, rather than starting
+    // mid-afternoon with half the story already behind them.
+    val currentHour: Double = 4.5,
     val currentFrame: SimFrame? = null,
     val isPlaying: Boolean = false,
     val speed: Float = 1f,
