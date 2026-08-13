@@ -31,11 +31,40 @@ fun TechnicalDetailsContent(readout: TechnicalReadout, modifier: Modifier = Modi
             color = palette.textSecondary
         )
 
-        TechRow("PV Voltage", "%.0f V".format(readout.pvVoltage), "PV Current", "%.2f A".format(readout.pvCurrent))
+        TechRow(
+            if (readout.mpptStrings.size > 1) "PV Voltage (blended)" else "PV Voltage",
+            "%.0f V".format(readout.pvVoltage), "PV Current", "%.2f A".format(readout.pvCurrent)
+        )
         TechRow(
             "Ideal Output", "%.2f kW".format(readout.potentialPvKw),
             "Actual Output", "%.2f kW".format(readout.pvPowerKw)
         )
+        TechRow(
+            "PV Delivered", "%.2f kW".format(readout.pvDeliveredKw),
+            "PV Curtailed", "%.2f kW".format(readout.pvCurtailedKw)
+        )
+        if (readout.pvCurtailedKw > 0.01) {
+            Text(
+                "PV is producing more than the house and battery can currently use — the array stays at its normal operating voltage, but the unused portion is curtailed rather than delivered.",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary
+            )
+        }
+        if (readout.mpptStrings.size > 1) {
+            Text(
+                "${readout.mpptStrings.size} independent MPPT trackers — each carries its own string voltage, not one shared figure.",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary
+            )
+            readout.mpptStrings.forEach { mppt ->
+                TechRow(
+                    "MPPT ${mppt.index} (${mppt.panelCount} panels)",
+                    if (mppt.isActive) "%.0f V".format(mppt.vmpV) else "0 V",
+                    "MPPT ${mppt.index} power",
+                    "%.2f kW".format(mppt.powerKw)
+                )
+            }
+        }
         TechRow(
             "Cell Temp", "%.0f°C".format(readout.cellTempC),
             "Temp Loss", "%.1f%%".format(readout.temperatureLossPercent)

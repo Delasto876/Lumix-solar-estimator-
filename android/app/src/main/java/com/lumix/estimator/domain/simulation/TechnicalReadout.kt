@@ -53,11 +53,16 @@ data class TechnicalReadout(
     val energyTodayKwh: Double,
     val energyMonthEstKwh: Double,
     val startupSurgeKw: Double,
-    val energyBalanceErrorKw: Double
+    val energyBalanceErrorKw: Double,
+    /** A53: real per-MPPT-tracker electrical state — see [PvElectricalModel]. Empty only when there's no PV configured at all. */
+    val mpptStrings: List<MpptReadout>,
+    /** [SimFrame.curtailedSolarKw] surfaced here so the debug/technical panel doesn't need to reach back into the raw frame separately. */
+    val pvCurtailedKw: Double,
+    /** Solar actually delivered to the house or battery this instant — [SimFrame.solarToHouseKw] + [SimFrame.solarToBatteryKw]. Distinct from [pvPowerKw] (total realized generation, before curtailment) and [potentialPvKw] (before real-world losses too). */
+    val pvDeliveredKw: Double
 )
 
 object TechnicalModel {
-    private const val PV_NOMINAL_VOLTAGE = 380.0
     private const val BATTERY_MIN_VOLTAGE = 46.0
     private const val BATTERY_MAX_VOLTAGE = 53.0
     private const val GRID_LOW_VOLTAGE = 110.0
@@ -72,7 +77,19 @@ object TechnicalModel {
         gridServiceAmps: Double = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS,
         dayType: DayType = DayType.WEEKDAY
     ): TechnicalReadout {
-        val pvVoltage = if (frame.pvKw > 0.01) PV_NOMINAL_VOLTAGE else 0.0
+        // A53: real per-string Vmp/Voc (temperature-corrected, split across the inverter's actual
+        // MPPT trackers) replaces a flat hardcoded PV voltage — see PvElectricalModel's own doc for
+        // why voltage is gated on *potential* production, not delivered/curtailed power.
+        val mpptStrings = PvElectricalModel.mpptReadouts(
+            panelWatts = config.panelWatts,
+            panelCount = config.panelCount,
+            inverterKw = config.inverterKw,
+            inverterNameHint = config.inverterName,
+            cellTempC = frame.cellTempC,
+            potentialPvKw = frame.potentialPvKw,
+            realizedPvKw = frame.pvKw
+        )
+        val pvVoltage = PvElectricalModel.blendedVoltage(mpptStrings)
         val pvCurrent = if (pvVoltage > 0) (frame.pvKw * 1000.0) / pvVoltage else 0.0
 
         val batteryVoltage = if (config.hasBattery) {
@@ -148,7 +165,10 @@ object TechnicalModel {
             energyTodayKwh = energyTodayKwh,
             energyMonthEstKwh = energyTodayKwh * 30,
             startupSurgeKw = startupSurgeKw,
-            energyBalanceErrorKw = SimulationEngine.energyImbalanceKw(frame)
+            energyBalanceErrorKw = SimulationEngine.energyImbalanceKw(frame),
+            mpptStrings = mpptStrings,
+            pvCurtailedKw = frame.curtailedSolarKw,
+            pvDeliveredKw = frame.solarToHouseKw + frame.solarToBatteryKw
         )
     }
 }
