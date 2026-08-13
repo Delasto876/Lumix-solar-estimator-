@@ -1,9 +1,11 @@
 package com.lumix.estimator.domain.simulation
 
+import com.lumix.estimator.domain.EquipmentSpecs
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.SystemMode
 import kotlinx.serialization.Serializable
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * The simulator's view of a solar system — always derived from a real calculated
@@ -37,12 +39,27 @@ data class SimSystemConfig(
     companion object {
         fun from(result: QuoteResult): SimSystemConfig {
             val batteryCapacityKwh = result.totalBatteryKwh
-            // This catalog only carries one battery chemistry (LiFePO4), so there's no
-            // per-model spec sheet to read a real charge/discharge rating from yet — 0.5C is
-            // a typical continuous rate for that chemistry in residential packs, capped by
-            // whatever the paired inverter can actually push/pull regardless of what the
-            // battery itself could otherwise handle.
-            val batteryRateKw = min(batteryCapacityKwh * 0.5, result.inverterKw.coerceAtLeast(0.1))
+            val inverterCeilingKw = result.inverterKw.coerceAtLeast(0.1)
+            // Real per-model charge/discharge current, from EquipmentSpecs (2026 spec library) —
+            // scaled by how many physical units this system actually has (inferred by comparing
+            // the quoted total capacity against one real unit's own rated capacity, since the
+            // catalog's own tier label, e.g. "15 kWh", doesn't always match the real unit's exact
+            // rated figure, e.g. 16.07 kWh). Charge and discharge are no longer forced to match
+            // each other — the real 10kWh unit alone is 150A charge / 200A discharge, genuinely
+            // asymmetric. Either way, both are still capped by what the paired inverter can
+            // actually push/pull.
+            val matchedBattery = EquipmentSpecs.batterySpecFor(result.batteryName)
+            val (batteryMaxChargeKw, batteryMaxDischargeKw) = if (matchedBattery != null) {
+                val units = (batteryCapacityKwh / matchedBattery.ratedEnergyKwh).roundToInt().coerceAtLeast(1)
+                val chargeKw = matchedBattery.maxChargeA * matchedBattery.voltageV / 1000.0 * units
+                val dischargeKw = matchedBattery.maxDischargeA * matchedBattery.voltageV / 1000.0 * units
+                chargeKw.coerceAtMost(inverterCeilingKw) to dischargeKw.coerceAtMost(inverterCeilingKw)
+            } else {
+                // No confirmed real spec for this battery tier — fall back to the same
+                // conservative generic 0.5C estimate this app always used.
+                val fallback = min(batteryCapacityKwh * 0.5, inverterCeilingKw)
+                fallback to fallback
+            }
             return SimSystemConfig(
                 pvCapacityKw = result.pvKw,
                 panelCount = result.panelCount,
@@ -55,8 +72,8 @@ data class SimSystemConfig(
                 gridConnectable = result.effectiveSystemMode != SystemMode.OFFGRID,
                 avgDailyLoadKwh = result.designDailyKwh,
                 peakLoadKw = (result.peakWatts / 1000.0).coerceAtLeast(result.designDailyKwh / 10.0),
-                batteryMaxChargeKw = batteryRateKw,
-                batteryMaxDischargeKw = batteryRateKw,
+                batteryMaxChargeKw = batteryMaxChargeKw,
+                batteryMaxDischargeKw = batteryMaxDischargeKw,
                 batteryChargeEfficiency = 0.95,
                 batteryDepthOfDischargeFraction = SimulationEngine.BATTERY_MIN_SOC_FRACTION
             )

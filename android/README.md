@@ -2007,3 +2007,57 @@ size the panel count, not a literal "hours the sun is up" value, and it was alre
 Verified via paren/brace balance on both touched files and a grep confirming `SUNRISE_HOUR`/
 `SUNSET_HOUR` have exactly the two call sites they've always had (no second hardcoded copy
 anywhere to drift out of sync).
+
+## A41 — Real equipment specs (panels/inverters/batteries) wired into the simulation
+
+The user supplied a real spec library — `Lumix_Solar_Equipment_Spec_Library_2026`, as CSV, XLSX,
+and JSON (all three carry the same data; the XLSX's own column headers are the most complete and
+what this round's data model is transcribed from): real datasheet figures for 6 PV modules
+(Trina, JinkoSolar), 11 inverters (Growatt, Deye, LuxPower, SRNE), and 3 SRNE batteries. The
+ask: save it and use it in the calculations tied to whichever panel/inverter/battery the quote
+actually picked.
+
+**New `EquipmentSpecs.kt`** (`domain` package, alongside `Catalog.kt`): `PanelSpec`/
+`InverterSpec`/`BatterySpecSheet` data classes holding every field from the source library —
+Vmp/Voc/Imp/Isc/efficiency for panels; MPPT count, max PV input, battery voltage range, AC
+output current, efficiency, and a raw frequency rating for inverters; real voltage, capacity,
+max charge/discharge current, DoD, and cycle life for batteries — plus matcher functions
+(`panelSpecFor(watts)`, `inverterSpecFor(kw)`, `batterySpecFor(name)`) that find the closest real
+product for one of this app's own generic catalog tiers, or return `null` when there genuinely
+isn't a confirmed match (no 3kW hybrid exists in the library at all; the SRNE 8kW-class entry
+has mostly unverified fields) — consistent with the source library's own README rule that
+wattage alone never uniquely identifies a real product.
+
+**A genuine finding, surfaced rather than smoothed over:** matching this app's own "6000W
+Hybrid" and "12000W Hybrid DEYE" catalog tiers to their real counterparts lands on the Deye
+SUN-6K-SG02LP2-US-AM2 and SUN-12K-SG02LP2-US-AM3 — and both are datasheet-rated 60 Hz only, with
+an explicit "verify Jamaica 50 Hz compatibility" note from the source library itself. Per that
+library's own rule ("never assume 50 Hz is supported"), this is not silently treated as fine —
+`InverterSpec.jamaicaFrequencyConfirmed` is `false` for any unit whose raw rating doesn't
+literally contain "50", and the Inverter inspect sheet now surfaces this as a visible caution
+rather than a hidden assumption.
+
+**Wired into the actual simulation physics**, not just displayed:
+`SimSystemConfig.from()` now computes `batteryMaxChargeKw`/`batteryMaxDischargeKw` from the
+matched battery's real max charge/discharge amperage × voltage (scaled by how many physical
+units the quote's total capacity implies), replacing the previous flat 0.5C guess wherever a
+real spec matches — e.g. the real 10kWh SRNE unit is genuinely asymmetric (150A charge / 200A
+discharge), which the old flat-rate model couldn't represent at all. Falls back to the old 0.5C
+estimate only when no confirmed spec exists for that tier, so nothing regresses for the tiers
+this library doesn't cover.
+
+**Wired into the inspect sheets** (`InspectPanel.kt`): Panels now shows the matched module's
+brand/model, Vmp, Voc, and efficiency; Inverter shows brand/model, MPPT count, max PV input,
+battery voltage range, rated efficiency, and the frequency-compatibility note above; Battery
+shows brand/model, chemistry, real max charge/discharge current, and rated cycle life — all
+additive to the existing live simulation numbers, never replacing them.
+
+**Scope note:** panel Voc/Vmp aren't yet used for actual string-sizing engineering checks (MPPT
+voltage-window validation, temperature-adjusted Voc) — they're surfaced for reference now, with
+the real numbers available for that check to be added as its own round. Pricing/quote math was
+deliberately left untouched — this was about calculation accuracy in the simulation and
+engineering-detail visibility, not renegotiating what a tier costs.
+
+Verified via paren/brace balance on all three touched files and a grep confirming the only
+`SimSystemConfig(...)` construction site is inside `.from()` itself (no second copy to fall out
+of sync with the new battery-rate logic).

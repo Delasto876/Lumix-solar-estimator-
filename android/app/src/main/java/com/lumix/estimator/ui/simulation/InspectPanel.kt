@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.lumix.estimator.domain.EquipmentSpecs
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.simulation.SimFrame
 import com.lumix.estimator.domain.simulation.SimSystemConfig
@@ -114,30 +115,53 @@ private fun detailLines(
     gridConnected: Boolean,
     gridServiceAmps: Double
 ): DetailLines = when (target) {
-    InspectTarget.PANELS -> DetailLines(
-        title = "Solar Array",
-        subtitle = "${config.panelCount} × ${config.panelWatts} W",
-        rows = listOf(
-            "Total capacity" to fmtKw(config.pvCapacityKw),
-            "Ideal output (no losses)" to fmtKw(f.potentialPvKw),
-            "Actual output" to fmtKw(f.pvKw),
-            "Cell temp" to "%.0f°C".format(f.cellTempC),
-            "To home" to fmtKw(f.solarToHouseKw),
-            "To battery" to fmtKw(f.solarToBatteryKw),
-            "Curtailed (unused)" to fmtKw(f.curtailedSolarKw)
+    InspectTarget.PANELS -> {
+        val spec = EquipmentSpecs.panelSpecFor(config.panelWatts)
+        DetailLines(
+            title = "Solar Array",
+            subtitle = if (spec != null) "${config.panelCount} × ${spec.brand} ${spec.model}" else "${config.panelCount} × ${config.panelWatts} W",
+            rows = listOf(
+                "Total capacity" to fmtKw(config.pvCapacityKw),
+                "Ideal output (no losses)" to fmtKw(f.potentialPvKw),
+                "Actual output" to fmtKw(f.pvKw),
+                "Cell temp" to "%.0f°C".format(f.cellTempC),
+                "To home" to fmtKw(f.solarToHouseKw),
+                "To battery" to fmtKw(f.solarToBatteryKw),
+                "Curtailed (unused)" to fmtKw(f.curtailedSolarKw)
+            ) + listOfNotNull(
+                spec?.vmpV?.let { "Vmp (per panel)" to "%.1f V".format(it) },
+                spec?.vocV?.let { "Voc (per panel)" to "%.1f V".format(it) },
+                spec?.efficiencyPercent?.let { "Module efficiency" to "%.1f%%".format(it) }
+            ),
+            note = spec?.let { "Reference spec: ${it.model} — ${it.status.lowercase()}." }
         )
-    )
-    InspectTarget.INVERTER -> DetailLines(
-        title = config.inverterName,
-        subtitle = "${"%.1f".format(config.inverterKw)} kW hybrid inverter",
-        rows = listOf(
-            "Current output" to fmtKw(f.pvKw),
-            "Home load" to fmtKw(f.houseLoadKw),
-            "Battery" to fmtKw(f.batteryPowerKw),
-            "Grid" to fmtKw(f.gridPowerKw)
-        ),
-        note = if (f.pvKw >= config.inverterKw - 0.01) "Producing at the inverter's rated limit." else null
-    )
+    }
+    InspectTarget.INVERTER -> {
+        val spec = EquipmentSpecs.inverterSpecFor(config.inverterKw)
+        val overLimitNote = if (f.pvKw >= config.inverterKw - 0.01) "Producing at the inverter's rated limit." else null
+        val frequencyNote = when {
+            spec == null -> null
+            spec.jamaicaFrequencyConfirmed -> null
+            spec.frequencyUnverified -> "Reference unit's 50 Hz support is unverified — confirm against the real datasheet before installing in Jamaica."
+            else -> "Reference unit's datasheet lists ${spec.frequencyHzRaw} Hz only — verify 50 Hz (Jamaica) compatibility before installing."
+        }
+        DetailLines(
+            title = config.inverterName,
+            subtitle = if (spec != null) "${spec.brand} ${spec.model}" else "${"%.1f".format(config.inverterKw)} kW hybrid inverter",
+            rows = listOf(
+                "Current output" to fmtKw(f.pvKw),
+                "Home load" to fmtKw(f.houseLoadKw),
+                "Battery" to fmtKw(f.batteryPowerKw),
+                "Grid" to fmtKw(f.gridPowerKw)
+            ) + listOfNotNull(
+                spec?.mpptCount?.let { "MPPT inputs" to it.toString() },
+                spec?.maxPvW?.let { "Max PV input" to "$it W" },
+                spec?.batteryVoltageRange?.let { "Battery voltage range" to it },
+                spec?.efficiencyPercent?.let { "Rated efficiency" to "%.1f%%".format(it) }
+            ),
+            note = listOfNotNull(overLimitNote, frequencyNote).takeIf { it.isNotEmpty() }?.joinToString(" ")
+        )
+    }
     InspectTarget.BATTERY -> {
         val chargingRate = f.batteryPowerKw
         val cutoffFraction = SimulationEngine.BATTERY_MIN_SOC_FRACTION
@@ -145,8 +169,9 @@ private fun detailLines(
             val availableKwh = (f.batterySocKwh - config.batteryCapacityKwh * cutoffFraction).coerceAtLeast(0.0)
             availableKwh / (-chargingRate)
         } else null
+        val spec = EquipmentSpecs.batterySpecFor(config.batteryName)
         DetailLines(
-            title = config.batteryName ?: "Battery bank",
+            title = if (spec != null) "${spec.brand} ${spec.model}" else config.batteryName ?: "Battery bank",
             subtitle = "${"%.1f".format(config.batteryCapacityKwh)} kWh capacity",
             rows = listOfNotNull(
                 "Charge" to "${f.batterySocPercent.toInt()}%",
@@ -157,7 +182,10 @@ private fun detailLines(
                     else -> "Status" to "Idle"
                 },
                 runtimeHours?.let { "Estimated runtime" to formatHours(it) },
-                "Reserve cutoff" to "${(cutoffFraction * 100).toInt()}%"
+                "Reserve cutoff" to "${(cutoffFraction * 100).toInt()}%",
+                spec?.let { "Chemistry" to it.chemistry },
+                spec?.let { "Max charge / discharge" to "${it.maxChargeA}A / ${it.maxDischargeA}A per unit" },
+                spec?.let { "Rated cycle life" to "${it.cycleLife} cycles" }
             )
         )
     }
