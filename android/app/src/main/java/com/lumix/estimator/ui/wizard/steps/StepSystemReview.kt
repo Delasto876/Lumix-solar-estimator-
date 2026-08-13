@@ -4,24 +4,32 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.PriceList
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteMode
 import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.domain.UsageMode
+import com.lumix.estimator.domain.simulation.SimulationEngine
+import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.numberDisplayStyle
 import kotlin.math.min
+import kotlinx.coroutines.launch
 
 private data class EngineeringCheck(val label: String, val pass: Boolean, val detail: String?)
 
@@ -34,8 +42,10 @@ private data class EngineeringCheck(val label: String, val pass: Boolean, val de
  * certification, just a transparency signal.
  */
 @Composable
-fun StepSystemReview(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> Unit) {
+fun StepSystemReview(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> Unit, settingsRepository: SettingsRepository) {
     val palette = LocalLumixPalette.current
+    val scope = rememberCoroutineScope()
+    val gridServiceAmps by settingsRepository.defaultGridServiceAmps.collectAsState(initial = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS)
     val preview = remember(inputs) { SystemCalculator.calculate(inputs, PriceList.DEFAULT, PriceList.DEFAULT) }
     val requiredInverterKw = remember(preview) { preview.peakWatts * 1.25 / 1000.0 }
     val batteryMaxDischargeKw = remember(preview) {
@@ -145,14 +155,22 @@ fun StepSystemReview(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInput
 
         SectionCard(title = "Grid") {
             Text(
-                "Fixed to Jamaica's standard residential utility service — not a per-quote setting.",
+                "Jamaica's standard residential utility service. Voltage and frequency are fixed by JPS; the current limit is your main-breaker rating and can be adjusted below.",
                 style = MaterialTheme.typography.labelSmall,
                 color = palette.textSecondary
             )
             ReviewRow("Grid voltage", "220V / 110V split-phase")
             ReviewRow("System type", preview.effectiveSystemMode.name.lowercase().replaceFirstChar { it.uppercase() })
             ReviewRow("Frequency", "50 Hz")
-            ReviewRow("Grid current limit", "30 A")
+            NumberField(
+                label = "Grid current limit",
+                value = gridServiceAmps,
+                onValueChange = { v -> scope.launch { settingsRepository.setDefaultGridServiceAmps(v.coerceIn(10.0, 200.0)) } },
+                allowDecimal = false,
+                suffix = "A",
+                supportingText = "Applies to new simulations for this system; also editable in Settings.",
+                modifier = Modifier.padding(top = 8.dp)
+            )
         }
     }
 }

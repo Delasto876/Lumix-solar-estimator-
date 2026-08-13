@@ -123,6 +123,7 @@ fun LumixNavHost(app: LumixApp) {
             composable(ROUTE_WIZARD) {
                 WizardScreen(
                     viewModel = wizardViewModel,
+                    settingsRepository = app.settingsRepository,
                     onBackToHome = { navController.popBackStack(ROUTE_HOME, inclusive = false) },
                     onResults = { id ->
                         navController.navigate("results/$id") {

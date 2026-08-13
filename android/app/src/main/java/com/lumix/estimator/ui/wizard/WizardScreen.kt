@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.QuoteMode
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.LumixSecondaryButton
@@ -63,6 +64,7 @@ private val stepTitles = mapOf(
 @Composable
 fun WizardScreen(
     viewModel: WizardViewModel,
+    settingsRepository: SettingsRepository,
     onBackToHome: () -> Unit,
     onResults: (Long) -> Unit
 ) {
@@ -153,7 +155,7 @@ fun WizardScreen(
                     9 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepManualMode(inputs, viewModel::update)
                     10 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepInverterPanels(inputs, viewModel::update)
                     11 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepBatteryBank(inputs, viewModel::update)
-                    12 -> StepSystemReview(inputs, viewModel::update)
+                    12 -> StepSystemReview(inputs, viewModel::update, settingsRepository)
                     13 -> Step7Pricing(inputs, viewModel::update)
                 }
             }
