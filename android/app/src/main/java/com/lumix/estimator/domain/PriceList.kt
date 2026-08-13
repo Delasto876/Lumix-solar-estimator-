@@ -2,13 +2,29 @@ package com.lumix.estimator.domain
 
 import kotlinx.serialization.Serializable
 
+/**
+ * A51: prices for the new real, named equipment models ([Catalog], backed by [EquipmentSpecs])
+ * are placeholder values — "just put some random price, I will update the prices in settings
+ * when created" (2026-08-13). Every field below is editable in Settings ([PriceFields]); nothing
+ * here should be read as an actual quoted JMD figure until the project owner fills it in.
+ */
 @Serializable
 data class PriceList(
-    val inverterHybrid3k: Double = 135000.0,
-    val inverterHybrid6k: Double = 300000.0,
-    val inverterHybrid8k: Double = 400000.0,
-    val inverterHybrid10k: Double = 450000.0,
-    val inverterHybrid12k: Double = 540000.0,
+    val inverterDeye6k: Double = 260000.0,
+    val inverterDeye8k: Double = 340000.0,
+    val inverterGrowatt10k: Double = 420000.0,
+    val inverterLuxpowerLxpLb12k: Double = 500000.0,
+    val inverterLuxpowerGenLb13k: Double = 560000.0,
+
+    // MANUAL-only (partially verified / needs verification) inverters — same placeholder pattern.
+    val inverterLuxpowerGenLb6k: Double = 260000.0,
+    val inverterLuxpowerGenLb8k: Double = 340000.0,
+    val inverterLuxpowerGenLb10k: Double = 420000.0,
+    val inverterSrneHesp4to6_5k: Double = 280000.0,
+    val inverterSrneHesp8k: Double = 340000.0,
+    val inverterSrneHesp10k: Double = 420000.0,
+    val inverterSrneHesp12k: Double = 500000.0,
+    val inverterGrowattSph8k: Double = 340000.0,
 
     val inverterGridTie15k: Double = 450000.0,
 
@@ -23,10 +39,11 @@ data class PriceList(
 
     val batteryAGM12V: Double = 45000.0,
 
-    val panel415W: Double = 17500.0,
-    val panel550W: Double = 19500.0,
     val panel595W: Double = 20500.0,
-    val panel600W: Double = 23000.0,
+    val panel615W: Double = 21000.0,
+    val panel620W: Double = 21200.0,
+    val panel700W: Double = 24000.0,
+    val panel720W: Double = 24500.0,
 
     val mountingRail16ft: Double = 4500.0,
     val midClamp: Double = 200.0,
@@ -60,9 +77,11 @@ data class PriceList(
     val pvcConduitOneBundle: Double = 10000.0
 ) {
     fun panelPrice(watts: Int): Double = when (watts) {
-        415 -> panel415W
-        550 -> panel550W
-        600 -> panel600W
+        595 -> panel595W
+        615 -> panel615W
+        620 -> panel620W
+        700 -> panel700W
+        720 -> panel720W
         else -> panel595W
     }
 
@@ -81,11 +100,20 @@ data class PriceFieldSpec(
 
 object PriceFields {
     val all: List<PriceFieldSpec> = listOf(
-        PriceFieldSpec("inverterHybrid3k", "3000W Hybrid 110V (no AC)", "Hybrid Inverters", { it.inverterHybrid3k }, { p, v -> p.copy(inverterHybrid3k = v) }),
-        PriceFieldSpec("inverterHybrid6k", "6000W Hybrid 110/220V", "Hybrid Inverters", { it.inverterHybrid6k }, { p, v -> p.copy(inverterHybrid6k = v) }),
-        PriceFieldSpec("inverterHybrid8k", "8000W Hybrid 110/220V", "Hybrid Inverters", { it.inverterHybrid8k }, { p, v -> p.copy(inverterHybrid8k = v) }),
-        PriceFieldSpec("inverterHybrid10k", "10000W Hybrid DEYE", "Hybrid Inverters", { it.inverterHybrid10k }, { p, v -> p.copy(inverterHybrid10k = v) }),
-        PriceFieldSpec("inverterHybrid12k", "12000W Hybrid DEYE", "Hybrid Inverters", { it.inverterHybrid12k }, { p, v -> p.copy(inverterHybrid12k = v) }),
+        PriceFieldSpec("inverterDeye6k", "Deye SUN-6K-SG01LP1-US", "Hybrid Inverters (Verified)", { it.inverterDeye6k }, { p, v -> p.copy(inverterDeye6k = v) }),
+        PriceFieldSpec("inverterDeye8k", "Deye SUN-8K-SG01LP1-US", "Hybrid Inverters (Verified)", { it.inverterDeye8k }, { p, v -> p.copy(inverterDeye8k = v) }),
+        PriceFieldSpec("inverterGrowatt10k", "Growatt SPH 10000TL-HU-US", "Hybrid Inverters (Verified)", { it.inverterGrowatt10k }, { p, v -> p.copy(inverterGrowatt10k = v) }),
+        PriceFieldSpec("inverterLuxpowerLxpLb12k", "LuxPower LXP-LB-US 12K", "Hybrid Inverters (Verified)", { it.inverterLuxpowerLxpLb12k }, { p, v -> p.copy(inverterLuxpowerLxpLb12k = v) }),
+        PriceFieldSpec("inverterLuxpowerGenLb13k", "LuxPower GEN-LB-US 13K", "Hybrid Inverters (Verified)", { it.inverterLuxpowerGenLb13k }, { p, v -> p.copy(inverterLuxpowerGenLb13k = v) }),
+
+        PriceFieldSpec("inverterLuxpowerGenLb6k", "LuxPower GEN-LB-US 6K (partially verified)", "Hybrid Inverters (Manual only)", { it.inverterLuxpowerGenLb6k }, { p, v -> p.copy(inverterLuxpowerGenLb6k = v) }),
+        PriceFieldSpec("inverterLuxpowerGenLb8k", "LuxPower GEN-LB-US 8K (partially verified)", "Hybrid Inverters (Manual only)", { it.inverterLuxpowerGenLb8k }, { p, v -> p.copy(inverterLuxpowerGenLb8k = v) }),
+        PriceFieldSpec("inverterLuxpowerGenLb10k", "LuxPower GEN-LB-US 10K (partially verified)", "Hybrid Inverters (Manual only)", { it.inverterLuxpowerGenLb10k }, { p, v -> p.copy(inverterLuxpowerGenLb10k = v) }),
+        PriceFieldSpec("inverterSrneHesp4to6_5k", "SRNE HESP 4-6.5K-HUS (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp4to6_5k }, { p, v -> p.copy(inverterSrneHesp4to6_5k = v) }),
+        PriceFieldSpec("inverterSrneHesp8k", "SRNE HESP 8K-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp8k }, { p, v -> p.copy(inverterSrneHesp8k = v) }),
+        PriceFieldSpec("inverterSrneHesp10k", "SRNE HESP 10K-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp10k }, { p, v -> p.copy(inverterSrneHesp10k = v) }),
+        PriceFieldSpec("inverterSrneHesp12k", "SRNE HESP 12K-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp12k }, { p, v -> p.copy(inverterSrneHesp12k = v) }),
+        PriceFieldSpec("inverterGrowattSph8k", "Growatt SPH 8000TL-HU-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterGrowattSph8k }, { p, v -> p.copy(inverterGrowattSph8k = v) }),
 
         PriceFieldSpec("inverterGridTie15k", "15000W Grid-tie 3-phase", "Grid-tie Inverters", { it.inverterGridTie15k }, { p, v -> p.copy(inverterGridTie15k = v) }),
 
@@ -94,15 +122,16 @@ object PriceFields {
         PriceFieldSpec("inverterOffgrid3_2kPowmr", "3200W Off-grid PowMr 24V", "Off-grid Inverters", { it.inverterOffgrid3_2kPowmr }, { p, v -> p.copy(inverterOffgrid3_2kPowmr = v) }),
         PriceFieldSpec("chargeController80A", "80A MPPT charge controller", "Off-grid Inverters", { it.chargeController80A }, { p, v -> p.copy(chargeController80A = v) }),
 
-        PriceFieldSpec("batteryLFP5k", "5 kWh LiFePO4 battery", "Batteries", { it.batteryLFP5k }, { p, v -> p.copy(batteryLFP5k = v) }),
-        PriceFieldSpec("batteryLFP10k", "10 kWh LiFePO4 battery", "Batteries", { it.batteryLFP10k }, { p, v -> p.copy(batteryLFP10k = v) }),
-        PriceFieldSpec("batteryLFP15k", "15 kWh LiFePO4 battery", "Batteries", { it.batteryLFP15k }, { p, v -> p.copy(batteryLFP15k = v) }),
+        PriceFieldSpec("batteryLFP5k", "5 kWh LiFePO4 (SRNE SR-EOS05B)", "Batteries", { it.batteryLFP5k }, { p, v -> p.copy(batteryLFP5k = v) }),
+        PriceFieldSpec("batteryLFP10k", "10 kWh LiFePO4 (SRNE SR-EOS10B)", "Batteries", { it.batteryLFP10k }, { p, v -> p.copy(batteryLFP10k = v) }),
+        PriceFieldSpec("batteryLFP15k", "15 kWh LiFePO4 (SRNE SR-EOS15B)", "Batteries", { it.batteryLFP15k }, { p, v -> p.copy(batteryLFP15k = v) }),
         PriceFieldSpec("batteryAGM12V", "12V AGM battery (~2.4kWh)", "Batteries", { it.batteryAGM12V }, { p, v -> p.copy(batteryAGM12V = v) }),
 
-        PriceFieldSpec("panel415W", "415W PV panel", "Panels", { it.panel415W }, { p, v -> p.copy(panel415W = v) }),
-        PriceFieldSpec("panel550W", "550W PV panel", "Panels", { it.panel550W }, { p, v -> p.copy(panel550W = v) }),
-        PriceFieldSpec("panel595W", "595W PV panel", "Panels", { it.panel595W }, { p, v -> p.copy(panel595W = v) }),
-        PriceFieldSpec("panel600W", "600W PV panel", "Panels", { it.panel600W }, { p, v -> p.copy(panel600W = v) }),
+        PriceFieldSpec("panel595W", "595W PV panel (JA Solar JAM72D40-GB)", "Panels", { it.panel595W }, { p, v -> p.copy(panel595W = v) }),
+        PriceFieldSpec("panel615W", "615W PV panel (DAS DH156NA)", "Panels", { it.panel615W }, { p, v -> p.copy(panel615W = v) }),
+        PriceFieldSpec("panel620W", "620W PV panel (DAS DH156NA)", "Panels", { it.panel620W }, { p, v -> p.copy(panel620W = v) }),
+        PriceFieldSpec("panel700W", "700W PV panel (JinkoSolar JKM700N)", "Panels", { it.panel700W }, { p, v -> p.copy(panel700W = v) }),
+        PriceFieldSpec("panel720W", "720W PV panel (JinkoSolar JKM720N)", "Panels", { it.panel720W }, { p, v -> p.copy(panel720W = v) }),
 
         PriceFieldSpec("mountingRail16ft", "Mounting rail (16ft)", "Mounting Hardware", { it.mountingRail16ft }, { p, v -> p.copy(mountingRail16ft = v) }),
         PriceFieldSpec("midClamp", "Mid clamp", "Mounting Hardware", { it.midClamp }, { p, v -> p.copy(midClamp = v) }),

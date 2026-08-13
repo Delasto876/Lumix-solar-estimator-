@@ -219,12 +219,14 @@ object SystemCalculator {
             requiredPvKw = pvKw
 
             if (input.systemMode == SystemMode.OFFGRID) {
-                // Off-grid systems here stay on the simpler fixed-550W/max-4-panel sizing this
-                // catalog has always used for them (small stand-alone arrays) rather than the full
-                // multi-wattage search — scope note, not an oversight: the multi-wattage search
-                // below is aimed at hybrid/grid-interactive arrays, which is where the spec's own
-                // "10 × 620W" style examples live.
-                panelW = 550
+                // Off-grid systems here stay on the simpler fixed-smallest-wattage/max-4-panel
+                // sizing this catalog has always used for them (small stand-alone arrays) rather
+                // than the full multi-wattage search — scope note, not an oversight: the
+                // multi-wattage search below is aimed at hybrid/grid-interactive arrays, which is
+                // where the spec's own "10 × 620W" style examples live. A51 replaced the old
+                // fixed 550W (no longer a verified catalog wattage) with the smallest wattage the
+                // verified equipment database actually offers.
+                panelW = Catalog.panelWattages.first()
                 panelCount = min(enforceEvenPanels((pvKw * 1000) / panelW), 4)
                 panelSelectionReason = "%.2f kW required — %d × %dW panels (off-grid arrays capped at 4)."
                     .format(pvKw, panelCount, panelW)
@@ -247,7 +249,7 @@ object SystemCalculator {
                 chosenInverter = pool.firstOrNull { it.kw >= requiredInverterKw } ?: pool.last()
             }
 
-            panelW = if (input.manualPanelWatts > 0) input.manualPanelWatts else if (effectiveSystemMode == SystemMode.OFFGRID) 550 else 595
+            panelW = if (input.manualPanelWatts > 0) input.manualPanelWatts else Catalog.panelWattages.first()
 
             when (effectiveSystemMode) {
                 SystemMode.HYBRID -> {
@@ -314,7 +316,7 @@ object SystemCalculator {
                 }
             }
 
-            if (effectiveSystemMode == SystemMode.OFFGRID && panelW <= 550) {
+            if (effectiveSystemMode == SystemMode.OFFGRID && panelW <= Catalog.panelWattages.first()) {
                 panelCount = min(panelCount, 4)
             }
         }
@@ -384,7 +386,11 @@ object SystemCalculator {
         val baseCostForWireRule = panelCost + inverterCost + batteryCostForWireRule
         val bigSystem = baseCostForWireRule > 750000
 
-        val panelsPerRow = 4
+        // A51: real per-wattage rail layout instead of a flat "4 per row" assumption — a 700/720W
+        // module (1303mm/51.3in wide) only fits 3 to a 16ft rail; a 595-620W module (1134mm/44.6in)
+        // still fits 4, matching RailLayoutCalculator's own worked expectations.
+        val panelWidthMm = EquipmentSpecs.panelSpecFor(panelW)?.dimensions?.widthMm ?: 1134.0
+        val panelsPerRow = RailLayoutCalculator.layoutFor(panelWidthMm).maxPracticalModules.coerceAtLeast(1)
         val rows = if (panelCount > 0) ceil(panelCount / panelsPerRow.toDouble()).toInt() else 0
         val railsPerRow = when (input.roofType) {
             RoofType.SLAB -> 3

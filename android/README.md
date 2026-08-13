@@ -2618,3 +2618,74 @@ derived approximation from the inverter's total max PV power/voltage. As before,
 sizing stays on its existing simpler fixed-550W/max-4-panel logic, and the equipment-selection
 engine still searches this app's own priced `Catalog` tiers rather than the real `EquipmentSpecs`
 product library — unchanged from A49's scope note, still blocked on real JMD pricing per product.
+
+## A51 — Catalog IS the verified equipment database now (pricing unblocked)
+
+Two messages arrived back to back: the full "UPDATE THE EQUIPMENT DATABASE — VERIFIED SOLAR
+EQUIPMENT ONLY" spec (real LuxPower/Deye/SRNE/Growatt inverter families, real JA Solar/DAS/
+Jinko panel models, a `VerificationStatus` requirement, a 16ft rail-layout calculator), followed
+immediately by "just put some random price, I will update the prices in settings when created" —
+which is the exact real-JMD-pricing blocker flagged repeatedly since A45 and reiterated after
+A48, finally lifted. `Catalog.kt` — the app's actual selectable, priced, quoted, simulated
+equipment list — is now genuinely derived from `EquipmentSpecs`, not a separately hand-maintained
+generic list living alongside it.
+
+**`EquipmentSpecs.kt` rebuilt with a `VerificationStatus` per entry** (VERIFIED /
+PARTIALLY_VERIFIED / NEEDS_VERIFICATION / REGIONAL_MODEL_REQUIRES_CONFIRMATION / DO_NOT_USE), full
+electrical field sets (Voc/Vmp/Isc/Imp, temp coefficients, dimensions in mm *and* ft, max system
+voltage; MPPT voltage range, startup voltage, per-tracker current, split-phase flag, battery
+voltage window/charge-power/discharge-power for inverters; usable capacity, voltage window, charge/
+discharge power, parallel count/support, BMS note, inverter compatibility for batteries), and a
+`dataQualityNote` per entry spelling out exactly which fields are the project owner's own typed
+spec data versus a disclosed industry-typical assumption filling a field the message didn't
+specify — never a fabricated precise figure presented as a manufacturer's own number. Old generic/
+placeholder entries (Trina 595W, the old ad-hoc Growatt/Deye/LuxPower/SRNE rows) are gone.
+
+**Models the message explicitly said not to invent stay absent, not filled with guesses**: Deye
+10K/12K (exact regional model unconfirmed), SRNE 13K ("NOT AVAILABLE"), Growatt 12K/13K. LuxPower
+GEN-LB-US 6K/8K/10K and the SRNE HESP 8-12K family members are present with the family-level specs
+the message *did* confirm, marked PARTIALLY_VERIFIED/NEEDS_VERIFICATION with a note on exactly
+what's still unconfirmed per model — real enough for MANUAL mode's own judgment call, excluded
+from GUIDED/LOAD's automatic selection either way.
+
+**A real bug caught before it shipped**: several real inverters now legitimately share the same
+kW rating (Deye SUN-6K and LuxPower GEN-LB-US 6K are both 6000W). The first version of
+`EquipmentSpecs.inverterSpecFor()` did a plain exact-wattage match, which could silently resolve
+to the wrong specific product — e.g. a panel Voc check running against LuxPower's derived 8300W
+max-PV-power figure when the system had actually selected the Deye unit with its own real 7800W
+figure. Fixed by preferring the VERIFIED entry whenever more than one real product shares a
+wattage — by construction, `Catalog.hybridInverters` only ever puts a wattage into the
+auto-selectable pool when exactly one VERIFIED entry exists for it, so this always resolves to the
+same specific product Catalog actually picked.
+
+**One design ambiguity resolved with a direct question, not a guess, back in A50**: whether the
+"assume one series string" rule (still in force this round) means the whole array or one string
+per real MPPT tracker. The user's earlier answer (per-tracker) is what made a `mpptCount`-aware
+Voc/Vmp check possible against the new database's real per-model tracker counts (2 for Deye/
+Growatt, 2-3 for the LuxPower families) without flagging ordinary arrays invalid.
+
+**New `RailLayoutCalculator.kt`** — a real 16ft (192in) rail model (clamp-gap + end-margin
+allowances, not `floor(16/width)`) wired into `SystemCalculator`'s existing rows/rails/hardware
+math in place of the old flat "4 per row" constant. It reproduces the message's own worked
+expectations exactly: 595-620W panels (1134mm wide) still fit 4 to a rail; 700-720W panels
+(1303mm wide) only fit 3 — which now correctly changes the rails/clamps/leg quantities a quote
+generates for the wider panel classes, not just a display figure.
+
+**Prices are placeholders, as instructed.** Every new `PriceList` field (13 inverters, 5 panels;
+batteries reuse the existing 3 fields, now backed by real SRNE products) defaults to a round
+placeholder JMD figure and is immediately editable in Settings — the existing price-editor screen
+already renders `PriceFields` generically by group, so the new "Hybrid Inverters (Verified)" and
+"Hybrid Inverters (Manual only)" groups and every new field needed no UI changes at all to appear
+there.
+
+**All 20 existing `EquipmentSelectionEngineTest` scenarios re-verified against the new database**
+(hand-traced in Python again, same discipline as A50) rather than assumed to still pass — panel
+tests using the real default wattage set, inverter tests against the new 6/8/10/12/13kW verified
+tiers. All still hold; no test needed changing.
+
+**Scope note.** Off-grid/grid-tie inverters are untouched — the message was entirely split-phase
+hybrid, so those keep their prior generic entries. Temperature coefficients, the LFP battery
+voltage window, BMS communication protocol, and max parallel-unit count are disclosed
+industry-typical values (see each entry's `dataQualityNote`), not manufacturer-datasheet figures
+for these specific models — none were given. Deye 10K/12K remain absent from every picker, exactly
+as instructed, until an exact regional model is confirmed.
