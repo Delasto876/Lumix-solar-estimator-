@@ -341,69 +341,82 @@ private fun defaultQuantityFor(type: SimApplianceType): Int = when (type) {
  * the same hot-water need; [SimApplianceType.EV_CHARGER_L1], [SimApplianceType.EV_CHARGER_L2],
  * and [SimApplianceType.POOL_PUMP] are marked "Optional" in the source load profile itself.
  */
+/**
+ * A48: previously, every [SimApplianceType] not linked to a wizard field still defaulted
+ * *enabled* — the load-profile's own richness (A33) meant the simulation showed roughly 35
+ * appliance types the installer never actually saw or chose in the estimator, an unrequested
+ * "generic demo house" riding along with the real selection. Fixed: only types with a real
+ * wizard counterpart ([ApplianceType]/[AcLoad]) follow what the installer actually selected;
+ * everything else now starts **off**, quantity seeded from [defaultQuantityFor] only so it has a
+ * sensible starting point *if* the installer later enables it from the Simulation's own fuller
+ * picker (which still offers the complete catalog — richness deferred, not deleted).
+ */
 fun defaultApplianceStates(inputs: QuoteInputs): Map<SimApplianceType, ApplianceState> {
     fun qty(type: ApplianceType) = inputs.appliances[type]?.qty ?: 0
     fun stateFor(type: SimApplianceType, quantity: Int = defaultQuantityFor(type), enabled: Boolean = true): ApplianceState {
         val q = quantity.coerceAtLeast(1)
         return ApplianceState(enabled = enabled, runs = defaultScheduleFor(type).map { it.copy(quantity = q) })
     }
-    // Wizard-linked appliances follow what the customer actually reported having, including
-    // being off entirely when they reported zero — same precedent as before A33.
+    // Wizard-linked appliances follow exactly what the customer actually reported having,
+    // including being off entirely when they reported zero or never selected it at all.
     fun stateFromWizard(type: SimApplianceType, wizardType: ApplianceType): ApplianceState {
         val q = qty(wizardType)
         return stateFor(type, quantity = q.coerceAtLeast(1), enabled = q > 0)
     }
+    // Not reachable from the wizard's basic catalog — off by default, available if the installer
+    // deliberately turns it on from the Simulation's own richer appliance picker.
+    fun stateOff(type: SimApplianceType) = stateFor(type, enabled = false)
 
     return linkedMapOf(
         // Kitchen
         SimApplianceType.REFRIGERATOR to stateFromWizard(SimApplianceType.REFRIGERATOR, ApplianceType.FRIDGE),
-        SimApplianceType.CHEST_FREEZER to stateFor(SimApplianceType.CHEST_FREEZER, quantity = qty(ApplianceType.FREEZER).coerceAtLeast(1), enabled = false),
-        SimApplianceType.ELECTRIC_KETTLE to stateFor(SimApplianceType.ELECTRIC_KETTLE),
+        SimApplianceType.CHEST_FREEZER to stateFromWizard(SimApplianceType.CHEST_FREEZER, ApplianceType.FREEZER),
+        SimApplianceType.ELECTRIC_KETTLE to stateFromWizard(SimApplianceType.ELECTRIC_KETTLE, ApplianceType.ELECTRIC_KETTLE),
         SimApplianceType.MICROWAVE to stateFromWizard(SimApplianceType.MICROWAVE, ApplianceType.MICROWAVE),
-        SimApplianceType.TOASTER to stateFor(SimApplianceType.TOASTER),
-        SimApplianceType.BLENDER to stateFor(SimApplianceType.BLENDER),
-        SimApplianceType.STOVE to stateFor(SimApplianceType.STOVE),
-        SimApplianceType.OVEN to stateFor(SimApplianceType.OVEN, enabled = false),
-        SimApplianceType.AIR_FRYER to stateFor(SimApplianceType.AIR_FRYER),
-        SimApplianceType.RICE_COOKER to stateFor(SimApplianceType.RICE_COOKER),
-        SimApplianceType.PRESSURE_COOKER to stateFor(SimApplianceType.PRESSURE_COOKER, enabled = false),
+        SimApplianceType.TOASTER to stateFromWizard(SimApplianceType.TOASTER, ApplianceType.TOASTER),
+        SimApplianceType.BLENDER to stateFromWizard(SimApplianceType.BLENDER, ApplianceType.BLENDER),
+        SimApplianceType.STOVE to stateFromWizard(SimApplianceType.STOVE, ApplianceType.STOVE),
+        SimApplianceType.OVEN to stateFromWizard(SimApplianceType.OVEN, ApplianceType.OVEN),
+        SimApplianceType.AIR_FRYER to stateOff(SimApplianceType.AIR_FRYER),
+        SimApplianceType.RICE_COOKER to stateOff(SimApplianceType.RICE_COOKER),
+        SimApplianceType.PRESSURE_COOKER to stateOff(SimApplianceType.PRESSURE_COOKER),
 
         // Cooling & comfort — wizard's single "Fans" quantity maps onto the primary (ceiling)
-        // fan type since the wizard never asked which kind; standing/bedroom fans get their own
-        // load-profile default quantity as supplementary comfort appliances.
+        // fan type since the wizard never asked which kind.
         SimApplianceType.CEILING_FAN to stateFromWizard(SimApplianceType.CEILING_FAN, ApplianceType.FAN),
-        SimApplianceType.STANDING_FAN to stateFor(SimApplianceType.STANDING_FAN),
-        SimApplianceType.BEDROOM_FAN to stateFor(SimApplianceType.BEDROOM_FAN),
+        SimApplianceType.STANDING_FAN to stateOff(SimApplianceType.STANDING_FAN),
+        SimApplianceType.BEDROOM_FAN to stateOff(SimApplianceType.BEDROOM_FAN),
         SimApplianceType.AIR_CONDITIONER to stateFor(SimApplianceType.AIR_CONDITIONER, quantity = inputs.ac.counts.values.sum().coerceAtLeast(1), enabled = inputs.ac.hasAc),
 
-        // Lighting
-        SimApplianceType.LED_BEDROOM to stateFor(SimApplianceType.LED_BEDROOM),
-        SimApplianceType.LED_KITCHEN to stateFor(SimApplianceType.LED_KITCHEN),
-        SimApplianceType.LED_LIVING to stateFor(SimApplianceType.LED_LIVING),
-        SimApplianceType.LED_EXTERIOR to stateFor(SimApplianceType.LED_EXTERIOR),
-        SimApplianceType.LED_BATHROOM to stateFor(SimApplianceType.LED_BATHROOM),
-        SimApplianceType.OUTDOOR_FLOODLIGHT to stateFor(SimApplianceType.OUTDOOR_FLOODLIGHT),
+        // Lighting — the wizard's generic "Lights"/"Outdoor Lights" map onto one representative
+        // indoor/outdoor fixture type each rather than fanning one quantity across every room.
+        SimApplianceType.LED_LIVING to stateFromWizard(SimApplianceType.LED_LIVING, ApplianceType.LIGHTS),
+        SimApplianceType.LED_EXTERIOR to stateFromWizard(SimApplianceType.LED_EXTERIOR, ApplianceType.OUTDOOR_LIGHTS),
+        SimApplianceType.LED_BEDROOM to stateOff(SimApplianceType.LED_BEDROOM),
+        SimApplianceType.LED_KITCHEN to stateOff(SimApplianceType.LED_KITCHEN),
+        SimApplianceType.LED_BATHROOM to stateOff(SimApplianceType.LED_BATHROOM),
+        SimApplianceType.OUTDOOR_FLOODLIGHT to stateOff(SimApplianceType.OUTDOOR_FLOODLIGHT),
 
         // Electronics & networking
         SimApplianceType.TELEVISION to stateFromWizard(SimApplianceType.TELEVISION, ApplianceType.TV),
-        SimApplianceType.SET_TOP_BOX to stateFor(SimApplianceType.SET_TOP_BOX),
-        SimApplianceType.WIFI_ROUTER to stateFor(SimApplianceType.WIFI_ROUTER),
-        SimApplianceType.MODEM to stateFor(SimApplianceType.MODEM),
-        SimApplianceType.PHONE_CHARGERS to stateFor(SimApplianceType.PHONE_CHARGERS),
-        SimApplianceType.LAPTOP to stateFor(SimApplianceType.LAPTOP),
-        SimApplianceType.DESKTOP_COMPUTER to stateFor(SimApplianceType.DESKTOP_COMPUTER, enabled = false),
-        SimApplianceType.PRINTER to stateFor(SimApplianceType.PRINTER),
-        SimApplianceType.GAME_CONSOLE to stateFor(SimApplianceType.GAME_CONSOLE),
-        SimApplianceType.SOUND_SYSTEM to stateFor(SimApplianceType.SOUND_SYSTEM),
+        SimApplianceType.DESKTOP_COMPUTER to stateFromWizard(SimApplianceType.DESKTOP_COMPUTER, ApplianceType.COMPUTER),
+        SimApplianceType.GAME_CONSOLE to stateFromWizard(SimApplianceType.GAME_CONSOLE, ApplianceType.GAMING_CONSOLE),
+        SimApplianceType.SET_TOP_BOX to stateOff(SimApplianceType.SET_TOP_BOX),
+        SimApplianceType.WIFI_ROUTER to stateOff(SimApplianceType.WIFI_ROUTER),
+        SimApplianceType.MODEM to stateOff(SimApplianceType.MODEM),
+        SimApplianceType.PHONE_CHARGERS to stateOff(SimApplianceType.PHONE_CHARGERS),
+        SimApplianceType.LAPTOP to stateOff(SimApplianceType.LAPTOP),
+        SimApplianceType.PRINTER to stateOff(SimApplianceType.PRINTER),
+        SimApplianceType.SOUND_SYSTEM to stateOff(SimApplianceType.SOUND_SYSTEM),
 
         // Water & heating
-        SimApplianceType.WATER_HEATER to stateFor(SimApplianceType.WATER_HEATER),
-        SimApplianceType.INSTANT_SHOWER to stateFor(SimApplianceType.INSTANT_SHOWER, enabled = false),
-        SimApplianceType.WATER_PUMP to stateFor(SimApplianceType.WATER_PUMP),
+        SimApplianceType.WATER_HEATER to stateFromWizard(SimApplianceType.WATER_HEATER, ApplianceType.WATER_HEATER),
+        SimApplianceType.WATER_PUMP to stateFromWizard(SimApplianceType.WATER_PUMP, ApplianceType.WATER_PUMP),
+        SimApplianceType.INSTANT_SHOWER to stateOff(SimApplianceType.INSTANT_SHOWER),
 
         // Personal care
-        SimApplianceType.HAIR_DRYER to stateFor(SimApplianceType.HAIR_DRYER),
-        SimApplianceType.CURLING_IRON to stateFor(SimApplianceType.CURLING_IRON),
+        SimApplianceType.HAIR_DRYER to stateOff(SimApplianceType.HAIR_DRYER),
+        SimApplianceType.CURLING_IRON to stateOff(SimApplianceType.CURLING_IRON),
 
         // Laundry
         SimApplianceType.IRON to stateFromWizard(SimApplianceType.IRON, ApplianceType.IRON),
@@ -411,17 +424,17 @@ fun defaultApplianceStates(inputs: QuoteInputs): Map<SimApplianceType, Appliance
         SimApplianceType.CLOTHES_DRYER to stateFromWizard(SimApplianceType.CLOTHES_DRYER, ApplianceType.DRYER),
 
         // Cleaning & misc
-        SimApplianceType.VACUUM_CLEANER to stateFor(SimApplianceType.VACUUM_CLEANER),
-        SimApplianceType.SEWING_MACHINE to stateFor(SimApplianceType.SEWING_MACHINE, enabled = false),
+        SimApplianceType.VACUUM_CLEANER to stateOff(SimApplianceType.VACUUM_CLEANER),
+        SimApplianceType.SEWING_MACHINE to stateOff(SimApplianceType.SEWING_MACHINE),
 
         // Security & access
-        SimApplianceType.SECURITY_SYSTEM to stateFor(SimApplianceType.SECURITY_SYSTEM),
-        SimApplianceType.GATE_OPENER to stateFor(SimApplianceType.GATE_OPENER),
+        SimApplianceType.SECURITY_SYSTEM to stateOff(SimApplianceType.SECURITY_SYSTEM),
+        SimApplianceType.GATE_OPENER to stateOff(SimApplianceType.GATE_OPENER),
 
-        // EV & outdoor — explicitly "Optional" in the source load profile.
-        SimApplianceType.EV_CHARGER_L1 to stateFor(SimApplianceType.EV_CHARGER_L1, enabled = false),
-        SimApplianceType.EV_CHARGER_L2 to stateFor(SimApplianceType.EV_CHARGER_L2, enabled = false),
-        SimApplianceType.POOL_PUMP to stateFor(SimApplianceType.POOL_PUMP, enabled = false)
+        // EV & outdoor
+        SimApplianceType.EV_CHARGER_L1 to stateOff(SimApplianceType.EV_CHARGER_L1),
+        SimApplianceType.EV_CHARGER_L2 to stateOff(SimApplianceType.EV_CHARGER_L2),
+        SimApplianceType.POOL_PUMP to stateOff(SimApplianceType.POOL_PUMP)
     )
 }
 

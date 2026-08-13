@@ -9,16 +9,31 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 object SystemCalculator {
-    /** The one mapping from the wizard's simple appliance picker to the simulation's real, richer catalog. */
+    /**
+     * The one mapping from the wizard's basic appliance picker to the simulation's real, richer
+     * catalog — kept in sync with [com.lumix.estimator.domain.simulation.defaultApplianceStates]'s
+     * own `stateFromWizard` pairings, since both exist to connect the exact same two enums.
+     */
     private fun simTypeFor(type: ApplianceType): SimApplianceType = when (type) {
+        ApplianceType.FAN -> SimApplianceType.CEILING_FAN
         ApplianceType.FRIDGE -> SimApplianceType.REFRIGERATOR
         ApplianceType.FREEZER -> SimApplianceType.CHEST_FREEZER
-        ApplianceType.FAN -> SimApplianceType.CEILING_FAN
-        ApplianceType.IRON -> SimApplianceType.IRON
+        ApplianceType.STOVE -> SimApplianceType.STOVE
+        ApplianceType.OVEN -> SimApplianceType.OVEN
         ApplianceType.MICROWAVE -> SimApplianceType.MICROWAVE
+        ApplianceType.ELECTRIC_KETTLE -> SimApplianceType.ELECTRIC_KETTLE
+        ApplianceType.TOASTER -> SimApplianceType.TOASTER
+        ApplianceType.BLENDER -> SimApplianceType.BLENDER
+        ApplianceType.WATER_HEATER -> SimApplianceType.WATER_HEATER
+        ApplianceType.WATER_PUMP -> SimApplianceType.WATER_PUMP
         ApplianceType.WASHER -> SimApplianceType.WASHING_MACHINE
         ApplianceType.DRYER -> SimApplianceType.CLOTHES_DRYER
+        ApplianceType.IRON -> SimApplianceType.IRON
+        ApplianceType.LIGHTS -> SimApplianceType.LED_LIVING
+        ApplianceType.OUTDOOR_LIGHTS -> SimApplianceType.LED_EXTERIOR
         ApplianceType.TV -> SimApplianceType.TELEVISION
+        ApplianceType.COMPUTER -> SimApplianceType.DESKTOP_COMPUTER
+        ApplianceType.GAMING_CONSOLE -> SimApplianceType.GAME_CONSOLE
     }
 
     /** Fallback only — every real calculation uses [QuoteInputs.peakSunHours] (per-quote, editable, default 5.5) instead. */

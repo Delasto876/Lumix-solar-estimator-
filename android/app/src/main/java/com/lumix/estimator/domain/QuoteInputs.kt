@@ -40,16 +40,44 @@ enum class ManualModeType { BATTERY_LED, PANEL_LED, FULL_MANUAL }
 @Serializable
 enum class DiscountType { NONE, PERCENT, FIXED }
 
+/**
+ * A29/A48: the ONE master appliance catalog for the wizard side (Guided/Load-Based/Manual all
+ * share this single `StepHouseholdAppliances` step — see `WizardScreen.kt`'s step dispatch,
+ * which doesn't branch by mode for step 6). Each entry's name is the exact same one the
+ * Simulation's own picker uses for its wizard-linked counterpart (see
+ * [com.lumix.estimator.domain.simulation.defaultApplianceStates]'s `stateFromWizard` calls) —
+ * that shared enum identity, not a display-string match, is the "stable ID" connecting the two.
+ * Deliberately kept to the basic categories/types requested — richer/secondary appliances (a
+ * second fridge, security system, EV charger, etc.) stay reachable from the Simulation's own
+ * fuller picker, not duplicated here.
+ */
 @Serializable
-enum class ApplianceType(val label: String, val watts: Int) {
-    FRIDGE("Refrigerators", 150),
-    FREEZER("Deep Freezers", 200),
-    FAN("Fans", 60),
-    IRON("Irons", 1200),
-    MICROWAVE("Microwaves", 1200),
-    WASHER("Washers", 600),
-    DRYER("Dryers", 1500),
-    TV("TVs", 80)
+enum class ApplianceType(val label: String, val watts: Int, val category: String) {
+    // Cooling
+    FAN("Fans", 60, "Cooling"),
+    // Kitchen
+    FRIDGE("Refrigerators", 150, "Kitchen"),
+    FREEZER("Deep Freezers", 200, "Kitchen"),
+    STOVE("Stove", 3000, "Kitchen"),
+    OVEN("Oven", 3000, "Kitchen"),
+    MICROWAVE("Microwaves", 1200, "Kitchen"),
+    ELECTRIC_KETTLE("Electric Kettle", 1500, "Kitchen"),
+    TOASTER("Toaster", 1200, "Kitchen"),
+    BLENDER("Blender", 400, "Kitchen"),
+    // Water
+    WATER_HEATER("Water Heater", 3800, "Water"),
+    WATER_PUMP("Water Pump", 750, "Water"),
+    // Laundry
+    WASHER("Washers", 600, "Laundry"),
+    DRYER("Dryers", 1500, "Laundry"),
+    IRON("Irons", 1200, "Laundry"),
+    // Lighting
+    LIGHTS("Lights", 10, "Lighting"),
+    OUTDOOR_LIGHTS("Outdoor Lights", 10, "Lighting"),
+    // Entertainment
+    TV("TVs", 80, "Entertainment"),
+    COMPUTER("Computer", 150, "Entertainment"),
+    GAMING_CONSOLE("Gaming Console", 120, "Entertainment")
 }
 
 @Serializable
@@ -79,14 +107,25 @@ data class AcLoad(
 )
 
 fun defaultAppliances(): Map<ApplianceType, ApplianceLoad> = mapOf(
+    ApplianceType.FAN to ApplianceLoad(),
     ApplianceType.FRIDGE to ApplianceLoad(qty = 1),
     ApplianceType.FREEZER to ApplianceLoad(),
-    ApplianceType.FAN to ApplianceLoad(),
-    ApplianceType.IRON to ApplianceLoad(),
+    ApplianceType.STOVE to ApplianceLoad(),
+    ApplianceType.OVEN to ApplianceLoad(),
     ApplianceType.MICROWAVE to ApplianceLoad(),
+    ApplianceType.ELECTRIC_KETTLE to ApplianceLoad(),
+    ApplianceType.TOASTER to ApplianceLoad(),
+    ApplianceType.BLENDER to ApplianceLoad(),
+    ApplianceType.WATER_HEATER to ApplianceLoad(),
+    ApplianceType.WATER_PUMP to ApplianceLoad(),
     ApplianceType.WASHER to ApplianceLoad(),
     ApplianceType.DRYER to ApplianceLoad(),
-    ApplianceType.TV to ApplianceLoad()
+    ApplianceType.IRON to ApplianceLoad(),
+    ApplianceType.LIGHTS to ApplianceLoad(),
+    ApplianceType.OUTDOOR_LIGHTS to ApplianceLoad(),
+    ApplianceType.TV to ApplianceLoad(),
+    ApplianceType.COMPUTER to ApplianceLoad(),
+    ApplianceType.GAMING_CONSOLE to ApplianceLoad()
 )
 
 @Serializable

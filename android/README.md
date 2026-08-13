@@ -2442,3 +2442,50 @@ spec's 10 named test scenarios was traced directly against the current source:
 
 Verified via paren/brace balance on all three touched files and a grep confirming
 `energyImbalanceKw`/`energyBalanceErrorKw` each have exactly one definition and one call site.
+
+## A48 — Stopped the simulation auto-enabling appliances the installer never selected
+
+The user's next message described appliance lists going out of sync between the estimate and
+the simulation. The architecture connecting them was already sound (one wizard appliance step
+shared by all three modes, one `defaultApplianceStates()` bridge into the simulation, confirmed
+across A43-A45) — but auditing `defaultApplianceStates()` itself against this message's own
+acceptance tests found the real, specific defect: roughly 35 of the simulation's 46
+`SimApplianceType` entries had no wizard counterpart at all and defaulted **enabled** regardless
+(A33's original "genuine defaults, not assembled from scratch" design). Select "2 AC, 1
+Refrigerator, 3 Fans, 1 Iron, 2 TVs" in the wizard and the simulation would show those five *plus*
+roughly thirty more — LED lighting in every room, a WiFi router, phone chargers, a printer, a
+security system — none of which the installer ever saw or chose. That's exactly the "generic demo
+house" this message asked to remove.
+
+**`ApplianceType` (the wizard's shared catalog) expanded** from 8 types to 19, covering the
+category list this message specified — Cooling (Fans; AC keeps its own step for its BTU-tier UI),
+Kitchen (added Stove, Oven, Electric Kettle, Toaster, Blender), Water (added Water Heater, Water
+Pump), Laundry (unchanged), Lighting (added generic Lights/Outdoor Lights), Entertainment (added
+Computer, Gaming Console). Each new entry reuses the exact same enum identity
+(`ApplianceType.WATER_HEATER`, etc.) that `defaultApplianceStates()`'s wizard-linkage already
+keys off, and `StepHouseholdAppliances.kt` now groups them into the same category headers the
+Simulation's own picker already uses, for the "same names/categories everywhere" ask.
+
+**`defaultApplianceStates()` rewritten**: every wizard-linked type now genuinely follows what the
+installer selected (`enabled = qty > 0`) — this also fixed two entries that were already broken
+before this round (`CHEST_FREEZER` and `DESKTOP_COMPUTER` read the wizard's quantity but then
+hardcoded `enabled = false` regardless, so a selected freezer never actually showed up).
+Everything with no wizard counterpart (air fryer, security system, EV charger, etc.) now starts
+**off** rather than on — richness deferred, not deleted: the Simulation's own appliance sheet
+still offers the complete 46-type catalog, so an installer can deliberately enable any of these
+from there, satisfying the request's own "add from the same master catalog" ask (§10) without
+building a second add-appliance UI.
+
+**Scope note — a real tradeoff, stated plainly.** Several always-on household loads (WiFi router,
+modem, phone chargers, security system) previously defaulted on as reasonable background load and
+now default off, since they have no wizard-selectable counterpart and the message's instruction
+was explicit and repeated ("nothing else should automatically appear unless it was selected").
+Deferred rather than silently decided either way: "Custom Appliance" (§2's OTHER category) — a
+genuine free-text name/wattage input flowing through to a typed `SimApplianceType` is its own
+feature, not a same-round addition.
+
+Verified via paren/brace balance on all four touched files, a grep confirming `ApplianceType.`
+usage is contained to exactly the files that should reference the wizard's catalog (the one
+`SimApplianceType.entries` hit in `AppliancesSheet.kt` is an unrelated substring match, not a
+wizard-catalog reference), and a manual re-trace of `SystemCalculator.simTypeFor()` against
+`defaultApplianceStates()`'s own wizard-linkage to confirm the two mappings agree on every type.

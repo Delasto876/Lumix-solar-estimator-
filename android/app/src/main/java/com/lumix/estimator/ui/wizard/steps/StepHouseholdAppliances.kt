@@ -51,16 +51,31 @@ fun StepHouseholdAppliances(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> Quo
         )
 
         SectionCard(title = "Appliances") {
-            ApplianceType.entries.forEachIndexed { index, type ->
-                val load = inputs.appliances[type] ?: ApplianceLoad()
-                ApplianceRow(
-                    type = type,
-                    load = load,
-                    onChange = { updated ->
-                        onUpdate { inp -> inp.copy(appliances = inp.appliances.toMutableMap().apply { this[type] = updated }) }
-                    }
+            Text(
+                "Air conditioning has its own step, right before this one.",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            ApplianceType.entries.groupBy { it.category }.forEach { (category, types) ->
+                Text(
+                    category.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.solarYellowText,
+                    modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
                 )
-                if (index < ApplianceType.entries.size - 1) HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                types.forEachIndexed { index, type ->
+                    val load = inputs.appliances[type] ?: ApplianceLoad()
+                    ApplianceRow(
+                        type = type,
+                        load = load,
+                        onChange = { updated ->
+                            onUpdate { inp -> inp.copy(appliances = inp.appliances.toMutableMap().apply { this[type] = updated }) }
+                        }
+                    )
+                    if (index < types.size - 1) HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                }
             }
         }
 
