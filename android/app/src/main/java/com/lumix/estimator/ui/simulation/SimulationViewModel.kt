@@ -231,10 +231,39 @@ class SimulationViewModel(
                 lastNanos = now
                 // 1x = 1 simulated minute per real second.
                 val simHours = (_state.value.speed * elapsedSeconds) / 60.0
-                val newHour = (_state.value.currentHour + simHours).mod(24.0)
-                setHourInternal(newHour)
+                advanceHour(simHours)
             }
         }
+    }
+
+    /**
+     * A45 midnight-SOC-jump fix: [SimulationEngine.buildDayTimeline] builds one 24h array
+     * starting from [SimulationUiState.startSocFraction], and [SimulationEngine.frameAt] wraps
+     * any hour >= 24 back to the START of that same array via `hour.mod(24.0)`. Advancing time
+     * straight through midnight with a plain `.mod(24.0)` (the old behavior) therefore jumped
+     * from wherever the day's battery integration actually ended (e.g. 20%) back to the array's
+     * fresh starting point (e.g. 60%) — a real discontinuity, not a display artifact. Midnight
+     * itself is not a battery event: crossing it here rebuilds tomorrow's timeline anchored at
+     * *today's actual ending state of charge*, so the physical battery energy is continuous
+     * across the boundary; only the day/array being looked up changes. Loops so a large jump
+     * (e.g. a lag spike at high playback speed) that crosses more than one midnight still chains
+     * each day's ending SOC into the next correctly, rather than only handling one crossing.
+     */
+    private fun advanceHour(deltaHours: Double) {
+        var rawHour = _state.value.currentHour + deltaHours
+        while (rawHour >= 24.0) {
+            rawHour -= 24.0
+            val current = _state.value
+            val config = current.config
+            val endingSoc = current.timeline.lastOrNull()
+            val nextStartSoc = if (endingSoc != null && config != null && config.batteryCapacityKwh > 0) {
+                (endingSoc.batterySocKwh / config.batteryCapacityKwh).coerceIn(0.0, 1.0)
+            } else {
+                current.startSocFraction
+            }
+            rebuildTimeline(startSocFraction = nextStartSoc)
+        }
+        setHourInternal(rawHour)
     }
 
     fun pause() {

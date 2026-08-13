@@ -2304,3 +2304,44 @@ prices for real commercial products — asked the user directly rather than gues
 that would appear on a real customer quote.
 
 Verified via paren/brace balance on the one touched file.
+
+## A46 — Real bug: battery SOC jumped at midnight
+
+The user's next message described a precise, reproducible symptom: battery SOC jumping (e.g.
+20% → 60%) exactly at 23:59 → 00:00 during playback. Unlike the previous round's claimed PV-
+ceiling bug, this one traced to a genuine, confirmed defect — not in the physics integration
+itself (which has been correct and continuous frame-to-frame since early rounds), but in how the
+UI looks a simulated hour up in the precomputed timeline.
+
+**Root cause.** `SimulationEngine.buildDayTimeline()` builds one 24h array of frames, starting
+from `startSocFraction` at hour 0 and integrating forward. `frameAt(timeline, hour)` looks up an
+arbitrary hour via `hour.mod(24.0)` — for any hour ≥ 24, that wraps back to *array index 0*,
+which still holds the fresh `startSocFraction` anchor, not a continuation of wherever the array's
+own last frame (hour ≈ 24) actually ended up. Since a full day's net battery flow essentially
+never sums to exactly zero, those two values differ — and `SimulationViewModel.play()`'s old
+advance logic (`(currentHour + simHours).mod(24.0)`) crossed that exact seam every time playback
+ran past midnight, silently jumping from "wherever today's battery integration ended" back to
+"today's original starting point." Confirmed by tracing the actual `frameAt` index math, not
+assumed from the bug report alone.
+
+**Fix.** `SimulationViewModel` gained `advanceHour(deltaHours)`, called from `play()`'s tick loop
+instead of the old inline `.mod(24.0)`. It detects each 24h crossing and, *before* wrapping the
+displayed hour, rebuilds the next day's timeline with `startSocFraction` set to the previous
+day's own real ending state of charge (`endingFrame.batterySocKwh / batteryCapacityKwh`) — so the
+physical battery energy carries forward continuously across the boundary; only which day's array
+is being displayed changes, exactly matching the request's "midnight is not a battery event."
+Loops so a large jump (a lag spike at 10× speed, say) crossing more than one midnight still
+chains each day's ending SOC into the next correctly rather than only handling one crossing.
+`scrubTo()` (manual slider drag) was checked too — its own `.mod(24.0)` is a bounded no-op since
+the slider itself never produces an hour ≥ 24, so it was never actually reachable as this bug;
+left as-is.
+
+Not touched, deliberately: `SimulationEngine`'s actual per-frame integration math, which was
+already correct — the seam was purely in how a wrapped hour got looked up against the single
+precomputed array, not in the underlying `ΔE = P × Δt` physics itself.
+
+Verified via a full trace of `frameAt`'s index arithmetic (array index 0 vs. `size - 1`, confirmed
+they hold different SOC values for a realistic load) and a grep of every other `.mod(24.0)` site
+in the codebase (`SystemLosses`, `SimAppliance`, the appliance-schedule editor) to confirm none of
+them carry stateful battery energy across a wrap the way the old `play()` loop did — they're all
+pure, stateless phase/schedule lookups where wraparound is the intended, correct behavior.
