@@ -1507,3 +1507,53 @@ Since this is now a fully custom overlay design rather than a trace of a single 
 `inverterToHousePath` coordinates are an original, plausible routing choice — down the wall,
 across the lawn, into the door — rather than something pixel-measured off a printed line, since
 no such second line exists in the photo to measure.
+
+## A29 — Reverted to the original Phase A artwork; it already had 4 real colored lines
+
+After several more rounds (see A24-A28 above) spent trying to reconstruct a 4-colored routing
+scheme onto the A23 photo — which only ever had one printed white line — from descriptions of
+images pasted inline in chat (never file-accessible, a recurring blocker documented since A24),
+the user asked to revert to the artwork used before A23. Checking git history for what that was
+(`git log --oneline -- .../bg_house_energy_routes.png`) turned up something worth calling out:
+the *original* Phase A image (commit `b7cf7b2`, 1536x1024) already had four genuinely, distinctly
+colored glow lines baked in — the exact kind of artwork this whole multi-round effort had been
+trying to hand-build on top of the wrong photo. A23's swap to a plain-white-line image was the
+wrong call in hindsight; A29 undoes it.
+
+Critically, this image came back out of **git history** via `git show`, not a chat paste — genuine
+file access, the same kind the A23 artwork always had. That meant the four lines could finally be
+traced the reliable way instead of guessed: render a fine coordinate grid onto the real photo,
+crop tightly around each line, and read vertices directly off the gridded crops (the same method
+offered to the user as "Option B" a few turns earlier, just usable here because the photo was
+actually reachable). Colors were sampled too, then matched to the closest existing restrained
+`LumixColors` tokens rather than adding new saturated ones: `WarningRed` for the grid line
+(genuinely a warm red in the artwork, not the pink/magenta assumed in A27-A28 for a different
+photo), `SolarYellow` for solar, `EnergyGreen` and `TechnicalCyan` for the two inverter output
+lines.
+
+That last pairing needed a real look rather than an assumption. Tracing the inverter's two
+bottom terminals close up (crop at the battery, gridded to 0.01 resolution) showed: the *green*
+line is short and terminates in a clean glowing dot flush against the battery casing — an actual
+component connection, styled identically to how the grid/solar lines terminate at the inverter.
+The *blue* line is long — it continues past the battery, along the wall, past a window, to a
+small junction/breaker box, and stops there (not at the parked car visible further right, which
+turned out to be unconnected background scenery). So in this specific artwork: **green =
+inverter→battery, blue = inverter→house/load** — the reverse of the green=load/blue=battery
+mapping stated earlier for a different hand-drawn reference. The artwork's own printed endpoints
+were treated as ground truth over a remembered verbal description from a different image, per
+this round's "no hallucinating, use the grids" instruction. `SolarSimulationPaths.kt`'s class doc
+flags this explicitly as a one-line swap if it's actually backwards.
+
+Also removed as part of the revert: `LumixColors.GridMagenta` (A27's invented pink, unused now
+that grid is genuinely red in this artwork), and the four `*LabelBounds` rects in
+`SolarSimulationPaths.kt` (A23-specific — this artwork has no baked "0 W" placeholder text to
+erase). `FlowLabelChips` now anchors each chip to its own path's midpoint
+(`EnergyFlowPathManager.pointAt(path, 0.5f)`) instead of a fixed label position, which also makes
+it correct automatically if the artwork is ever swapped again. `IMAGE_ASPECT_RATIO` reverted to
+`1536f/1024f`. The A27 HUD layer (stat cards, time/mode card, legend, battery/system cards) needed
+no changes at all — it was already built against `flows`/`SimFrame` state, not image-specific
+positions, so it carried over cleanly onto the restored artwork.
+
+Verified the same way as every round since A23: rendered all four traced paths, in their real
+app colors, onto the actual restored background photo via Python/PIL, and read the result back
+before touching any Kotlin.

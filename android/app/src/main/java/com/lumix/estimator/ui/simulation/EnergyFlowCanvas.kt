@@ -47,19 +47,22 @@ import com.lumix.estimator.ui.theme.rememberReduceMotion
 import kotlin.math.roundToInt
 
 /** The reference photo's own pixel aspect ratio — panels/inverter/battery only line up at this ratio. */
-internal const val IMAGE_ASPECT_RATIO = 1173f / 1341f
+internal const val IMAGE_ASPECT_RATIO = 1536f / 1024f
 
 /**
  * The four real electrical routes, and the one color each is drawn in everywhere it appears
  * (line, particles, per-line chip accent, legend swatch) — a single mapping so those four
- * places can never drift apart from each other.
+ * places can never drift apart from each other. Matched to the artwork's own printed glow-line
+ * colors (A29): warm red for grid, gold for solar, green for battery, cyan-blue for house/load —
+ * see [SolarSimulationPaths]'s class doc for why green/battery and blue/house pair the way they
+ * do (the artwork's own printed endpoints, not the color names alone, decide the mapping).
  */
 private fun colorFor(path: EnergyPath): Color = when (path.id) {
     "solar_inverter" -> LumixColors.SolarYellow
-    "inverter_battery" -> LumixColors.TechnicalCyan
-    "inverter_house" -> LumixColors.EnergyGreen
+    "inverter_battery" -> LumixColors.EnergyGreen
+    "inverter_house" -> LumixColors.TechnicalCyan
     // Import-only: this path only ever carries JPS power inbound.
-    "grid_inverter" -> LumixColors.GridMagenta
+    "grid_inverter" -> LumixColors.WarningRed
     else -> LumixColors.TechnicalCyan
 }
 
@@ -143,12 +146,12 @@ private fun formatWatts(kw: Double, showSign: Boolean = false): String {
 }
 
 /**
- * Live icon + label + value chips drawn directly over the artwork's own baked "0 W" / "100%"
- * placeholder text at the Grid/Solar/Consumption/Battery labels — each value is the exact same
- * resolved power already driving the particles and line on that same path, so nothing here can
- * disagree with the animation. Positioned at [SolarSimulationPaths]'s pixel-measured label
- * bounds rather than a path midpoint, so the chip lands exactly where the artwork already
- * prints (and expects) a number.
+ * Live icon + label + value chips floating at the midpoint of each path — this artwork (unlike
+ * A23's) has no baked-in "0 W" placeholder text to cover, so each chip is anchored to
+ * `EnergyFlowPathManager.pointAt(path, 0.5f)`, the same arc-length interpolation the particles
+ * themselves use, rather than a fixed label position. Each value is the exact same resolved
+ * power already driving the particles and line on that same path, so nothing here can disagree
+ * with the animation.
  */
 @Composable
 private fun FlowLabelChips(flows: List<EnergyFlow>, batterySocFraction: Float?, modifier: Modifier = Modifier) {
@@ -169,8 +172,8 @@ private fun FlowLabelChips(flows: List<EnergyFlow>, batterySocFraction: Float?, 
             icon = "🔌",
             label = "Grid → Inverter",
             value = formatWatts(gridKw),
-            accent = LumixColors.GridMagenta,
-            bounds = SolarSimulationPaths.gridLabelBounds,
+            accent = LumixColors.WarningRed,
+            anchor = EnergyFlowPathManager.pointAt(SolarSimulationPaths.gridToInverterPath, 0.5f),
             containerWidth = maxWidth,
             containerHeight = maxHeight
         )
@@ -179,7 +182,7 @@ private fun FlowLabelChips(flows: List<EnergyFlow>, batterySocFraction: Float?, 
             label = "PV → Inverter",
             value = formatWatts(solarKw),
             accent = LumixColors.SolarYellow,
-            bounds = SolarSimulationPaths.solarLabelBounds,
+            anchor = EnergyFlowPathManager.pointAt(SolarSimulationPaths.solarToInverterPath, 0.5f),
             containerWidth = maxWidth,
             containerHeight = maxHeight
         )
@@ -187,8 +190,8 @@ private fun FlowLabelChips(flows: List<EnergyFlow>, batterySocFraction: Float?, 
             icon = "🏠",
             label = "Inverter → Load",
             value = formatWatts(consumptionKw),
-            accent = LumixColors.EnergyGreen,
-            bounds = SolarSimulationPaths.consumptionLabelBounds,
+            accent = LumixColors.TechnicalCyan,
+            anchor = EnergyFlowPathManager.pointAt(SolarSimulationPaths.inverterToHousePath, 0.5f),
             containerWidth = maxWidth,
             containerHeight = maxHeight
         )
@@ -196,8 +199,8 @@ private fun FlowLabelChips(flows: List<EnergyFlow>, batterySocFraction: Float?, 
             icon = "🔋",
             label = "Inverter → Battery",
             value = formatWatts(batteryKw, showSign = true) + batteryPercentText,
-            accent = LumixColors.TechnicalCyan,
-            bounds = SolarSimulationPaths.batteryLabelBounds,
+            accent = LumixColors.EnergyGreen,
+            anchor = EnergyFlowPathManager.pointAt(SolarSimulationPaths.inverterToBatteryPath, 0.5f),
             containerWidth = maxWidth,
             containerHeight = maxHeight
         )
@@ -205,9 +208,9 @@ private fun FlowLabelChips(flows: List<EnergyFlow>, batterySocFraction: Float?, 
 }
 
 /**
- * Anchored to the top-left of the artwork's own baked icon+"0 W" text box. The backing is
- * nearly opaque so the baked digits are genuinely erased rather than dimmed-and-visible-
- * through, and a small color dot ties the chip back to the same hue as its line/legend entry.
+ * Anchored at [anchor] (a point along the path itself, in the same 0f..1f normalized space as
+ * everything else). The backing is nearly opaque so the chip reads cleanly over the photo, and
+ * a small color dot ties it back to the same hue as its line/legend entry.
  */
 @Composable
 private fun FlowChip(
@@ -215,12 +218,12 @@ private fun FlowChip(
     label: String,
     value: String,
     accent: Color,
-    bounds: NormalizedRect,
+    anchor: NormalizedPoint,
     containerWidth: Dp,
     containerHeight: Dp
 ) {
-    val originX = containerWidth * bounds.left - 4.dp
-    val originY = containerHeight * bounds.top - 3.dp
+    val originX = containerWidth * anchor.x - 4.dp
+    val originY = containerHeight * anchor.y - 3.dp
     Row(
         modifier = Modifier
             .offset(x = originX, y = originY)
@@ -328,8 +331,8 @@ private fun TopStatRow(flows: List<EnergyFlow>, modifier: Modifier = Modifier) {
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         StatCard(label = "SOLAR", valueKw = solarKw, accent = LumixColors.SolarYellow)
-        StatCard(label = "GRID", valueKw = gridKw, accent = LumixColors.GridMagenta)
-        StatCard(label = "HOME LOAD", valueKw = homeKw, accent = LumixColors.EnergyGreen)
+        StatCard(label = "GRID", valueKw = gridKw, accent = LumixColors.WarningRed)
+        StatCard(label = "HOME LOAD", valueKw = homeKw, accent = LumixColors.TechnicalCyan)
     }
 }
 
@@ -389,9 +392,9 @@ private data class LegendEntry(val color: Color, val label: String)
 /** The same four route→color pairings [colorFor] draws with — kept as the one legend source. */
 private val ENERGY_LEGEND = listOf(
     LegendEntry(LumixColors.SolarYellow, "PV → Inverter"),
-    LegendEntry(LumixColors.TechnicalCyan, "Inverter → Battery"),
-    LegendEntry(LumixColors.EnergyGreen, "Inverter → Load"),
-    LegendEntry(LumixColors.GridMagenta, "Grid → Inverter")
+    LegendEntry(LumixColors.EnergyGreen, "Inverter → Battery"),
+    LegendEntry(LumixColors.TechnicalCyan, "Inverter → Load"),
+    LegendEntry(LumixColors.WarningRed, "Grid → Inverter")
 )
 
 @Composable
