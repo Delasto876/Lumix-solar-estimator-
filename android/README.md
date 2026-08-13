@@ -1557,3 +1557,23 @@ positions, so it carried over cleanly onto the restored artwork.
 Verified the same way as every round since A23: rendered all four traced paths, in their real
 app colors, onto the actual restored background photo via Python/PIL, and read the result back
 before touching any Kotlin.
+
+## A30 — Pulled the HUD back out: too much floating data over the house
+
+A27 had added a full instrument-cluster overlay onto `EnergyFlowCanvas` — three stat cards
+top-left, a time/mode card plus a 4-entry legend top-right, a battery gauge bottom-left, and a
+system summary bottom-right, plus four per-line label chips at each path's midpoint. All of it
+worked and none of it was fabricated (every number traced back to real `flows`/`SimFrame` state),
+but stacked together it was simply too much text competing with the house photo and the glowing
+flow lines for attention — exactly the feedback received this round.
+
+Removed entirely: `HudOverlay`, `HudCard`, `TopStatRow`, `StatCard`, `TimeModeCard`, `LegendCard`
+(+ its `LegendEntry`/`ENERGY_LEGEND` list), `BatteryCard`, `SystemSummaryCard`, `FlowLabelChips`,
+and `FlowChip` — along with `EnergyFlowCanvas`'s now-unused `batterySocKwh` and
+`inverterModeLabel` parameters, and the matching call-site args in `SimulationScreen.kt`. What's
+left on the image itself: the background photo, weather/lighting atmosphere, the battery fill
+wash, the glowing color-coded flow lines with particles, and a single small `SimClockOverlay`
+time pill in the top-right corner — the same minimal footprint the simulation screen had before
+A27. The below-canvas `LivePowerRow` (Solar/Grid/Home/Battery figures) was never touched and is
+still where those numbers live; nothing about the actual data or its accuracy changed, only how
+much of it sits on top of the picture.
