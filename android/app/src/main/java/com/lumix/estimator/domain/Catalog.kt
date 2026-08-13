@@ -76,7 +76,7 @@ object Catalog {
         InverterOption("luxGenLb6k", displayName(spec("LuxPower", "GEN-LB-US 6K")), 6.0, SystemMode.HYBRID) { it.inverterLuxpowerGenLb6k },
         InverterOption("luxGenLb8k", displayName(spec("LuxPower", "GEN-LB-US 8K")), 8.0, SystemMode.HYBRID) { it.inverterLuxpowerGenLb8k },
         InverterOption("luxGenLb10k", displayName(spec("LuxPower", "GEN-LB-US 10K")), 10.0, SystemMode.HYBRID) { it.inverterLuxpowerGenLb10k },
-        InverterOption("srneHesp4to6_5k", displayName(spec("SRNE", "HESP 4-6.5K-HUS")), 6.5, SystemMode.HYBRID) { it.inverterSrneHesp4to6_5k },
+        InverterOption("srneHesp4to6_5k", displayName(spec("SRNE", "HESP4860U140-HUS")), 6.0, SystemMode.HYBRID) { it.inverterSrneHesp4to6_5k },
         InverterOption("srneHesp8k", displayName(spec("SRNE", "HESP 8K-US")), 8.0, SystemMode.HYBRID) { it.inverterSrneHesp8k },
         InverterOption("srneHesp10k", displayName(spec("SRNE", "HESP 10K-US")), 10.0, SystemMode.HYBRID) { it.inverterSrneHesp10k },
         InverterOption("srneHesp12k", displayName(spec("SRNE", "HESP 12K-US")), 12.0, SystemMode.HYBRID) { it.inverterSrneHesp12k },

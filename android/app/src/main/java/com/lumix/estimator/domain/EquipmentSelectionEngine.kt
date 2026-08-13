@@ -89,6 +89,102 @@ object EquipmentSelectionEngine {
     )
 
     /**
+     * A52: the full series-topology electrical breakdown for one SPECIFIC panel/count/inverter
+     * combination — not a search result. This is what an installer's own MANUAL-mode choice (or
+     * any other "is this exact system valid" question) gets checked against, using the identical
+     * rules [selectBestPanelConfiguration]'s search already applies, so a manual pick and an
+     * auto-selected pick are never held to two different standards. Voltage adds across a series
+     * string; current does NOT multiply by panel count — see [stringImpA]/[stringIscA] below.
+     */
+    data class PanelCompatibilityResult(
+        val arrayKw: Double,
+        val requiredMaxPvKw: Double,
+        val stringVocV: Double,
+        val stringVmpV: Double,
+        val stringImpA: Double,
+        val stringIscA: Double,
+        val mpptVoltageMaxV: Double,
+        val mpptTrackers: Int,
+        val powerOk: Boolean,
+        val vocOk: Boolean,
+        val vmpOk: Boolean,
+        val iscOk: Boolean,
+        val notes: List<String>,
+        val estimated: Boolean
+    ) {
+        val valid: Boolean get() = powerOk && vocOk && vmpOk && iscOk
+    }
+
+    /** Core evaluation against explicit limits — shared by the search in [selectBestPanelConfigurationForLimits] and standalone validation via [checkPanelInverterCompatibilityForLimits]. */
+    private fun evaluateCandidate(watts: Int, count: Int, maxPvW: Double, maxPvV: Double, mpptTrackers: Int): PanelCompatibilityResult {
+        if (count <= 0) {
+            return PanelCompatibilityResult(
+                arrayKw = 0.0, requiredMaxPvKw = maxPvW / 1000.0,
+                stringVocV = 0.0, stringVmpV = 0.0, stringImpA = 0.0, stringIscA = 0.0,
+                mpptVoltageMaxV = maxPvV, mpptTrackers = mpptTrackers,
+                powerOk = true, vocOk = true, vmpOk = true, iscOk = true,
+                notes = emptyList(), estimated = false
+            )
+        }
+        val elec = panelElectricalFor(watts)
+        val totalKw = count * watts / 1000.0
+        val longestStringPanels = ceil(count.toDouble() / mpptTrackers).toInt()
+        val shortestStringPanels = (count / mpptTrackers).coerceAtLeast(1)
+        val correctedVoc = elec.vocV * longestStringPanels * COLD_TEMP_VOC_CORRECTION
+        val shortestStringVmp = elec.vmpV * shortestStringPanels
+        val impliedMaxCurrentA = maxPvW / maxPvV
+
+        val notes = mutableListOf<String>()
+        val powerOk = totalKw * 1000.0 <= maxPvW + 1.0
+        if (!powerOk) {
+            notes += "array power %.0fW exceeds inverter max PV input %.0fW".format(totalKw * 1000.0, maxPvW)
+        }
+        val vocOk = correctedVoc <= maxPvV
+        if (!vocOk) {
+            notes += "longest MPPT string Voc %.0fV (%d panels, cold-corrected) exceeds inverter max PV voltage %.0fV"
+                .format(correctedVoc, longestStringPanels, maxPvV)
+        }
+        val vmpOk = shortestStringVmp >= MIN_MPPT_OPERATING_VOLTAGE
+        if (!vmpOk) {
+            notes += "shortest MPPT string Vmp %.0fV (%d panels) is below the inverter's minimum MPPT operating voltage %.0fV"
+                .format(shortestStringVmp, shortestStringPanels, MIN_MPPT_OPERATING_VOLTAGE)
+        }
+        val iscOk = elec.iscA <= impliedMaxCurrentA + 0.05
+        if (!iscOk) {
+            notes += "panel Isc %.1fA exceeds the inverter's implied max PV current per tracker %.1fA".format(elec.iscA, impliedMaxCurrentA)
+        }
+
+        return PanelCompatibilityResult(
+            arrayKw = totalKw, requiredMaxPvKw = maxPvW / 1000.0,
+            stringVocV = correctedVoc, stringVmpV = elec.vmpV * longestStringPanels,
+            stringImpA = elec.impA, stringIscA = elec.iscA,
+            mpptVoltageMaxV = maxPvV, mpptTrackers = mpptTrackers,
+            powerOk = powerOk, vocOk = vocOk, vmpOk = vmpOk, iscOk = iscOk,
+            notes = notes, estimated = elec.estimated
+        )
+    }
+
+    /** Explicit-limits entry point — mirrors [selectBestPanelConfigurationForLimits]'s own split for deterministic unit testing. */
+    internal fun checkPanelInverterCompatibilityForLimits(
+        panelWatts: Int, panelCount: Int, maxPvW: Double, maxPvV: Double, mpptTrackers: Int
+    ): PanelCompatibilityResult = evaluateCandidate(panelWatts, panelCount, maxPvW, maxPvV, mpptTrackers)
+
+    /**
+     * Validates one SPECIFIC panel/count/inverter combination — the function MANUAL mode (and any
+     * other "is this exact system valid" UI) should call, since it checks real series Voc/Vmp/Isc
+     * against the inverter's real max PV input power (never a proxy like "AC rating × 1.3").
+     */
+    fun checkPanelInverterCompatibility(
+        panelWatts: Int, panelCount: Int, inverterKw: Double, inverterNameHint: String? = null
+    ): PanelCompatibilityResult {
+        val invSpec = EquipmentSpecs.inverterSpecFor(inverterKw, inverterNameHint)
+        val maxPvW = invSpec?.maxPvW?.toDouble() ?: (inverterKw * 1300.0)
+        val maxPvV = invSpec?.maxPvV?.toDouble() ?: fallbackMaxPvVoltage
+        val mpptTrackers = invSpec?.mpptCount?.coerceAtLeast(1) ?: 2
+        return evaluateCandidate(panelWatts, panelCount, maxPvW, maxPvV, mpptTrackers)
+    }
+
+    /**
      * Evaluates real candidate configurations across every panel wattage this catalog sells —
      * several counts per wattage, not just "round up." Panels are split as evenly as possible
      * across the chosen inverter's own real MPPT-tracker count ([EquipmentSpecs.InverterSpec.mpptCount],
@@ -109,9 +205,10 @@ object EquipmentSelectionEngine {
     fun selectBestPanelConfiguration(
         requiredPvKw: Double,
         inverterKw: Double,
-        wattages: List<Int> = Catalog.panelWattages
+        wattages: List<Int> = Catalog.panelWattages,
+        inverterNameHint: String? = null
     ): PanelChoice {
-        val invSpec = EquipmentSpecs.inverterSpecFor(inverterKw)
+        val invSpec = EquipmentSpecs.inverterSpecFor(inverterKw, inverterNameHint)
         val maxPvW = invSpec?.maxPvW?.toDouble() ?: (inverterKw * 1300.0)
         val maxPvV = invSpec?.maxPvV?.toDouble() ?: fallbackMaxPvVoltage
         val mpptTrackers = invSpec?.mpptCount?.coerceAtLeast(1) ?: 2
@@ -136,32 +233,10 @@ object EquipmentSelectionEngine {
             return PanelChoice(wattages.first(), 0, 0.0, 0.0, true, "No PV capacity required.")
         }
 
-        val impliedMaxCurrentA = maxPvW / maxPvV
-
         fun evaluate(watts: Int, count: Int): PanelCandidate {
-            val elec = panelElectricalFor(watts)
-            val totalKw = count * watts / 1000.0
-            val oversize = (totalKw - requiredPvKw) / requiredPvKw * 100.0
-            val longestStringPanels = ceil(count.toDouble() / mpptTrackers).toInt()
-            val shortestStringPanels = (count / mpptTrackers).coerceAtLeast(1)
-            val correctedVoc = elec.vocV * longestStringPanels * COLD_TEMP_VOC_CORRECTION
-            val shortestStringVmp = elec.vmpV * shortestStringPanels
-            val notes = mutableListOf<String>()
-            if (correctedVoc > maxPvV) {
-                notes += "longest MPPT string Voc %.0fV (%d panels, cold-corrected) exceeds inverter max PV voltage %.0fV"
-                    .format(correctedVoc, longestStringPanels, maxPvV)
-            }
-            if (shortestStringVmp < MIN_MPPT_OPERATING_VOLTAGE) {
-                notes += "shortest MPPT string Vmp %.0fV (%d panels) is below the inverter's minimum MPPT operating voltage %.0fV"
-                    .format(shortestStringVmp, shortestStringPanels, MIN_MPPT_OPERATING_VOLTAGE)
-            }
-            if (totalKw * 1000.0 > maxPvW + 1.0) {
-                notes += "array power %.0fW exceeds inverter max PV input %.0fW".format(totalKw * 1000.0, maxPvW)
-            }
-            if (elec.iscA > impliedMaxCurrentA + 0.05) {
-                notes += "panel Isc %.1fA exceeds the inverter's implied max PV current per tracker %.1fA".format(elec.iscA, impliedMaxCurrentA)
-            }
-            return PanelCandidate(watts, count, totalKw, oversize, notes.isEmpty(), notes, elec.estimated)
+            val result = evaluateCandidate(watts, count, maxPvW, maxPvV, mpptTrackers)
+            val oversize = (result.arrayKw - requiredPvKw) / requiredPvKw * 100.0
+            return PanelCandidate(watts, count, result.arrayKw, oversize, result.valid, result.notes, result.estimated)
         }
 
         val allCandidates = wattages.flatMap { w ->

@@ -137,7 +137,7 @@ private fun detailLines(
         )
     }
     InspectTarget.INVERTER -> {
-        val spec = EquipmentSpecs.inverterSpecFor(config.inverterKw)
+        val spec = EquipmentSpecs.inverterSpecFor(config.inverterKw, config.inverterName)
         val overLimitNote = if (f.pvKw >= config.inverterKw - 0.01) "Producing at the inverter's rated limit." else null
         val frequencyNote = when {
             spec == null -> null

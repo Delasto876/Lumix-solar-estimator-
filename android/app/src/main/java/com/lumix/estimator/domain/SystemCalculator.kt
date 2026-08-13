@@ -231,7 +231,9 @@ object SystemCalculator {
                 panelSelectionReason = "%.2f kW required — %d × %dW panels (off-grid arrays capped at 4)."
                     .format(pvKw, panelCount, panelW)
             } else {
-                val panelChoice = EquipmentSelectionEngine.selectBestPanelConfiguration(pvKw, selectedInverter.kw)
+                val panelChoice = EquipmentSelectionEngine.selectBestPanelConfiguration(
+                    pvKw, selectedInverter.kw, inverterNameHint = selectedInverter.name
+                )
                 panelW = panelChoice.panelWatts
                 panelCount = panelChoice.panelCount
                 panelSelectionReason = panelChoice.reason

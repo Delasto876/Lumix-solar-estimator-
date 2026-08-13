@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.BackupCoverage
+import com.lumix.estimator.domain.EquipmentSelectionEngine
 import com.lumix.estimator.domain.PriceList
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteMode
@@ -76,7 +77,19 @@ fun StepSystemReview(
         if (preview.batteryRequiredKwh > 0.01) inputs.backupHours * (preview.totalBatteryKwh / preview.batteryRequiredKwh) else 0.0
     }
 
-    val checks = remember(preview, requiredInverterKw, batteryMaxDischargeKw, peakLoadKw) {
+    // A52: real series-topology electrical validation for the EXACT selected panel/inverter pair —
+    // the same rules EquipmentSelectionEngine's own search applies (voltage adds across a series
+    // string, current does NOT multiply by panel count), checked against the inverter's real max
+    // PV input power/voltage/MPPT range rather than a proxy like "AC rating x 1.3" (which had been
+    // silently conflating the inverter's AC output rating with its actual PV input limit — a
+    // different field entirely, and the exact class of bug flagged 2026-08-13).
+    val pvCompat = remember(preview) {
+        EquipmentSelectionEngine.checkPanelInverterCompatibility(
+            preview.panelWatts, preview.panelCount, preview.inverterKw, preview.inverterName
+        )
+    }
+
+    val checks = remember(preview, requiredInverterKw, batteryMaxDischargeKw, peakLoadKw, pvCompat) {
         listOf(
             // A49: this is distinct from the backup-coverage check below it — it fires whenever the
             // *selected* inverter can't cover ordinary peak household load, regardless of what
@@ -115,11 +128,34 @@ fun StepSystemReview(
                 } else null
             ),
             EngineeringCheck(
-                label = "PV array within inverter input limit",
-                pass = preview.pvKw <= preview.inverterKw * 1.3 + 0.05,
-                detail = if (preview.pvKw > preview.inverterKw * 1.3 + 0.05) {
-                    "%.1f kWp of panels is more than 130%% of the %.1f kW inverter's rated input."
-                        .format(preview.pvKw, preview.inverterKw)
+                label = "PV array within inverter's max PV input power",
+                pass = pvCompat.powerOk,
+                detail = if (!pvCompat.powerOk) {
+                    "%.2f kWp of panels exceeds the inverter's real maximum PV input, %.2f kW."
+                        .format(pvCompat.arrayKw, pvCompat.requiredMaxPvKw)
+                } else "%.2f kWp of %.2f kW max PV input.".format(pvCompat.arrayKw, pvCompat.requiredMaxPvKw)
+            ),
+            EngineeringCheck(
+                label = "Series string Voc within inverter's max PV voltage",
+                pass = pvCompat.vocOk,
+                detail = if (!pvCompat.vocOk) {
+                    "Cold-corrected series Voc %.0fV exceeds the inverter's maximum PV voltage %.0fV."
+                        .format(pvCompat.stringVocV, pvCompat.mpptVoltageMaxV)
+                } else null
+            ),
+            EngineeringCheck(
+                label = "Series string Vmp within MPPT operating range",
+                pass = pvCompat.vmpOk,
+                detail = if (!pvCompat.vmpOk) {
+                    "Series Vmp %.0fV is below the inverter's minimum MPPT operating voltage.".format(pvCompat.stringVmpV)
+                } else null
+            ),
+            EngineeringCheck(
+                label = "Series string current within MPPT current limits",
+                pass = pvCompat.iscOk,
+                detail = if (!pvCompat.iscOk) {
+                    "Series Isc %.1fA exceeds the inverter's implied max PV current — this is the panel's own current (voltage adds in series, current does not multiply by panel count)."
+                        .format(pvCompat.stringIscA)
                 } else null
             )
         )

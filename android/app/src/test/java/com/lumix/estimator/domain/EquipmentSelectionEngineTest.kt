@@ -178,4 +178,34 @@ class EquipmentSelectionEngineTest {
         val battery = EquipmentSelectionEngine.selectBestHybridBattery(0.0, 0.0, 6.0)
         assertEquals(0, battery.moduleCount)
     }
+
+    // ---- A52 regression: the reported "false PV input exceeded" bug ----
+    // Scenario 10 (2026-08-13 "FIX PV INPUT VALIDATION BUG" message) — against the REAL, live
+    // EquipmentSpecs data (not synthetic limits), via the same checkPanelInverterCompatibility
+    // function StepSystemReview.kt now calls for every mode, including MANUAL.
+
+    @Test
+    fun `scenario 10 - 6 x 615W on Deye SUN-6K-SG01LP1-US is PV-compatible, not exceeded`() {
+        val result = EquipmentSelectionEngine.checkPanelInverterCompatibility(
+            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US"
+        )
+        assertTrue("3.69 kW array should be well under Deye 6K's real 7.8 kW max PV input", result.powerOk)
+        assertTrue("expected the full configuration to be valid: ${result.notes}", result.valid)
+        assertEquals(3.69, result.arrayKw, 0.01)
+        // Series topology: voltage adds (3 panels/string x 2 MPPT), current does NOT multiply by
+        // panel count — this is the exact bug category the report warned about ("panelIsc * panelCount").
+        assertEquals(14.11, result.stringIscA, 0.01)
+        assertEquals(13.44, result.stringImpA, 0.01)
+        assertTrue("string Isc must never be panelCount x panel Isc", result.stringIscA < 20.0)
+    }
+
+    @Test
+    fun `scenario 11 - 14 x 615W on Deye SUN-6K-SG01LP1-US exceeds real max PV input power`() {
+        val result = EquipmentSelectionEngine.checkPanelInverterCompatibility(
+            panelWatts = 615, panelCount = 14, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US"
+        )
+        assertEquals(8.61, result.arrayKw, 0.01)
+        assertFalse("8.61 kW array should exceed Deye 6K's real 7.8 kW max PV input", result.powerOk)
+        assertFalse(result.valid)
+    }
 }
