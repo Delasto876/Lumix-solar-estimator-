@@ -1368,3 +1368,34 @@ untouched pixels.
 Cloudy/Cloudy/Heavy Cloud/Storm and the sunrise-to-sunset daylight curve work exactly as before;
 `WattageOverlays` and the recalibrated particle paths are additive layers on top of that
 existing pipeline, not a replacement for it.
+
+## A25 — Grid route's self-crossing peak: the real reason it kept looking wrong
+
+`gridToInverterPath` needed a *fourth* correction pass. The ground route isn't a simple V dip —
+it's a genuine "W": pole down to a first dip, up to a peak, down into a second (deeper) dip,
+then a long gentle rise to the inverter. Critically, that peak sits directly under the
+artwork's "Consumption" dashed pointer line, which meets the ground exactly there — the artist
+clearly routed it that way on purpose, so a viewer's eye tracing up from "Consumption ⚡0 W"
+lands right on the cable. The up-stroke and down-stroke either side of that peak visually cross
+each other before reaching it (a decorative cable-slack flourish), which is exactly why every
+previous extraction attempt got this specific stretch wrong in a different way:
+- The original per-column centroid scan (A23) sampled noise into a wavy line here worse than
+  anywhere else on the artwork, since the crossing meant a single column could pick up either
+  stroke.
+- A hand-read set of corners (A23's first fix) simplified the crossing into a plain V — visually
+  clean, but it deleted the peak entirely, leaving the Consumption label's pointer meeting empty
+  ground with no cable at that spot.
+- A graph-shortest-path trace (A23's second fix — skeletonize the line, then find the shortest
+  path between its two endpoints through the pixel graph) fixed the waviness everywhere else,
+  but *at a self-crossing curve, shortest-path is structurally the wrong tool*: the crossing
+  point is a real shared pixel between both strokes, so the algorithm "cuts through" there
+  rather than following the true route up to the peak and back down — the shorter path, but not
+  the actual line. This is the version the user caught: the route visually skipped past the
+  Consumption pointer's meeting point.
+
+Fixed by reading each of the W's five vertices directly off pixel-gridded crops and confirming
+each against raw column/row pixel data at that specific x or y (not a shortest-path search) —
+`(0.087, 0.486)` pole → `(0.087, 0.666)` ground → `(0.202, 0.726)` first dip → `(0.315, 0.696)`
+peak, under Consumption's pointer → `(0.322, 0.772)` second dip → `(0.516, 0.727)` rise corner →
+`(0.518, 0.582)` inverter. Verified by rendering the full path back onto the source photo and
+confirming the peak lines up with where the Consumption dashed line actually meets the ground.

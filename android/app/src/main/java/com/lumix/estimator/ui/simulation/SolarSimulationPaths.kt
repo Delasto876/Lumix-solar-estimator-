@@ -32,17 +32,17 @@ data class EnergyPath(
 /**
  * Anchor coordinates for `bg_house_energy_routes.png` (A23 artwork, 1173x1341 — a utility
  * pole/ground run to the inverter, panels down to the inverter, and a short inverter-to-
- * battery hop). Extracted with a graph-shortest-path trace: threshold the PNG for the
- * printed line's white pixels, skeletonize each isolated line down to a 1px centerline, then
- * take the shortest path between the line's two known endpoints through that skeleton's own
- * pixel-adjacency graph, simplified with Ramer–Douglas–Peucker. This is deliberately more
- * rigorous than the two prior attempts (a per-column/row centroid scan that over-sampled
- * noise into a wavy line, then a hand-read set of corners that still missed some bends) —
- * the grid route in particular loops decoratively back on itself near the door (a purely
- * artistic cable-slack flourish), which confused both earlier methods; shortest-path
- * naturally resolves to the direct route through that loop rather than tracing its detour,
- * without needing to manually disambiguate the crossing. Every point below is real skeleton
- * pixels from the artwork, not estimated. See A23 in the README for the correction history.
+ * battery hop). The grid route is a genuine "W": pole down to a first dip, up to a peak that
+ * passes directly under the artwork's "Consumption" dashed pointer, down into a second
+ * (deeper) dip, then a long gentle rise to the inverter. That self-crossing shape — the up-
+ * and down-strokes visually cross near the peak — defeated three earlier extraction attempts
+ * before this one: a per-column centroid scan over-sampled noise into a wavy line; a hand-read
+ * set of corners simplified the W into a plain V and lost the peak; a graph-shortest-path trace
+ * (skeletonize + shortest path between endpoints) correctly avoided the wavy-noise problem but
+ * *also* cut straight across the crossing instead of following the true up-then-down route,
+ * skipping the peak. Final points were read directly off pixel-gridded crops at each of the
+ * W's five real vertices, confirmed against the raw pixel data at each one (not shortest-path,
+ * which will always defeat itself on a self-crossing curve). See A23/A25 in the README.
  *
  * The image also prints four dashed "pointer" lines from each of its own baked labels (Grid/
  * Solar/Consumption/Battery, each showing a static "0 W" placeholder) down to the artwork —
@@ -83,12 +83,16 @@ object SolarSimulationPaths {
         points = listOf(
             NormalizedPoint(0.0870f, 0.4855f),
             NormalizedPoint(0.0870f, 0.6659f),
-            NormalizedPoint(0.0946f, 0.6719f),
-            NormalizedPoint(0.1586f, 0.7040f),
-            NormalizedPoint(0.2336f, 0.7472f),
-            NormalizedPoint(0.2958f, 0.7778f),
-            NormalizedPoint(0.5166f, 0.7248f),
-            NormalizedPoint(0.5175f, 0.5824f)
+            NormalizedPoint(0.2020f, 0.7256f),
+            // The route's peak — passes directly under the artwork's "Consumption" dashed
+            // pointer line (which meets the ground here) before dropping into its second dip.
+            // Skipping this peak (an earlier attempt's shortest-path trace cut straight across
+            // the W's self-crossing instead of following it) left the Consumption label looking
+            // visually disconnected from the animated route.
+            NormalizedPoint(0.3146f, 0.6957f),
+            NormalizedPoint(0.3223f, 0.7718f),
+            NormalizedPoint(0.5158f, 0.7271f),
+            NormalizedPoint(0.5175f, 0.5817f)
         ),
         // Import-only: the grid connection never carries power the other way (no export).
         bidirectional = false
