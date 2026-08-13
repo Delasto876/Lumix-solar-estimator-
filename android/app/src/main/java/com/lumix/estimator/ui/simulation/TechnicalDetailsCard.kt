@@ -60,6 +60,15 @@ fun TechnicalDetailsContent(readout: TechnicalReadout, modifier: Modifier = Modi
             style = MaterialTheme.typography.labelSmall,
             color = palette.textSecondary
         )
+        TechStat(
+            "Energy Balance Check",
+            if (readout.energyBalanceErrorKw < 0.005) "OK" else "%.3f kW off".format(readout.energyBalanceErrorKw)
+        )
+        Text(
+            "Verifies every watt of solar/battery/grid is accounted for at this instant — should always read OK. A nonzero figure would mean the simulation invented or lost energy somewhere.",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary
+        )
     }
 }
 

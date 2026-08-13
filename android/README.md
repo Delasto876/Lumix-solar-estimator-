@@ -2345,3 +2345,100 @@ they hold different SOC values for a realistic load) and a grep of every other `
 in the codebase (`SystemLosses`, `SimAppliance`, the appliance-schedule editor) to confirm none of
 them carry stateful battery energy across a wrap the way the old `play()` loop did — they're all
 pure, stateless phase/schedule lookups where wraparound is the intended, correct behavior.
+
+## A47 — Full system audit (developer report)
+
+The user's next message asked for a comprehensive audit against a 39-phase specification,
+explicitly requesting a structured developer report rather than more code first. This section
+*is* that report — synthesized from what A21/A36/A37/A41/A42/A44/A45/A46 already individually
+verified, not re-investigated from scratch, plus one new addition (an explicit energy-balance
+check) and one new fix this round found.
+
+**New this round:** `SimulationEngine.energyImbalanceKw(frame)` — a pure function checking the
+two conservation laws every frame must satisfy by construction (realized PV = house + battery +
+curtailed; house load = solar + battery + grid + unmet). Surfaced as "Energy Balance Check" in
+the Technical panel (`TechnicalDetailsCard.kt`), reading "OK" when the imbalance is under 5W and
+the actual kW figure otherwise — this is the "flag the error, don't hide it" requirement made
+literal and visible rather than just true by construction.
+
+**1. Already correctly implemented** (verified in earlier rounds, re-confirmed here): the
+solar production curve (`irradianceFactor`, a real `sin(π·x)^1.2` shape, not flat PSH×rating —
+A36); PV output bounded by both array capacity and inverter rating in every frame — A45 traced
+this end to end and it cannot be exceeded; battery SOC as continuous `ΔE=P×Δt` integration with
+SOC-dependent taper, min/max clamping, real per-model charge/discharge rates — A21/A41; SOL/SBU/
+UTI priority logic, matching the spec's own described priority — A15/A21/A36; the four fixed
+power-flow routes with particle count/speed driven by real kW, never invented — A34–A36; L1/L2/
+110V/220V split-phase modeling with real neutral-current math — A37; one calculation engine
+(`SystemCalculator`) for all three design modes, never three separate engines — A44; Site/Map is
+fully removed with no remnants — A44; System Review's progressive-disclosure layout and the
+optional discount flow — A43; appliance scheduling with realistic per-type behavior (short
+events, duty-cycle-tapered continuous loads) down to 5-minute precision — A33/A39; day/night
+visual environment architecturally separate from the energy-balance calculation (confirmed
+again this round by checking `SceneAtmosphereOverlay` takes `daylightFactor` as an input, never
+reads or writes battery/PV state) — A36; PDF export takes an already-computed `QuoteResult` as a
+parameter with no internal recalculation (confirmed this round, `QuotePdfGenerator.kt:32`,
+called from `ResultsScreen.kt` with the loaded quote's own `result`/`inputs` — not a fresh
+`SystemCalculator.calculate()` call).
+
+**2. Partially implemented:** Load-Based mode uses the real engine and now has its own load-audit
+moment (A44), but doesn't have the spec's described dedicated Inverter/Battery/PV sizing *steps*
+with recommendation-flag cards ("6kW ⚠ undersized / 8kW ✓ recommended") — it currently reaches
+the same System Review screen every mode does. Manual mode correctly uses the installer's exact
+equipment selection with no silent override (A45), but has no dedicated engineering *validation
+layer* (string-Voc-vs-MPPT checks, phase-imbalance/frequency-mismatch warnings) — System Review's
+existing engineering checks (inverter/battery/PV sizing suitability) apply to all three modes,
+not a Manual-specific electrical validation. Energy balance holds by construction (deterministic
+sequential allocation, never an independent solve that could diverge) but had no explicit runtime
+verification exposing that fact until this round.
+
+**3. Missing entirely:** HTML and CSV report generation (only PDF exists — one file,
+`QuotePdfGenerator.kt`); an Invoice generator (no invoice concept exists anywhere in the
+codebase); a formal `ProjectSystemConfiguration` data type with `projectId`/`configurationVersion`
+fields (the *functional* guarantee — estimate, simulation, and quote reading identical numbers —
+is real and repeatedly verified, but there's no literal class by that name, no configuration
+versioning, no quote-revision history); stable per-appliance IDs like `refrigerator_01` (appliances
+are keyed by `SimApplianceType` enum value, which is a stable, unique identifier per type, just
+not a string in that exact form); an automated test suite (no test source set exists in this
+Gradle project at all — every validation this session, this round included, has been direct code
+tracing against the actual source, not executed tests, since this sandbox has no Android build
+tools or emulator; stated plainly every round this's come up, not newly discovered).
+
+**4. Duplicated logic:** none found that wasn't already fixed. The one real instance this session
+uncovered — the wizard's own appliance-hours math computing daily kWh completely separately from
+the simulation's schedule engine — was fixed in A43.
+
+**5. Hard-coded values, assessed:** `Catalog.kt`'s panel wattages (415/550/595/600W) and generic
+inverter/battery tier names are legitimate defaults for a real, working, *priced* catalog — not
+accidental simulation overrides (A45 traced them; nothing downstream silently substitutes a
+different value once an installer picks one). Replacing them with the real `EquipmentSpecs`
+library as the actual selectable catalog is still explicitly on hold pending the JMD pricing the
+user is providing per the previous round's question.
+
+**6. Bugs discovered and fixed this session:** the midnight SOC-jump (A46, root-caused to
+`frameAt`'s `hour.mod(24.0)` wrapping back to the timeline array's fresh-start index rather than
+continuing from its own last frame); the wizard/simulation double load-calculation (A43); value
+chips rendered on top of route lines (A36); `SimulationViewModel` not resetting all state on
+`load()` (A45, latent/not-yet-triggered but real). No new bugs found this round beyond confirming
+these were the real ones — the specific "4×600W→4000W" and separately claimed issues from A45's
+round were investigated and found not reproducible from the source as it stands.
+
+**7. Files changed this round:** `SimulationEngine.kt` (new `energyImbalanceKw`), `TechnicalReadout.kt`
+(new `energyBalanceErrorKw` field + computation), `TechnicalDetailsCard.kt` (new display row).
+
+**8-9. Calculations/simulation logic corrected this round:** none beyond the new balance-check
+addition — this round's audit confirmed the existing calculations rather than finding new defects
+in them.
+
+**10-12. Tests:** no automated test suite exists to add tests *to* (see #3) — instead, each of the
+spec's 10 named test scenarios was traced directly against the current source:
+
+- PV physics (4×600W ceiling, 16×620W array): **pass** — traced in A45, mathematically cannot exceed the array/inverter limits.
+- Appliance sync (add/remove reflected in simulation): **pass** — `defaultApplianceStates(inputs)` reads the wizard's live appliance map with no intermediate cache (A43).
+- Appliance schedule realism (short durations, AC not all-day): **pass** — A33/A39/A40.
+- Midnight SOC continuity: **was failing, now pass** — this session's A46 fix, verified by tracing `frameAt`'s index math directly.
+- Utility-charging / PV-charging gradual SOC increase: **pass** — `chargeEnergyKwh = (solarToBattery + gridToBattery) * dt * efficiency`, no instant-jump path exists.
+- New-quote isolation: **pass** — `WizardViewModel.reset()` at all 5 navigate-to-wizard sites (A45); `SimulationViewModel` now resets structurally on `load()` too (A45).
+- Changing inverter/battery propagates to simulation and quote: **pass** — both read the one `SimSystemConfig.from(QuoteResult)` bridge, confirmed multiple rounds.
+
+Verified via paren/brace balance on all three touched files and a grep confirming
+`energyImbalanceKw`/`energyBalanceErrorKw` each have exactly one definition and one call site.

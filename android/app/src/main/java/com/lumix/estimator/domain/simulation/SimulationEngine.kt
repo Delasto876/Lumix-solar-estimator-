@@ -272,6 +272,23 @@ object SimulationEngine {
         return frames
     }
 
+    /**
+     * A47: the two conservation laws every [SimFrame] must satisfy by construction — every watt
+     * of realized PV either serves the house, charges the battery, or is curtailed; every watt
+     * of house load is met by solar, battery, or grid, or goes unmet. [buildDayTimeline] builds
+     * each frame via sequential allocation from those same shared pools rather than an
+     * independent solve, so this should always come back at (or within float rounding of) zero —
+     * this function exists to actually verify that, not just assume it, and to give a concrete
+     * number rather than silently trusting the animation looks right. Surfaced in the Technical
+     * panel (`TechnicalDetailsCard.kt`) rather than logged, since this module has no Android
+     * framework dependency to log through and stays that way deliberately.
+     */
+    fun energyImbalanceKw(frame: SimFrame): Double {
+        val pvBalance = frame.solarToHouseKw + frame.solarToBatteryKw + frame.curtailedSolarKw - frame.pvKw
+        val loadBalance = frame.solarToHouseKw + frame.batteryToHouseKw + frame.gridToHouseKw + frame.unmetLoadKw - frame.houseLoadKw
+        return kotlin.math.abs(pvBalance) + kotlin.math.abs(loadBalance)
+    }
+
     /** Linearly interpolates the two nearest precomputed frames for an arbitrary hour (0..24). */
     fun frameAt(timeline: List<SimFrame>, hour: Double): SimFrame {
         if (timeline.isEmpty()) error("Timeline is empty")

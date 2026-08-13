@@ -26,6 +26,9 @@ import kotlin.math.sin
  * outweighs the other's, the more the shared neutral conductor actually carries.
  * [startupSurgeKw] is a worst-case instantaneous figure, not something the timestep timeline
  * ever sustains — see [worstCaseStartupSurgeKw]'s own doc for why it's kept separate.
+ * [energyBalanceErrorKw] is [SimulationEngine.energyImbalanceKw] surfaced for this instant — it
+ * should read effectively zero always; a nonzero value here would mean the engine invented or
+ * lost energy somewhere, and this is the one place that would actually be visible.
  */
 data class TechnicalReadout(
     val pvVoltage: Double,
@@ -49,7 +52,8 @@ data class TechnicalReadout(
     val frequencyHz: Double,
     val energyTodayKwh: Double,
     val energyMonthEstKwh: Double,
-    val startupSurgeKw: Double
+    val startupSurgeKw: Double,
+    val energyBalanceErrorKw: Double
 )
 
 object TechnicalModel {
@@ -143,7 +147,8 @@ object TechnicalModel {
             frequencyHz = frequencyHz,
             energyTodayKwh = energyTodayKwh,
             energyMonthEstKwh = energyTodayKwh * 30,
-            startupSurgeKw = startupSurgeKw
+            startupSurgeKw = startupSurgeKw,
+            energyBalanceErrorKw = SimulationEngine.energyImbalanceKw(frame)
         )
     }
 }
