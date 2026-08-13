@@ -84,6 +84,29 @@ object SystemCalculator {
         return LoadResult(dailyKwh, peakWatts)
     }
 
+    /**
+     * A50: the worst case if every selected motor/compressor load happened to start at the exact
+     * same instant — the same conservative "all at once" philosophy, and the same real per-type
+     * [com.lumix.estimator.domain.simulation.SimApplianceType.startupSurgeMultiplier] data, as the
+     * simulation's own [com.lumix.estimator.domain.simulation.worstCaseStartupSurgeKw] (which is
+     * hour/day-scoped, for a different purpose — a live readout, not a sizing ceiling). Feeds
+     * [EquipmentSelectionEngine.selectBestInverter]'s surge check (spec §17).
+     */
+    private fun worstCaseSurgeKw(data: QuoteInputs): Double {
+        var surgeWatts = 0.0
+        if (data.ac.hasAc) {
+            data.ac.counts.forEach { (btu, count) ->
+                if (count > 0) surgeWatts += (btu / 10.0) * count * SimApplianceType.AIR_CONDITIONER.startupSurgeMultiplier
+            }
+        }
+        data.appliances.forEach { (type, load) ->
+            if (load.qty > 0) surgeWatts += type.watts * load.qty * simTypeFor(type).startupSurgeMultiplier
+        }
+        // "Other loads" has no per-type surge data — treated as a plain 1.0x continuous contribution.
+        surgeWatts += data.otherWatts
+        return surgeWatts / 1000.0
+    }
+
     fun enforceEvenPanels(count: Double): Int {
         if (count <= 0) return 0
         var c = ceil(count).toInt()
@@ -157,14 +180,17 @@ object SystemCalculator {
                 SystemMode.OFFGRID -> Catalog.offgridInverters
                 SystemMode.GRIDTIE -> Catalog.gridtieInverters
             }
-            val inverterChoice = EquipmentSelectionEngine.selectBestInverter(requiredInverterKw, inverterPool)
+            val requiredSurgeKw = worstCaseSurgeKw(input)
+            val inverterChoice = EquipmentSelectionEngine.selectBestInverter(requiredInverterKw, requiredSurgeKw, inverterPool)
             val selectedInverter = inverterChoice.option
             chosenInverter = selectedInverter
             inverterSelectionReason = inverterChoice.reason
 
             when (input.systemMode) {
                 SystemMode.HYBRID -> {
-                    val batteryChoice = EquipmentSelectionEngine.selectBestHybridBattery(requiredBatteryUsableKwh)
+                    val batteryChoice = EquipmentSelectionEngine.selectBestHybridBattery(
+                        requiredBatteryUsableKwh, peakWatts / 1000.0, selectedInverter.kw
+                    )
                     chosenBattery = batteryChoice.option
                     batteryModuleCount = batteryChoice.moduleCount
                     totalBatteryKwh = batteryChoice.totalKwh
@@ -203,8 +229,7 @@ object SystemCalculator {
                 panelSelectionReason = "%.2f kW required — %d × %dW panels (off-grid arrays capped at 4)."
                     .format(pvKw, panelCount, panelW)
             } else {
-                val maxPvKw = selectedInverter.kw * 1.3
-                val panelChoice = EquipmentSelectionEngine.selectBestPanelConfiguration(pvKw, maxPvKw)
+                val panelChoice = EquipmentSelectionEngine.selectBestPanelConfiguration(pvKw, selectedInverter.kw)
                 panelW = panelChoice.panelWatts
                 panelCount = panelChoice.panelCount
                 panelSelectionReason = panelChoice.reason

@@ -2542,3 +2542,79 @@ usage is contained to exactly the files that should reference the wizard's catal
 `SimApplianceType.entries` hit in `AppliancesSheet.kt` is an unrelated substring match, not a
 wizard-catalog reference), and a manual re-trace of `SystemCalculator.simTypeFor()` against
 `defaultApplianceStates()`'s own wizard-linkage to confirm the two mappings agree on every type.
+
+## A50 — Real engineering headroom, even-count preference, and Voc/Vmp/Isc/Imp validation
+
+The user's next message ("CRITICAL UPDATE — LOAD-BASED EQUIPMENT SELECTION LOGIC") argued A49's
+new `EquipmentSelectionEngine` was still too simple — "smallest that meets the requirement" for
+panels/batteries, no real electrical compatibility check, and no ~10-20% headroom preference.
+Correct: A49's engine picked the bare-minimum panel count and a flat nominal-kWh battery
+threshold, with nothing checking Voc/Vmp/Isc/Imp against the selected inverter at all.
+
+**Panel selection now runs real electrical validation.** For every wattage/count candidate: Voc
+is checked with a cold-temperature correction (a documented flat +4.5% design margin — no
+per-model temperature coefficient exists in this catalog's data — against a conservative
+low-temperature design point for Jamaica's climate), Vmp is checked against a documented typical
+MPPT start-voltage floor, and Isc is checked against an implied max PV current derived from the
+inverter's own real max-PV-power/voltage figures where a real `EquipmentSpecs` match exists (a
+conservative fallback otherwise). Invalid candidates are rejected outright; what's left is scored
+toward the ~10-20% headroom band, then even panel count, then closest to a 15% midpoint, then
+least oversizing — matching the message's own explicit priority order (§12/§24), not "round up"
+or "odd, therefore +1."
+
+**A real design decision surfaced and got fixed during this round, not just built from the spec
+text.** A direct reading of "assume ONE series string" (§5) against this catalog's real inverter
+data (500-600V max PV voltage) caps a literal single string at ~9-11 panels — meaning any system
+needing more than that (not rare for 6kW+ PV) would get flagged electrically invalid under a
+strict whole-array-as-one-string reading, even though it's a completely normal install. Flagged
+this to the user directly rather than guessing; they confirmed the intended reading is one series
+string **per MPPT tracker**, using each real inverter's own `mpptCount` (already in the equipment
+data) to split the panel count — standard use of the equipment's own built-in inputs, not the
+ad-hoc parallel-string wiring the spec was actually warning against. Implemented that way.
+
+**A second real bug caught by a sanity check before it shipped**: the initial scoring let the
+even-count preference override the actual oversize distance without bound — a synthetic 40%/odd
+vs. 86.7%/even comparison picked the 86.7% option purely for being even, directly violating the
+message's own explicit §3 rule ("do not deliberately oversize by a large amount simply to obtain
+an even number"). Fixed by scoping the even-preference to only ever break ties *within* the
+preferred headroom band; outside the band, minimizing distance from target always wins over parity.
+
+**Inverter selection now checks a real worst-case surge figure**, not just continuous load: a new
+`SystemCalculator.worstCaseSurgeKw()` reuses the exact same real per-appliance-type
+`SimApplianceType.startupSurgeMultiplier` data (3x for AC/fridge/freezer/pumps, 2x for
+washer/dryer/gate) the simulation's own `worstCaseStartupSurgeKw()` already uses for its live
+readout — same real data, sized for the "what if everything started at once" ceiling instead of an
+hour-scoped snapshot. An inverter must cover both continuous load and 2x its rating against that
+surge figure (matching the existing documented assumption in `SimAppliance.kt`) before it's
+considered — this app has no multi-inverter selection code path at all, so "prefer one
+appropriately sized inverter over several small ones" (§15-16) holds by construction, not by a new
+check.
+
+**Battery selection now checks discharge power, not just usable energy** (§23), and always stays
+within a single tier per bank (§20-22 — structurally impossible to mix, since the engine picks one
+winning tier candidate, never combines two). Module count is `max(modules needed for usable
+energy, modules needed for discharge power)`, using each tier's real matched discharge-current
+datasheet figure where available.
+
+**Test cases**: a new `app/src/test/java/.../EquipmentSelectionEngineTest.kt` — the project's
+first JVM unit test file — with one test per scenario the message explicitly asked for (odd
+count, 10-20% headroom, forced >20% oversize, single-vs-multi inverter, surge-forced larger
+inverter, multiple identical battery modules, never-mixed battery tiers, power-driven module
+count, Voc/Vmp/Isc invalidation) plus a zero-requirement regression guard. A new `internal`
+`selectBestPanelConfigurationForLimits()` overload takes explicit electrical limits directly
+(rather than resolving them from a catalog inverter kW) so these tests can construct precise,
+deterministic scenarios without depending on which real datasheets `EquipmentSpecs` happens to
+carry today. This sandbox has no Gradle/JVM to actually execute `./gradlew test` (this project's
+own long-standing, previously-documented limitation) — every scenario was instead hand-traced
+with an equivalent Python model of the exact same arithmetic before being written into the Kotlin
+test, which is what caught both real bugs described above; the tests are written to be run, not
+claimed as run.
+
+**Scope note.** The MPPT start-voltage floor (90V) and the cold-temperature Voc correction
+(+4.5%) are both documented, disclosed design assumptions, not manufacturer per-model figures —
+this catalog's own inverter/panel data doesn't carry either. String-current-vs-per-tracker (rather
+than whole-array) max-current data isn't in the equipment library either, so the Isc check uses a
+derived approximation from the inverter's total max PV power/voltage. As before, off-grid PV
+sizing stays on its existing simpler fixed-550W/max-4-panel logic, and the equipment-selection
+engine still searches this app's own priced `Catalog` tiers rather than the real `EquipmentSpecs`
+product library — unchanged from A49's scope note, still blocked on real JMD pricing per product.
