@@ -50,17 +50,18 @@ data class EnergyPath(
  * a number, not real electrical routes; the flow label chips in `EnergyFlowCanvas.kt` cover
  * their numbers with live icon+label+value text instead of animating particles along them.
  *
- * [inverterToHousePath] is not a separately traced line — it's the second half of
- * [gridToInverterPath] (from the T-junction at the door threshold onward, reversed), not the
- * whole thing. That junction — where the "Consumption" dashed pointer meets the ground, the
- * grid route's own peak — is where the artwork treats the meter/consumption point as living:
- * a "house" particle travels from the inverter and ends its trip there, at the door, rather
- * than continuing all the way back up to the utility pole the way a naive full-reversal would.
- * Grid's own particles continue past that same junction toward the pole, in the other
- * direction — so the two flows genuinely share one physical line, they just don't share the
- * same *span* of it: grid runs pole↔inverter, house runs door↔inverter, both riding the
- * conductor between the door junction and the inverter, in opposite directions, when both
- * are active at once.
+ * [inverterToHousePath] is A27's replacement for an earlier (A26) design where it was just the
+ * second half of [gridToInverterPath], reversed — the two paths shared one physical line from
+ * the door junction to the inverter. That looked correct as a single static diagram, but broke
+ * down under the app's actual routing rule ("grid powers house" = a particle riding
+ * [gridToInverterPath] then handing off to [inverterToHousePath]): with both flows active at
+ * once, whichever path drew second simply painted over the other's color on that whole shared
+ * stretch, so the grid's pink line visually stopped short of the inverter instead of running
+ * unbroken pole-to-inverter the way it's supposed to. Per explicit correction, the four routes
+ * are now geometrically independent lines — [gridToInverterPath] runs the full pole→ground→
+ * inverter span in pink with nothing drawn over it, and [inverterToHousePath] is its own
+ * inverter→ground→door route in green, touching the shared pink line at only a single crossing
+ * point near the door rather than tracing over any stretch of it.
  *
  * Still worth a visual sanity check in Android Studio (enable [SolarSimulationPaths.DEBUG_SHOW_PATHS])
  * if the artwork asset is ever swapped again.
@@ -119,12 +120,18 @@ object SolarSimulationPaths {
         id = "inverter_house",
         source = EnergyNode.INVERTER,
         destination = EnergyNode.HOUSE,
-        // Not the whole grid line reversed — just its second half, from the inverter back to
-        // the T-junction at the door threshold (index 3 in gridToInverterPath.points, the same
-        // point the "Consumption" dashed pointer meets). That junction is where the artwork
-        // treats the meter/consumption point as living, not the utility pole — a "house"
-        // particle should end its trip at the door, not travel all the way back up the pole.
-        points = gridToInverterPath.points.drop(3).reversed(),
+        // A27: its own independent line, not a reuse of any span of gridToInverterPath (see the
+        // class doc for why the earlier shared-conductor design broke down). Leaves the inverter
+        // on its lower-left edge (offset from grid's own attachment point so the two lines don't
+        // start on top of each other), drops straight down the wall, then cuts across the lawn to
+        // the door/consumption point — crossing gridToInverterPath's rising stroke once, near the
+        // ground, rather than tracing along it.
+        points = listOf(
+            NormalizedPoint(0.4950f, 0.5850f),
+            NormalizedPoint(0.4950f, 0.7050f),
+            NormalizedPoint(0.3700f, 0.7450f),
+            NormalizedPoint(0.3300f, 0.7900f)
+        ),
         bidirectional = false
     )
 
@@ -136,8 +143,8 @@ object SolarSimulationPaths {
 
     /**
      * Bounding boxes over the artwork's own baked "0 W" (and, for battery, "100%")
-     * placeholder text — [WattageOverlays] draws a live value directly on top of each,
-     * fully covering the static placeholder rather than editing image pixels.
+     * placeholder text — `FlowLabelChips` in `EnergyFlowCanvas.kt` draws a live value directly
+     * on top of each, fully covering the static placeholder rather than editing image pixels.
      */
     val gridLabelBounds = NormalizedRect(left = 0.0980f, top = 0.1283f, right = 0.2345f, bottom = 0.1566f)
     val solarLabelBounds = NormalizedRect(left = 0.3240f, top = 0.1253f, right = 0.4305f, bottom = 0.1543f)

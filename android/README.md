@@ -1475,3 +1475,35 @@ positions, spacing, and typography could not be measured or verified the way the
 (a real upload) was; the layout above is a faithful best-effort reading of the mockup's
 structure and content, not a pixel-matched reproduction. If further precision corrections are
 needed, the mockup would need to be attached as an actual file upload.
+
+## A28 — Split the shared grid/house conductor into two independent lines
+
+Follow-up to A27, prompted by a detailed reference spec listing four *fixed, independent* paths
+(pink Grid→Inverter, yellow Solar→Inverter, green Inverter→Load, blue Inverter→Battery) with an
+explicit "no shortcuts, no shared/alternate routes" requirement. Rendered the app's actual A26
+path coordinates onto the real background photo (this sandbox has no Android SDK/emulator, so a
+literal running-app screenshot isn't possible — this Python/PIL render onto the real artwork is
+the closest available proxy) and the A26 design's flaw was visible immediately: since
+`inverterToHousePath` was literally `gridToInverterPath.points.drop(3).reversed()`, the two
+paths shared every pixel of the door-to-inverter stretch. That looked fine as a static diagram,
+but the app's own routing rule composes "grid powers house" as grid_inverter → inverter_house
+particles in sequence — with both flows active at once, whichever path's `Canvas.drawPath` ran
+second (inverter_house, later in `SolarSimulationPaths.allPaths`) painted directly over the
+other's color for that whole shared span, so the grid's pink line visually stopped short of the
+inverter instead of running unbroken pole-to-inverter.
+
+Confirmed the fix direction with the user ("split") before touching code, then gave
+`inverterToHousePath` its own independent point list in `SolarSimulationPaths.kt`: leaves the
+inverter on a distinct attachment point (`0.4950, 0.5850`, offset from grid's `0.5175, 0.5817`
+so the two lines don't start pixel-on-pixel), drops straight down the wall, then cuts across the
+lawn to the door/consumption point at `0.3300, 0.7900`. The two lines now cross at one point near
+the ground rather than tracing over each other — `gridToInverterPath` runs pole→inverter
+unbroken in pink with nothing drawn over any of it, and `inverterToHousePath` runs its own
+inverter→door route in green. Verified by re-rendering both paths together onto the real
+artwork before committing, per the established render-and-check workflow.
+
+Since this is now a fully custom overlay design rather than a trace of a single printed line
+(the base artwork only ever printed one wire per run, not four independent ones), the new
+`inverterToHousePath` coordinates are an original, plausible routing choice — down the wall,
+across the lawn, into the door — rather than something pixel-measured off a printed line, since
+no such second line exists in the photo to measure.
