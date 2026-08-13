@@ -1399,3 +1399,25 @@ each against raw column/row pixel data at that specific x or y (not a shortest-p
 peak, under Consumption's pointer → `(0.322, 0.772)` second dip → `(0.516, 0.727)` rise corner →
 `(0.518, 0.582)` inverter. Verified by rendering the full path back onto the source photo and
 confirming the peak lines up with where the Consumption dashed line actually meets the ground.
+
+## A26 — Consumption ends at the door, not the pole
+
+Follow-up correction to A25, from feedback that the shape is really "a V with a T" — the door
+junction (the W's peak, where the Consumption dashed pointer meets the ground) isn't just a
+bend the *grid* line passes through on its way to the pole; the artwork treats it as the
+meter/consumption point itself, and `inverterToHousePath` reversing the *entire* grid line
+(all the way to the pole) meant a "house" particle would visually travel past the door and
+continue up toward the utility pole — never actually stopping "at the house."
+
+Confirmed via connected-component pixel analysis that the door junction, the grid route's
+second dip, and the inverter are all one continuous printed line (so this is a real T-junction
+on a single physical conductor, not two separate lines that happen to cross) — matching a
+real service-entrance layout, where the meter/panel sits near the door and grid continues on
+to the pole from there. `inverterToHousePath` now uses only the second half of
+`gridToInverterPath.points` — `gridToInverterPath.points.drop(3).reversed()`, i.e. from the
+inverter back to the door junction only — so a "house" particle starts at the inverter and
+ends its trip right at the door, matching the door threshold visible in the artwork, instead
+of continuing past it toward the pole. Grid's own particles still run the full pole-to-inverter
+span in the other direction. Both flows still share the same physical conductor between the
+door and the inverter — they just no longer share the *pole-to-door* stretch, which only ever
+carries grid supply, never house consumption headed the other way.

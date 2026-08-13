@@ -50,12 +50,17 @@ data class EnergyPath(
  * a number, not real electrical routes; [WattageOverlays] covers their numbers with live text
  * instead of animating particles along them.
  *
- * [inverterToHousePath] is not a separately traced line — this artwork only draws ONE physical
- * line between the inverter and the ground/street side (the same one [gridToInverterPath]
- * follows), which in real installations genuinely is shared: the meter/main-panel connection
- * carries both JPS's incoming supply and the house's outgoing load on the same conductor run.
- * Its points are [gridToInverterPath]'s own points, reversed, so "house" particles travel that
- * exact line from the inverter back toward the street junction, opposite grid's incoming ones.
+ * [inverterToHousePath] is not a separately traced line — it's the second half of
+ * [gridToInverterPath] (from the T-junction at the door threshold onward, reversed), not the
+ * whole thing. That junction — where the "Consumption" dashed pointer meets the ground, the
+ * grid route's own peak — is where the artwork treats the meter/consumption point as living:
+ * a "house" particle travels from the inverter and ends its trip there, at the door, rather
+ * than continuing all the way back up to the utility pole the way a naive full-reversal would.
+ * Grid's own particles continue past that same junction toward the pole, in the other
+ * direction — so the two flows genuinely share one physical line, they just don't share the
+ * same *span* of it: grid runs pole↔inverter, house runs door↔inverter, both riding the
+ * conductor between the door junction and the inverter, in opposite directions, when both
+ * are active at once.
  *
  * Still worth a visual sanity check in Android Studio (enable [SolarSimulationPaths.DEBUG_SHOW_PATHS])
  * if the artwork asset is ever swapped again.
@@ -114,7 +119,12 @@ object SolarSimulationPaths {
         id = "inverter_house",
         source = EnergyNode.INVERTER,
         destination = EnergyNode.HOUSE,
-        points = gridToInverterPath.points.reversed(),
+        // Not the whole grid line reversed — just its second half, from the inverter back to
+        // the T-junction at the door threshold (index 3 in gridToInverterPath.points, the same
+        // point the "Consumption" dashed pointer meets). That junction is where the artwork
+        // treats the meter/consumption point as living, not the utility pole — a "house"
+        // particle should end its trip at the door, not travel all the way back up the pole.
+        points = gridToInverterPath.points.drop(3).reversed(),
         bidirectional = false
     )
 
