@@ -21,10 +21,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.domain.ApplianceLoad
 import com.lumix.estimator.domain.ApplianceType
+import com.lumix.estimator.domain.PriceList
 import com.lumix.estimator.domain.QuoteInputs
+import com.lumix.estimator.domain.QuoteMode
+import com.lumix.estimator.domain.SystemCalculator
+import com.lumix.estimator.domain.simulation.previewLoadShape
 import com.lumix.estimator.ui.components.IntField
 import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.components.SectionCard
+import com.lumix.estimator.ui.simulation.formatSimTime
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 
 /**
@@ -59,6 +64,10 @@ fun StepHouseholdAppliances(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> Quo
             }
         }
 
+        if (inputs.quoteMode == QuoteMode.LOAD) {
+            LoadAuditPreview(inputs)
+        }
+
         SectionCard(title = "Other loads") {
             Text(
                 "Anything not listed above — combined wattage and how long it typically runs each day.",
@@ -80,6 +89,47 @@ fun StepHouseholdAppliances(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> Quo
                 )
             }
         }
+    }
+}
+
+/**
+ * LOAD-BASED mode's "automatic load audit" (spec §12-13) — appears right after appliance
+ * selection, before any equipment sizing. Reuses [SystemCalculator.calculate] for daily energy
+ * (the exact figure the rest of the app uses, via a no-pricing-needed [PriceList.DEFAULT]
+ * preview, same pattern the System Review step already uses) and [previewLoadShape] for the
+ * time-of-day shape — no separate/competing calculation, just the same appliance selection
+ * sampled a different way.
+ */
+@Composable
+private fun LoadAuditPreview(inputs: QuoteInputs) {
+    val palette = LocalLumixPalette.current
+    val preview = remember(inputs) { SystemCalculator.calculate(inputs, PriceList.DEFAULT, PriceList.DEFAULT) }
+    val shape = remember(inputs) { previewLoadShape(inputs) }
+
+    SectionCard(title = "Your load profile") {
+        Text(
+            "Calculated automatically from what you selected above — this is what the system will be sized around.",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary,
+            modifier = Modifier.padding(bottom = 10.dp)
+        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            LoadStat("DAILY ENERGY", "%.1f kWh".format(preview.designDailyKwh), Modifier.weight(1f))
+            LoadStat("PEAK", "%.2f kW".format(shape.peakKw) + " at " + formatSimTime(shape.peakHour), Modifier.weight(1f))
+        }
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            LoadStat("EVENING PEAK", "%.2f kW".format(shape.eveningPeakKw), Modifier.weight(1f))
+            LoadStat("BASE LOAD", "%.2f kW".format(shape.baseLoadKw), Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun LoadStat(label: String, value: String, modifier: Modifier = Modifier) {
+    val palette = LocalLumixPalette.current
+    Column(modifier = modifier) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+        Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = palette.textPrimary)
     }
 }
 

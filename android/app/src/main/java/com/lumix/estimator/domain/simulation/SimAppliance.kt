@@ -517,6 +517,34 @@ fun worstCaseStartupSurgeKw(states: Map<SimApplianceType, ApplianceState>, hour:
  * discretization to introduce error), scoped to the runs that actually apply on [dayType].
  * Categories with zero enabled load are omitted rather than shown as a zero row.
  */
+/**
+ * The appliance-only load curve's real shape — peak instant, when it happens, the evening-window
+ * peak specifically, and the overnight/base floor — computed directly from the household's
+ * appliance selection via [defaultApplianceStates] and [totalApplianceLoadKwAt], before any
+ * PV/inverter/battery sizing exists yet. Lets a design flow show "here's what your load actually
+ * looks like" (spec: LOAD-BASED mode's automatic load audit) without a second calculation engine
+ * — this is the exact same per-appliance schedule data [applianceDailyEnergyByCategoryKwh] and the
+ * simulation itself use, just sampled across the day instead of summed for one instant or one total.
+ */
+data class ApplianceLoadShape(
+    val peakKw: Double,
+    val peakHour: Double,
+    val eveningPeakKw: Double,
+    val baseLoadKw: Double
+)
+
+fun previewLoadShape(inputs: QuoteInputs, dayType: DayType = DayType.WEEKDAY): ApplianceLoadShape {
+    val states = defaultApplianceStates(inputs)
+    val samples = generateSequence(0.0) { it + 0.25 }.takeWhile { it < 24.0 }
+        .map { hour -> hour to totalApplianceLoadKwAt(states, hour, dayType) }
+        .toList()
+    if (samples.isEmpty()) return ApplianceLoadShape(0.0, 0.0, 0.0, 0.0)
+    val (peakHour, peakKw) = samples.maxBy { it.second }
+    val eveningPeakKw = samples.filter { it.first in 17.0..22.0 }.maxOfOrNull { it.second } ?: 0.0
+    val baseLoadKw = samples.minOf { it.second }
+    return ApplianceLoadShape(peakKw = peakKw, peakHour = peakHour, eveningPeakKw = eveningPeakKw, baseLoadKw = baseLoadKw)
+}
+
 fun applianceDailyEnergyByCategoryKwh(states: Map<SimApplianceType, ApplianceState>, dayType: DayType = DayType.WEEKDAY): Map<String, Double> =
     states.entries.filter { it.value.enabled }
         .flatMap { (type, state) ->

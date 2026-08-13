@@ -2203,3 +2203,53 @@ sheet. No new work needed there.
 Verified via paren/brace balance on all seven touched files and a grep confirming every step
 composable's call signature in `WizardScreen.kt` is unchanged (`StepHouseholdAppliances(inputs,
 onUpdate)` etc.), so no navigation wiring needed to change.
+
+## A44 — Mode-selection polish + a real Load-Based mode moment
+
+Another large request (three design modes, a premium mode-selection screen, per-mode flow
+upgrades, Site removal, all converging on one configuration). Audited first, per the request's
+own instruction — most of the underlying architecture already existed:
+
+- **Site/Map/Roof-mapping is already fully gone.** A broad grep across `app/src/main/java` for
+  Site/RoofMap/Compass/LocationService/GoogleMap/osmdroid/GPS/latitude/longitude, plus a check of
+  `AndroidManifest.xml` and `build.gradle.kts` for location/maps permissions or dependencies,
+  found nothing — the A18/A20 removal actually stuck. `StepRoofType.kt` (the one step whose name
+  might suggest otherwise) is confirmed to be a plain roof-material/building-height picker, unrelated
+  to GPS/mapping. Nothing to do here.
+- **Three design modes already exist.** `QuoteMode { GUIDED, MANUAL, LOAD }`, already producing
+  results through the one `SystemCalculator` — never three separate engines. `StepQuoteMode.kt`
+  was already a card-based selector with real per-mode descriptions, not a bare name list.
+
+**What was genuinely missing: LOAD mode had no distinct identity.** Per `WizardViewModel`'s own
+step-visibility logic, LOAD mode was exactly the GUIDED sequence minus the JPS-bill step — no
+load-first framing, no moment where the installer actually sees "here's what your selected
+appliances add up to" before the system gets sized. Fixed two ways:
+
+1. **Mode-selection screen polish** (`StepQuoteMode.kt`): richer per-mode copy closer to the
+   spec's own wording, an intro header ("How would you like to design this system?"), and an
+   explicit "✓ SELECTED" cue on the active card — the same underlying `SelectionCard` component,
+   not a rebuild.
+2. **A real "automatic load audit" moment for LOAD mode** (`StepHouseholdAppliances.kt`): a new
+   "Your load profile" card appears right after appliance selection, *only* in LOAD mode — daily
+   energy, peak (with time of day), evening-window peak, and base load. New domain function
+   `previewLoadShape()` (`SimAppliance.kt`) samples the household's real appliance schedule every
+   15 minutes via the exact same `defaultApplianceStates`/`totalApplianceLoadKwAt` functions the
+   simulation itself uses — not a second calculation engine, just the same data sampled across
+   the day instead of summed to one total. Daily energy itself is pulled from the same
+   `SystemCalculator.calculate()` preview the System Review step already uses (via
+   `PriceList.DEFAULT`, no pricing needed), so this card can never show a different daily-kWh
+   figure than the rest of the app does.
+
+**Scope note — genuinely not attempted this round:** a full separate Inverter/Battery/PV sizing
+sequence with recommendation-flag cards ("6kW ⚠ undersized / 8kW ✓ recommended") for LOAD mode
+specifically, and Manual mode's described engineering validation layer (string-Voc-vs-MPPT
+checks, phase-imbalance warnings, frequency-mismatch errors) are real, substantial features, not
+covered by reusing what already exists — same conclusion as the earlier `ProjectSystemConfiguration`
+audit reached about the wider architecture ask. Renumbering the wizard to insert LOAD-mode-only
+steps between the existing ones was deliberately avoided too — it would touch every `when(step)`
+block across `WizardViewModel`/`WizardScreen`/`Validation` for a UX gain smaller than the risk, in
+a sandbox with no way to click through and confirm nothing broke.
+
+Verified via paren/brace balance on all three touched files and a grep confirming `previewLoadShape`/
+`ApplianceLoadShape` have exactly one call site each, so the new load-audit card can't drift out
+of sync with the function that computes it.
