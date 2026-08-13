@@ -47,8 +47,8 @@ data class EnergyPath(
  * The image also prints four dashed "pointer" lines from each of its own baked labels (Grid/
  * Solar/Consumption/Battery, each showing a static "0 W" placeholder) down to the artwork —
  * those are deliberately NOT traced as [EnergyPath]s here, since they're annotation lines to
- * a number, not real electrical routes; [WattageOverlays] covers their numbers with live text
- * instead of animating particles along them.
+ * a number, not real electrical routes; the flow label chips in `EnergyFlowCanvas.kt` cover
+ * their numbers with live icon+label+value text instead of animating particles along them.
  *
  * [inverterToHousePath] is not a separately traced line — it's the second half of
  * [gridToInverterPath] (from the T-junction at the door threshold onward, reversed), not the

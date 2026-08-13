@@ -163,8 +163,10 @@ fun SimulationScreen(
                     daylightFactor = daylightFactor,
                     isStorm = isStorm,
                     batterySocFraction = batterySocFraction,
+                    batterySocKwh = if (config.hasBattery) frame.batterySocKwh else null,
                     batteryCharging = frame.batteryPowerKw > 0.0,
                     simTimeText = formatSimTime(state.currentHour),
+                    inverterModeLabel = if (config.gridConnectable) state.inverterMode.label else null,
                     modifier = Modifier.clip(RoundedCornerShape(LumixRadius.lg))
                 )
             }

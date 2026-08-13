@@ -12,6 +12,10 @@ object LumixColors {
     val TechnicalCyan = Color(0xFF62B8E8)
     val SolarAmber = Color(0xFFE8A25A)
     val WarningRed = Color(0xFFD9695F)
+    // Grid import — kept distinct from SolarAmber so the energy-flow legend's four routes
+    // (PV/battery/load/grid) are each unambiguous at a glance, per the reference diagram's
+    // own pink/magenta grid-to-inverter line.
+    val GridMagenta = Color(0xFFE0699E)
 
     // Dark theme — the "hero" experience. Near-black graphite, per the premium-automotive
     // brief: background/surface/elevated read as three barely-distinct steps up, not three

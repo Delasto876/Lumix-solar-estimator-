@@ -3,13 +3,19 @@ package com.lumix.estimator.ui.simulation
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.align
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,7 +31,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -41,14 +49,17 @@ import kotlin.math.roundToInt
 /** The reference photo's own pixel aspect ratio — panels/inverter/battery only line up at this ratio. */
 internal const val IMAGE_ASPECT_RATIO = 1173f / 1341f
 
-private val WarmWhite = Color(0xFFFFF3D6)
-
-private fun colorFor(path: EnergyPath, flow: EnergyFlow): Color = when (path.id) {
+/**
+ * The four real electrical routes, and the one color each is drawn in everywhere it appears
+ * (line, particles, per-line chip accent, legend swatch) — a single mapping so those four
+ * places can never drift apart from each other.
+ */
+private fun colorFor(path: EnergyPath): Color = when (path.id) {
     "solar_inverter" -> LumixColors.SolarYellow
-    "inverter_house" -> WarmWhite
-    "inverter_battery" -> if (flow.direction == FlowDirection.FORWARD) LumixColors.EnergyGreen else LumixColors.TechnicalCyan
+    "inverter_battery" -> LumixColors.TechnicalCyan
+    "inverter_house" -> LumixColors.EnergyGreen
     // Import-only: this path only ever carries JPS power inbound.
-    "grid_inverter" -> LumixColors.SolarAmber
+    "grid_inverter" -> LumixColors.GridMagenta
     else -> LumixColors.TechnicalCyan
 }
 
@@ -56,9 +67,9 @@ private fun colorFor(path: EnergyPath, flow: EnergyFlow): Color = when (path.id)
  * The full photoreal digital-twin visual: `bg_house_energy_routes.png` (a fixed, never-
  * redrawn background asset) with every dynamic layer composited above it — a full-scene
  * lighting/rain wash, cloud coverage, a sun position/intensity marker, an animated battery
- * fill wash, and particles flowing along the routes baked into the artwork. Every layer is
- * driven by real simulation state passed in by the caller; nothing here fabricates its own
- * numbers.
+ * fill wash, glowing color-coded flow lines with particles riding them, floating per-line
+ * value chips, and a HUD of stat/time/legend/battery/system cards. Every layer is driven by
+ * real simulation state passed in by the caller; nothing here fabricates its own numbers.
  *
  * @param cloudCoverage 0f (clear) .. 1f (fully overcast), from the selected weather state.
  * @param sunProgress 0f at sunrise, 1f at sunset; null hides the sun marker (nighttime).
@@ -66,10 +77,12 @@ private fun colorFor(path: EnergyPath, flow: EnergyFlow): Color = when (path.id)
  * @param daylightFactor 0f outside daylight hours .. 1f at midday, undamped by weather — drives
  * how dark/cool the whole scene reads, so night always matches actual solar output hitting zero.
  * @param isStorm true for the heaviest weather state — adds a rain wash and falling streaks.
- * @param batterySocFraction 0f..1f state of charge; null hides the battery overlay (no battery in this system).
- * @param simTimeText The current simulated time (already formatted, e.g. "12:42 PM"), shown as a
- * subtle overlay in the scene's top-right corner — sky, not equipment, so nothing important is
- * ever covered. Null hides it entirely.
+ * @param batterySocFraction 0f..1f state of charge; null hides all battery UI (no battery in this system).
+ * @param batterySocKwh Current stored energy in kWh, shown alongside the percent on [BatteryCard].
+ * @param simTimeText The current simulated time (already formatted, e.g. "12:42 PM"), shown in the
+ * scene's top-right HUD card. Null hides it.
+ * @param inverterModeLabel The active inverter mode's short code (e.g. "SBU"), shown next to the
+ * time as "SBU Mode". Null hides it (e.g. off-grid systems with no mode concept).
  */
 @Composable
 fun EnergyFlowCanvas(
@@ -81,8 +94,10 @@ fun EnergyFlowCanvas(
     daylightFactor: Float = 1f,
     isStorm: Boolean = false,
     batterySocFraction: Float? = null,
+    batterySocKwh: Double? = null,
     batteryCharging: Boolean = false,
     simTimeText: String? = null,
+    inverterModeLabel: String? = null,
     debugShowPaths: Boolean = SolarSimulationPaths.DEBUG_SHOW_PATHS
 ) {
     Box(modifier = modifier.fillMaxWidth().aspectRatio(IMAGE_ASPECT_RATIO)) {
@@ -107,30 +122,15 @@ fun EnergyFlowCanvas(
 
         ParticleOverlay(flows = flows, debugShowPaths = debugShowPaths)
 
-        WattageOverlays(flows = flows, batterySocFraction = batterySocFraction)
+        FlowLabelChips(flows = flows, batterySocFraction = batterySocFraction)
 
-        if (simTimeText != null) {
-            SimClockOverlay(text = simTimeText, modifier = Modifier.align(Alignment.TopEnd))
-        }
-    }
-}
-
-/** A small, subtle digital-clock chip in the scene's corner — the current simulated time, always legible over sky. */
-@Composable
-private fun SimClockOverlay(text: String, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .padding(10.dp)
-            .clip(RoundedCornerShape(50))
-            .background(Color.Black.copy(alpha = 0.32f))
-            .padding(horizontal = 10.dp, vertical = 5.dp)
-    ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
-            fontFeatureSettings = "tnum"
+        HudOverlay(
+            flows = flows,
+            batterySocFraction = batterySocFraction,
+            batterySocKwh = batterySocKwh,
+            batteryCharging = batteryCharging,
+            simTimeText = simTimeText,
+            inverterModeLabel = inverterModeLabel
         )
     }
 }
@@ -143,13 +143,15 @@ private fun formatWatts(kw: Double, showSign: Boolean = false): String {
 }
 
 /**
- * Live values drawn directly over the artwork's own baked "0 W" / "100%" placeholder text at
- * the Grid/Solar/Consumption/Battery labels — each [flows] entry is the exact same resolved
- * power already driving the particles on that same path, so the readout and the animation can
- * never disagree.
+ * Live icon + label + value chips drawn directly over the artwork's own baked "0 W" / "100%"
+ * placeholder text at the Grid/Solar/Consumption/Battery labels — each value is the exact same
+ * resolved power already driving the particles and line on that same path, so nothing here can
+ * disagree with the animation. Positioned at [SolarSimulationPaths]'s pixel-measured label
+ * bounds rather than a path midpoint, so the chip lands exactly where the artwork already
+ * prints (and expects) a number.
  */
 @Composable
-private fun WattageOverlays(flows: List<EnergyFlow>, batterySocFraction: Float?, modifier: Modifier = Modifier) {
+private fun FlowLabelChips(flows: List<EnergyFlow>, batterySocFraction: Float?, modifier: Modifier = Modifier) {
     val flowById = remember(flows) { flows.associateBy { it.id } }
     val gridKw = flowById["grid_inverter"]?.powerKw ?: 0.0
     val solarKw = flowById["solar_inverter"]?.powerKw ?: 0.0
@@ -160,14 +162,41 @@ private fun WattageOverlays(flows: List<EnergyFlow>, batterySocFraction: Float?,
         batteryFlow.direction == FlowDirection.FORWARD -> batteryFlow.powerKw
         else -> -batteryFlow.powerKw
     }
-    val batteryPercentText = batterySocFraction?.let { " ${(it * 100).roundToInt()}%" } ?: ""
+    val batteryPercentText = batterySocFraction?.let { " · ${(it * 100).roundToInt()}%" } ?: ""
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth().aspectRatio(IMAGE_ASPECT_RATIO)) {
-        WattageChip(text = formatWatts(gridKw), bounds = SolarSimulationPaths.gridLabelBounds, containerWidth = maxWidth, containerHeight = maxHeight)
-        WattageChip(text = formatWatts(solarKw), bounds = SolarSimulationPaths.solarLabelBounds, containerWidth = maxWidth, containerHeight = maxHeight)
-        WattageChip(text = formatWatts(consumptionKw), bounds = SolarSimulationPaths.consumptionLabelBounds, containerWidth = maxWidth, containerHeight = maxHeight)
-        WattageChip(
-            text = formatWatts(batteryKw, showSign = true) + batteryPercentText,
+        FlowChip(
+            icon = "🔌",
+            label = "Grid → Inverter",
+            value = formatWatts(gridKw),
+            accent = LumixColors.GridMagenta,
+            bounds = SolarSimulationPaths.gridLabelBounds,
+            containerWidth = maxWidth,
+            containerHeight = maxHeight
+        )
+        FlowChip(
+            icon = "☀",
+            label = "PV → Inverter",
+            value = formatWatts(solarKw),
+            accent = LumixColors.SolarYellow,
+            bounds = SolarSimulationPaths.solarLabelBounds,
+            containerWidth = maxWidth,
+            containerHeight = maxHeight
+        )
+        FlowChip(
+            icon = "🏠",
+            label = "Inverter → Load",
+            value = formatWatts(consumptionKw),
+            accent = LumixColors.EnergyGreen,
+            bounds = SolarSimulationPaths.consumptionLabelBounds,
+            containerWidth = maxWidth,
+            containerHeight = maxHeight
+        )
+        FlowChip(
+            icon = "🔋",
+            label = "Inverter → Battery",
+            value = formatWatts(batteryKw, showSign = true) + batteryPercentText,
+            accent = LumixColors.TechnicalCyan,
             bounds = SolarSimulationPaths.batteryLabelBounds,
             containerWidth = maxWidth,
             containerHeight = maxHeight
@@ -176,36 +205,273 @@ private fun WattageOverlays(flows: List<EnergyFlow>, batterySocFraction: Float?,
 }
 
 /**
- * Anchored to the top-left of the artwork's own baked icon+"0 W" text box — the same spot
- * the artwork's own live-value row occupies, sitting above its static "Grid"/"Solar"/etc. word
- * (which is left alone; only the number line is ever covered). The backing is nearly opaque
- * so the baked digits are genuinely erased rather than dimmed-and-visible-through, and the box
- * is sized a little larger than the artwork's own print-scale text so the replacement reads as
- * a clean patch, not a translucent watermark sitting on top of the original.
+ * Anchored to the top-left of the artwork's own baked icon+"0 W" text box. The backing is
+ * nearly opaque so the baked digits are genuinely erased rather than dimmed-and-visible-
+ * through, and a small color dot ties the chip back to the same hue as its line/legend entry.
  */
 @Composable
-private fun WattageChip(text: String, bounds: NormalizedRect, containerWidth: Dp, containerHeight: Dp) {
+private fun FlowChip(
+    icon: String,
+    label: String,
+    value: String,
+    accent: Color,
+    bounds: NormalizedRect,
+    containerWidth: Dp,
+    containerHeight: Dp
+) {
     val originX = containerWidth * bounds.left - 4.dp
     val originY = containerHeight * bounds.top - 3.dp
-    Box(
+    Row(
         modifier = Modifier
             .offset(x = originX, y = originY)
-            .clip(RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(6.dp))
             .background(Color.Black.copy(alpha = 0.92f))
-            .padding(horizontal = 5.dp, vertical = 3.dp)
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
-            fontFeatureSettings = "tnum",
-            maxLines = 1
+        Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(accent))
+        Column {
+            Text(
+                "$icon $label",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.72f),
+                maxLines = 1
+            )
+            Text(
+                value,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontFeatureSettings = "tnum",
+                maxLines = 1
+            )
+        }
+    }
+}
+
+/**
+ * The scene's instrument cluster: stat cards top-left, time+mode and the flow legend top-right,
+ * the battery gauge bottom-left, and a compact system summary bottom-right — all corner-anchored
+ * so nothing ever sits over the house or equipment itself.
+ */
+@Composable
+private fun HudOverlay(
+    flows: List<EnergyFlow>,
+    batterySocFraction: Float?,
+    batterySocKwh: Double?,
+    batteryCharging: Boolean,
+    simTimeText: String?,
+    inverterModeLabel: String?,
+    modifier: Modifier = Modifier
+) {
+    val flowById = remember(flows) { flows.associateBy { it.id } }
+    val batteryFlow = flowById["inverter_battery"]
+    val batteryKw = when {
+        batteryFlow == null || !batteryFlow.active -> 0.0
+        batteryFlow.direction == FlowDirection.FORWARD -> batteryFlow.powerKw
+        else -> -batteryFlow.powerKw
+    }
+
+    Box(modifier = modifier.fillMaxWidth().aspectRatio(IMAGE_ASPECT_RATIO)) {
+        TopStatRow(flows = flows, modifier = Modifier.align(Alignment.TopStart).padding(10.dp))
+
+        if (simTimeText != null || inverterModeLabel != null) {
+            Column(
+                modifier = Modifier.align(Alignment.TopEnd).padding(10.dp),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                TimeModeCard(timeText = simTimeText, modeLabel = inverterModeLabel)
+                LegendCard()
+            }
+        } else {
+            LegendCard(modifier = Modifier.align(Alignment.TopEnd).padding(10.dp))
+        }
+
+        if (batterySocFraction != null) {
+            BatteryCard(
+                socFraction = batterySocFraction,
+                socKwh = batterySocKwh,
+                charging = batteryCharging,
+                modifier = Modifier.align(Alignment.BottomStart).padding(10.dp)
+            )
+        }
+
+        SystemSummaryCard(
+            flows = flows,
+            batteryKw = if (batterySocFraction != null) batteryKw else null,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp)
         )
     }
 }
 
-/** The animated current-flow particles only — kept separate so it can be timed/tested on its own. */
+/** Compact translucent card — the shared look for every HUD element floating over the photo. */
+@Composable
+private fun HudCard(modifier: Modifier = Modifier, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.Black.copy(alpha = 0.45f))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        content = content
+    )
+}
+
+@Composable
+private fun TopStatRow(flows: List<EnergyFlow>, modifier: Modifier = Modifier) {
+    val flowById = remember(flows) { flows.associateBy { it.id } }
+    val solarKw = flowById["solar_inverter"]?.powerKw ?: 0.0
+    val gridKw = flowById["grid_inverter"]?.powerKw ?: 0.0
+    val homeKw = flowById["inverter_house"]?.powerKw ?: 0.0
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        StatCard(label = "SOLAR", valueKw = solarKw, accent = LumixColors.SolarYellow)
+        StatCard(label = "GRID", valueKw = gridKw, accent = LumixColors.GridMagenta)
+        StatCard(label = "HOME LOAD", valueKw = homeKw, accent = LumixColors.EnergyGreen)
+    }
+}
+
+@Composable
+private fun StatCard(label: String, valueKw: Double, accent: Color) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.Black.copy(alpha = 0.45f))
+            .padding(horizontal = 9.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(accent))
+        Column {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.75f), fontWeight = FontWeight.Bold)
+            Text(
+                "%.2f kW".format(valueKw),
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontFeatureSettings = "tnum"
+            )
+        }
+    }
+}
+
+/** Simulated clock + active inverter mode, e.g. "12:42 PM" / "● SBU Mode". */
+@Composable
+private fun TimeModeCard(timeText: String?, modeLabel: String?, modifier: Modifier = Modifier) {
+    HudCard(modifier = modifier) {
+        if (timeText != null) {
+            Text(
+                timeText,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontFeatureSettings = "tnum"
+            )
+        }
+        if (modeLabel != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(LumixColors.EnergyGreen))
+                Text(
+                    "$modeLabel Mode",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+private data class LegendEntry(val color: Color, val label: String)
+
+/** The same four route→color pairings [colorFor] draws with — kept as the one legend source. */
+private val ENERGY_LEGEND = listOf(
+    LegendEntry(LumixColors.SolarYellow, "PV → Inverter"),
+    LegendEntry(LumixColors.TechnicalCyan, "Inverter → Battery"),
+    LegendEntry(LumixColors.EnergyGreen, "Inverter → Load"),
+    LegendEntry(LumixColors.GridMagenta, "Grid → Inverter")
+)
+
+@Composable
+private fun LegendCard(modifier: Modifier = Modifier) {
+    HudCard(modifier = modifier) {
+        ENERGY_LEGEND.forEach { entry ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(entry.color))
+                Text(entry.label, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun BatteryCard(socFraction: Float, socKwh: Double?, charging: Boolean, modifier: Modifier = Modifier) {
+    val percent = (socFraction * 100).roundToInt()
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.45f))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("🔋", style = MaterialTheme.typography.titleMedium)
+        Column {
+            Text(
+                "$percent%",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontFeatureSettings = "tnum"
+            )
+            val detail = buildString {
+                if (socKwh != null) append("%.1f kWh".format(socKwh))
+                if (charging) append(if (isEmpty()) "Charging" else " · Charging")
+            }
+            if (detail.isNotEmpty()) {
+                Text(detail, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.75f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SystemSummaryCard(flows: List<EnergyFlow>, batteryKw: Double?, modifier: Modifier = Modifier) {
+    val flowById = remember(flows) { flows.associateBy { it.id } }
+    val rows = remember(flowById, batteryKw) {
+        buildList {
+            add("Solar" to (flowById["solar_inverter"]?.powerKw ?: 0.0))
+            add("Home Load" to (flowById["inverter_house"]?.powerKw ?: 0.0))
+            if (batteryKw != null) add("Battery" to batteryKw)
+            add("Grid" to (flowById["grid_inverter"]?.powerKw ?: 0.0))
+        }
+    }
+
+    HudCard(modifier = modifier) {
+        Text("SYSTEM", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.55f), fontWeight = FontWeight.Bold)
+        rows.forEach { (label, kw) ->
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.75f),
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Text(
+                    formatWatts(kw, showSign = label == "Battery"),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    fontFeatureSettings = "tnum"
+                )
+            }
+        }
+    }
+}
+
+/** The animated current-flow lines + particles only — kept separate so it can be timed/tested on its own. */
 @Composable
 private fun ParticleOverlay(flows: List<EnergyFlow>, debugShowPaths: Boolean) {
     val reduceMotion = rememberReduceMotion()
@@ -251,12 +517,30 @@ private fun ParticleOverlay(flows: List<EnergyFlow>, debugShowPaths: Boolean) {
             // it, rather than animating a physically-impossible direction on a fixed one-way route.
             if (flow.direction == FlowDirection.REVERSE && !path.bidirectional) return@forEach
 
-            val color = colorFor(path, flow)
-            val count = EnergyFlowPathManager.particleCountFor(flow.powerKw)
-            if (count <= 0) return@forEach
-
+            val color = colorFor(path)
             val speed = EnergyFlowPathManager.particleSpeedFor(flow.powerKw)
             val signedPhase = if (flow.direction == FlowDirection.REVERSE) -elapsedSeconds * speed else elapsedSeconds * speed
+
+            // The conduit itself — a soft glow plus a dashed, animated line, in the route's own
+            // legend color, drawn its full length (not just wherever a particle happens to be).
+            val linePath = Path().apply {
+                val start = toOffset(path.points.first())
+                moveTo(start.x, start.y)
+                path.points.drop(1).forEach { p ->
+                    val o = toOffset(p)
+                    lineTo(o.x, o.y)
+                }
+            }
+            val dashPhase = -EnergyFlowPathManager.wrapUnit(signedPhase) * 48f
+            drawPath(path = linePath, color = color.copy(alpha = 0.14f), style = Stroke(width = 9f))
+            drawPath(
+                path = linePath,
+                color = color.copy(alpha = 0.85f),
+                style = Stroke(width = 3f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 11f), phase = dashPhase))
+            )
+
+            val count = EnergyFlowPathManager.particleCountFor(flow.powerKw)
+            if (count <= 0) return@forEach
             val offsets = EnergyFlowPathManager.particleOffsets(count)
 
             offsets.forEach { base ->

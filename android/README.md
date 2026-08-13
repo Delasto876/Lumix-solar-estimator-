@@ -1421,3 +1421,57 @@ of continuing past it toward the pole. Grid's own particles still run the full p
 span in the other direction. Both flows still share the same physical conductor between the
 door and the inverter — they just no longer share the *pole-to-door* stretch, which only ever
 carries grid supply, never house consumption headed the other way.
+
+## A27 — Simulation HUD: stat cards, legend, glowing flow lines, battery/system cards
+
+Rebuilt the simulation screen's overlay layer to match a full UI mockup the user provided
+(shown inline in chat, not as a file, so this was implemented from visual reading rather than
+pixel measurement — see the file-access limitation noted below). The mockup's bottom-nav still
+showed a "Site" tab; asked the user directly since Solar Site was deliberately fully removed in
+A18/A20 at their own prior request, and a mockup screenshot alone isn't authorization to bring
+a removed feature back. Answer: **keep the current 5 tabs, skip Site** — no nav changes made.
+
+**Legend-driven color remap.** `colorFor()` in `EnergyFlowCanvas.kt` now maps each route to the
+exact color the user's hand-drawn reference and the mockup's legend both specified: PV→Inverter
+yellow (`SolarYellow`), Inverter→Battery blue (`TechnicalCyan`), Inverter→Load green
+(`EnergyGreen`), Grid→Inverter pink/magenta — a new `LumixColors.GridMagenta`, since nothing in
+the existing palette was actually pink. The battery path previously changed color by flow
+direction (green forward / cyan reverse); the legend only lists one blue entry for it, so that
+distinction was dropped in favor of matching the legend exactly.
+
+**Full-length glowing dashed lines.** `ParticleOverlay`'s Canvas now draws each active path as a
+real line for its whole length — a soft wide low-alpha glow stroke plus a crisper dashed stroke
+whose phase animates with the same signed speed driving the particles — instead of relying
+solely on the baked artwork's printed white line as the only visible "conduit." Particles still
+ride on top of it exactly as before. An active flow below the particle-count threshold (very
+low but nonzero power) now still shows the glowing line even with zero visible particles, which
+reads correctly — there genuinely is current flowing, just not enough to warrant particles.
+
+**Flow label chips.** The old `WattageOverlays`/`WattageChip` (which erased the artwork's own
+baked "0 W" placeholder text with a plain number) is now `FlowLabelChips`/`FlowChip`: same exact
+pixel-measured bounds (`gridLabelBounds`/`solarLabelBounds`/`consumptionLabelBounds`/
+`batteryLabelBounds`), but each chip now also shows an icon, a "Grid → Inverter"-style route
+label, and a small color dot matching that route's legend color — matching the mockup's
+"floating labeled chips on each line" without inventing new, unverified chip positions.
+
+**HUD cards.** Added `HudOverlay`, corner-anchored over the scene so nothing sits on the house
+or equipment itself: `TopStatRow` (Solar/Grid/Home Load, top-left), `TimeModeCard` + `LegendCard`
+(top-right — simulated clock, active inverter mode as "SBU Mode" etc., and the 4-entry color
+legend), `BatteryCard` (bottom-left — percent + kWh + charging state, only when the system has a
+battery), and `SystemSummaryCard` (bottom-right — compact Solar/Home Load/Battery/Grid table).
+Every number comes from the same `flows`/`SimFrame` state already driving the particles and the
+existing below-canvas `LivePowerRow` — nothing here is fabricated. `EnergyFlowCanvas` gained two
+new parameters to support this: `batterySocKwh` (for the battery card's kWh line) and
+`inverterModeLabel` (for the time/mode card; passed only when `config.gridConnectable`, since
+SOL/SBU/UTI mode is meaningless for a system with no grid connection). The existing below-canvas
+`LivePowerRow` in `SimulationScreen.kt` was left in place rather than removed — the mockup shows
+its own equivalents floating on the image, but nothing indicated the existing row should be
+deleted, and keeping it is the non-destructive choice.
+
+**Known limitation, stated plainly:** images pasted inline in chat (as opposed to genuinely
+uploaded files) are visible to the assistant but are not saved anywhere a script can read them —
+checked again this round, same result as A24-A26. That means this mockup's exact pixel
+positions, spacing, and typography could not be measured or verified the way the base artwork
+(a real upload) was; the layout above is a faithful best-effort reading of the mockup's
+structure and content, not a pixel-matched reproduction. If further precision corrections are
+needed, the mockup would need to be attached as an actual file upload.
