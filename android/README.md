@@ -1287,22 +1287,29 @@ geometry — the particle system's normalized coordinates only mean anything rel
 specific image, so swapping the artwork without recalibrating them would have sent particles
 drifting off into empty sky/lawn instead of riding the printed line.
 
-**Extraction method, and a correction.** The first attempt used a Python/Pillow + scipy/
-scikit-image script — threshold the PNG for near-white, low-saturation pixels, connected-
-component-label each printed line apart from the others, then trace each component with
-column/row centroid sampling — and got the *pixels each path belongs to* right, but the
-centroid sampling over-fit noise (arrowheads, anti-aliasing) into a slightly wavy polyline
-instead of the artwork's actual straight segments, and `inverterToHousePath` was invented as a
-stylized stub toward a window that doesn't exist as a line in the artwork at all. Caught after
-review and re-done properly: each path's corners were read directly off pixel-gridded crops of
-the source image (exact pixel coordinates at each bend, cross-checked against the artwork), and
-`inverterToHousePath` was rebuilt as `gridToInverterPath.points.reversed()` — this artwork draws
-only *one* physical line between the inverter and the street side, and in a real installation
-that line genuinely is shared (the meter/main-panel connection carries both JPS's incoming
-supply and the house's outgoing load on the same conductor), so "house" particles now travel
-that exact printed line from the inverter back toward the street junction, opposite grid's
-incoming ones, instead of an invented separate route. Both versions were rendered back onto the
-source image as colored overlays and visually compared before either was committed.
+**Extraction method, and two rounds of correction.** Three attempts, each fixing what the last
+one got wrong:
+1. A per-column/row centroid scan got the *pixels each path belongs to* right but over-fit
+   noise (arrowheads, anti-aliasing) into a slightly wavy polyline instead of the artwork's
+   actual straight segments, and invented `inverterToHousePath` as a stylized stub toward a
+   window that doesn't exist as a line in the artwork at all.
+2. Hand-reading each corner's exact pixel coordinates off gridded crops fixed the straightness
+   and replaced the invented stub with `gridToInverterPath.points.reversed()` — correct in
+   principle (this artwork draws only *one* physical line between the inverter and the street
+   side, and in a real installation that conductor genuinely is shared between JPS's incoming
+   supply and the house's outgoing load) — but still missed some of the grid route's own bends,
+   because that route loops back on itself near the door in a purely decorative "cable slack"
+   flourish that's easy to misread by eye (it looks like two crossing lines, not one folded one).
+3. Redone with a graph-shortest-path trace: threshold the printed line to a pixel mask,
+   skeletonize each isolated line to a 1px centerline, then take the shortest path between the
+   line's two known endpoints through that skeleton's own pixel-adjacency graph (Ramer–Douglas–
+   Peucker-simplified afterward). Shortest-path naturally resolves straight through the door
+   loop's crossing point instead of tracing its decorative detour, without needing to manually
+   disambiguate which branch to follow — solving exactly the case eyeballing got wrong. Every
+   point in every path is now literal skeleton pixels from the artwork.
+
+All three versions were rendered back onto the source image as colored overlays and visually
+compared before the final one was committed.
 
 **What changed:**
 - `IMAGE_ASPECT_RATIO` (`EnergyFlowCanvas.kt`) updated to `1173/1341`.

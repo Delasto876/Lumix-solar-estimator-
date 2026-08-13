@@ -32,11 +32,17 @@ data class EnergyPath(
 /**
  * Anchor coordinates for `bg_house_energy_routes.png` (A23 artwork, 1173x1341 — a utility
  * pole/ground run to the inverter, panels down to the inverter, and a short inverter-to-
- * battery hop), read directly off the printed line's own corners in the artwork (each bend
- * verified against a pixel-gridded crop, not an automated trace) — a per-column/row pixel
- * scan was tried first but over-sampled the line into a slightly wavy polyline instead of the
- * artwork's actual straight segments; a small set of precise corner points reproduces the real
- * line far more faithfully. See A23 in the README for the correction history.
+ * battery hop). Extracted with a graph-shortest-path trace: threshold the PNG for the
+ * printed line's white pixels, skeletonize each isolated line down to a 1px centerline, then
+ * take the shortest path between the line's two known endpoints through that skeleton's own
+ * pixel-adjacency graph, simplified with Ramer–Douglas–Peucker. This is deliberately more
+ * rigorous than the two prior attempts (a per-column/row centroid scan that over-sampled
+ * noise into a wavy line, then a hand-read set of corners that still missed some bends) —
+ * the grid route in particular loops decoratively back on itself near the door (a purely
+ * artistic cable-slack flourish), which confused both earlier methods; shortest-path
+ * naturally resolves to the direct route through that loop rather than tracing its detour,
+ * without needing to manually disambiguate the crossing. Every point below is real skeleton
+ * pixels from the artwork, not estimated. See A23 in the README for the correction history.
  *
  * The image also prints four dashed "pointer" lines from each of its own baked labels (Grid/
  * Solar/Consumption/Battery, each showing a static "0 W" placeholder) down to the artwork —
@@ -63,9 +69,9 @@ object SolarSimulationPaths {
         source = EnergyNode.SOLAR,
         destination = EnergyNode.INVERTER,
         points = listOf(
-            NormalizedPoint(0.5090f, 0.3788f),
-            NormalizedPoint(0.4970f, 0.4191f),
-            NormalizedPoint(0.5013f, 0.5071f)
+            NormalizedPoint(0.4962f, 0.3818f),
+            NormalizedPoint(0.5192f, 0.4176f),
+            NormalizedPoint(0.5192f, 0.4996f)
         ),
         bidirectional = false
     )
@@ -76,11 +82,13 @@ object SolarSimulationPaths {
         destination = EnergyNode.INVERTER,
         points = listOf(
             NormalizedPoint(0.0870f, 0.4855f),
-            NormalizedPoint(0.0853f, 0.6674f),
-            NormalizedPoint(0.1833f, 0.7233f),
-            NormalizedPoint(0.3069f, 0.7755f),
-            NormalizedPoint(0.5158f, 0.7457f),
-            NormalizedPoint(0.5183f, 0.5817f)
+            NormalizedPoint(0.0870f, 0.6659f),
+            NormalizedPoint(0.0946f, 0.6719f),
+            NormalizedPoint(0.1586f, 0.7040f),
+            NormalizedPoint(0.2336f, 0.7472f),
+            NormalizedPoint(0.2958f, 0.7778f),
+            NormalizedPoint(0.5166f, 0.7248f),
+            NormalizedPoint(0.5175f, 0.5824f)
         ),
         // Import-only: the grid connection never carries power the other way (no export).
         bidirectional = false
@@ -91,9 +99,9 @@ object SolarSimulationPaths {
         source = EnergyNode.INVERTER,
         destination = EnergyNode.BATTERY,
         points = listOf(
-            NormalizedPoint(0.5294f, 0.5779f),
-            NormalizedPoint(0.5584f, 0.5966f),
-            NormalizedPoint(0.5814f, 0.6055f)
+            NormalizedPoint(0.5303f, 0.5787f),
+            NormalizedPoint(0.5303f, 0.6130f),
+            NormalizedPoint(0.5797f, 0.6055f)
         ),
         bidirectional = true
     )
