@@ -69,31 +69,78 @@ data class ApplianceState(
 }
 
 /**
+ * A reasonable starting run schedule for a typical Jamaican household — a DEFAULT ASSUMPTION,
+ * not a claim about how any specific household actually behaves. Always fully editable
+ * afterward through the appliance picker's own quantity/hours/period controls. Quantities are
+ * filled in separately by the caller; only the timing shape lives here. Short "event" appliances
+ * (microwave, iron, pump) default to minutes, not hours, since that's how they're actually used.
+ */
+fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type) {
+    // Brief pre-dawn use, then the real usage window from dusk through bedtime.
+    SimApplianceType.LIGHTS -> listOf(
+        ApplianceRun(startHour = 5.0, durationHours = 1.0),
+        ApplianceRun(startHour = 18.0, durationHours = 5.0)
+    )
+    // A compressor cycles on/off all day rather than truly running continuously, but its
+    // average draw over a day is close enough to constant that a single all-day run is the
+    // right shape for this — it isn't a "morning/evening" appliance like the others.
+    SimApplianceType.REFRIGERATOR -> listOf(ApplianceRun(startHour = 0.0, durationHours = 24.0))
+    // Midday heat through the night for sleeping.
+    SimApplianceType.FANS -> listOf(ApplianceRun(startHour = 12.0, durationHours = 11.0))
+    SimApplianceType.TV -> listOf(ApplianceRun(startHour = 17.0, durationHours = 4.0))
+    SimApplianceType.AIR_CONDITIONER -> listOf(ApplianceRun(startHour = 19.0, durationHours = 8.0))
+    // Two ~10-minute events — lunch and dinner.
+    SimApplianceType.MICROWAVE -> listOf(
+        ApplianceRun(startHour = 12.0, durationHours = 10.0 / 60.0),
+        ApplianceRun(startHour = 18.5, durationHours = 10.0 / 60.0)
+    )
+    SimApplianceType.WASHING_MACHINE -> listOf(ApplianceRun(startHour = 9.0, durationHours = 1.0))
+    SimApplianceType.DRYER -> listOf(ApplianceRun(startHour = 10.0, durationHours = 1.0))
+    // A ~15-minute event.
+    SimApplianceType.IRON -> listOf(ApplianceRun(startHour = 7.0, durationHours = 15.0 / 60.0))
+    SimApplianceType.WATER_HEATER -> listOf(
+        ApplianceRun(startHour = 6.0, durationHours = 1.0),
+        ApplianceRun(startHour = 18.0, durationHours = 1.0)
+    )
+    SimApplianceType.OVEN -> listOf(ApplianceRun(startHour = 18.0, durationHours = 1.0))
+    // A ~15-minute cycle.
+    SimApplianceType.PUMP -> listOf(ApplianceRun(startHour = 7.0, durationHours = 15.0 / 60.0))
+    SimApplianceType.COMPUTER -> listOf(ApplianceRun(startHour = 18.0, durationHours = 3.0))
+    // No typical pattern exists for this one — entirely user-configurable — so this default
+    // (overnight, off-peak) is just a starting point, not a behavioral claim.
+    SimApplianceType.EV_CHARGER -> listOf(ApplianceRun(startHour = 22.0, durationHours = 6.0))
+}
+
+/**
  * Starting configuration for each appliance, derived from what the user actually told
- * the estimator they have — not arbitrary defaults. Appliances the wizard never asks
+ * the estimator they have — not arbitrary quantities. Appliances the wizard never asks
  * about (water heater, oven, pump, computer, EV charger) default off so the simulator
- * starts matching the quoted load, and turning them on is an explicit "what if."
+ * starts matching the quoted load, and turning them on is an explicit "what if." Every
+ * appliance — on or off — carries [defaultScheduleFor]'s realistic timing, so switching one
+ * on for the first time starts from a sensible schedule rather than an arbitrary all-day block.
  */
 fun defaultApplianceStates(inputs: QuoteInputs): Map<SimApplianceType, ApplianceState> {
     fun qty(type: ApplianceType) = inputs.appliances[type]?.qty ?: 0
-    fun stateFor(quantity: Int, enabled: Boolean = quantity > 0) =
-        ApplianceState(enabled = enabled, runs = listOf(ApplianceRun(quantity = quantity.coerceAtLeast(1))))
+    fun stateFor(type: SimApplianceType, quantity: Int, enabled: Boolean = quantity > 0): ApplianceState {
+        val q = quantity.coerceAtLeast(1)
+        return ApplianceState(enabled = enabled, runs = defaultScheduleFor(type).map { it.copy(quantity = q) })
+    }
 
     return linkedMapOf(
-        SimApplianceType.LIGHTS to stateFor(quantity = 1, enabled = true),
-        SimApplianceType.REFRIGERATOR to stateFor(qty(ApplianceType.FRIDGE)),
-        SimApplianceType.FANS to stateFor(qty(ApplianceType.FAN)),
-        SimApplianceType.TV to stateFor(qty(ApplianceType.TV)),
-        SimApplianceType.AIR_CONDITIONER to stateFor(inputs.ac.counts.values.sum(), enabled = inputs.ac.hasAc),
-        SimApplianceType.MICROWAVE to stateFor(qty(ApplianceType.MICROWAVE)),
-        SimApplianceType.WASHING_MACHINE to stateFor(qty(ApplianceType.WASHER)),
-        SimApplianceType.DRYER to stateFor(qty(ApplianceType.DRYER)),
-        SimApplianceType.IRON to stateFor(qty(ApplianceType.IRON)),
-        SimApplianceType.WATER_HEATER to stateFor(1, enabled = false),
-        SimApplianceType.OVEN to stateFor(1, enabled = false),
-        SimApplianceType.PUMP to stateFor(1, enabled = false),
-        SimApplianceType.COMPUTER to stateFor(1, enabled = false),
-        SimApplianceType.EV_CHARGER to stateFor(1, enabled = false)
+        SimApplianceType.LIGHTS to stateFor(SimApplianceType.LIGHTS, quantity = 1, enabled = true),
+        SimApplianceType.REFRIGERATOR to stateFor(SimApplianceType.REFRIGERATOR, qty(ApplianceType.FRIDGE)),
+        SimApplianceType.FANS to stateFor(SimApplianceType.FANS, qty(ApplianceType.FAN)),
+        SimApplianceType.TV to stateFor(SimApplianceType.TV, qty(ApplianceType.TV)),
+        SimApplianceType.AIR_CONDITIONER to stateFor(SimApplianceType.AIR_CONDITIONER, inputs.ac.counts.values.sum(), enabled = inputs.ac.hasAc),
+        SimApplianceType.MICROWAVE to stateFor(SimApplianceType.MICROWAVE, qty(ApplianceType.MICROWAVE)),
+        SimApplianceType.WASHING_MACHINE to stateFor(SimApplianceType.WASHING_MACHINE, qty(ApplianceType.WASHER)),
+        SimApplianceType.DRYER to stateFor(SimApplianceType.DRYER, qty(ApplianceType.DRYER)),
+        SimApplianceType.IRON to stateFor(SimApplianceType.IRON, qty(ApplianceType.IRON)),
+        SimApplianceType.WATER_HEATER to stateFor(SimApplianceType.WATER_HEATER, 1, enabled = false),
+        SimApplianceType.OVEN to stateFor(SimApplianceType.OVEN, 1, enabled = false),
+        SimApplianceType.PUMP to stateFor(SimApplianceType.PUMP, 1, enabled = false),
+        SimApplianceType.COMPUTER to stateFor(SimApplianceType.COMPUTER, 1, enabled = false),
+        SimApplianceType.EV_CHARGER to stateFor(SimApplianceType.EV_CHARGER, 1, enabled = false)
     )
 }
 

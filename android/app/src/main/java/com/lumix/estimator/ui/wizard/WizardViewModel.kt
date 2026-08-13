@@ -8,7 +8,6 @@ import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteMode
 import com.lumix.estimator.domain.QuoteResult
-import com.lumix.estimator.domain.RoofType
 import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.domain.Validation
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,10 +37,11 @@ class WizardViewModel(
     val isCalculating: StateFlow<Boolean> = _isCalculating.asStateFlow()
 
     // One concept per screen, per the mobile usability pass: 1 Customer, 2 Quote Mode,
-    // 3 Property & System, 4 Roof Type, 5 Roof Mounting (ZINC only), 6 Air Conditioning,
-    // 7 Household Appliances, 8 JPS Bill/Usage (GUIDED only), 9 Backup Requirements,
-    // 10 Manual Mode (MANUAL only), 11 Inverter & Panels (MANUAL only), 12 Battery Bank
-    // (MANUAL only), 13 Pricing & Discount.
+    // 3 Property & System, 4 Roof Type, 5 Air Conditioning, 6 Household Appliances,
+    // 7 JPS Bill/Usage (GUIDED only), 8 Backup Requirements, 9 Manual Mode (MANUAL only),
+    // 10 Inverter & Panels (MANUAL only), 11 Battery Bank (MANUAL only), 12 System Review,
+    // 13 Pricing & Discount. (The old "Roof Mounting / 3-rail" step was removed — zinc roofs
+    // just always use 3 rails/row now, its own prior default, rather than asking.)
     val totalSteps = 13
 
     fun update(transform: (QuoteInputs) -> QuoteInputs) {
@@ -52,8 +52,8 @@ class WizardViewModel(
         val data = _inputs.value
         return when (step) {
             1 -> Validation.customerErrors(data)
-            8 -> Validation.usageErrors(data)
-            11 -> Validation.manualErrors(data)
+            7 -> Validation.usageErrors(data)
+            10 -> Validation.manualErrors(data)
             13 -> Validation.pricingErrors(data)
             else -> emptyList()
         }
@@ -62,12 +62,14 @@ class WizardViewModel(
     fun visibleSteps(): List<Int> {
         val data = _inputs.value
         val steps = (1..totalSteps).toMutableList()
-        if (data.roofType != RoofType.ZINC) steps.remove(5)
-        if (data.quoteMode == QuoteMode.LOAD) steps.remove(8)
+        // JPS Bill/Usage only makes sense in GUIDED mode — LOAD mode sizes from appliance load
+        // directly, MANUAL mode has its own explicit sizing steps. (Previously this only
+        // excluded LOAD mode, leaving a blank page reachable in MANUAL mode's step count.)
+        if (data.quoteMode != QuoteMode.GUIDED) steps.remove(7)
         if (data.quoteMode != QuoteMode.MANUAL) {
+            steps.remove(9)
             steps.remove(10)
             steps.remove(11)
-            steps.remove(12)
         }
         return steps
     }

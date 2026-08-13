@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.lumix.estimator.domain.SavingsCalculator
 import com.lumix.estimator.domain.simulation.SimulationEngine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -23,6 +24,8 @@ class SettingsRepository(private val context: Context) {
     private val themeModeKey = stringPreferencesKey("theme_mode")
     private val defaultTechnicalModeKey = booleanPreferencesKey("default_technical_mode")
     private val defaultGridServiceAmpsKey = doublePreferencesKey("default_grid_service_amps")
+    private val billEscalationRateKey = doublePreferencesKey("bill_escalation_rate")
+    private val panelDegradationRateKey = doublePreferencesKey("panel_degradation_rate")
 
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
         prefs[themeModeKey]?.let { raw -> runCatching { ThemeMode.valueOf(raw) }.getOrNull() } ?: ThemeMode.SYSTEM
@@ -36,6 +39,16 @@ class SettingsRepository(private val context: Context) {
         prefs[defaultGridServiceAmpsKey] ?: SimulationEngine.DEFAULT_GRID_SERVICE_AMPS
     }
 
+    /** Assumed annual JPS-style bill increase used in the 20-year savings projection — an estimate, not a measured figure. */
+    val billEscalationRate: Flow<Double> = context.settingsDataStore.data.map { prefs ->
+        prefs[billEscalationRateKey] ?: SavingsCalculator.BILL_ESCALATION_RATE
+    }
+
+    /** Assumed annual panel output decline used in the 20-year savings projection — an estimate, not a measured figure. */
+    val panelDegradationRate: Flow<Double> = context.settingsDataStore.data.map { prefs ->
+        prefs[panelDegradationRateKey] ?: SavingsCalculator.PANEL_DEGRADATION_RATE
+    }
+
     suspend fun setThemeMode(mode: ThemeMode) {
         context.settingsDataStore.edit { it[themeModeKey] = mode.name }
     }
@@ -46,5 +59,13 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setDefaultGridServiceAmps(amps: Double) {
         context.settingsDataStore.edit { it[defaultGridServiceAmpsKey] = amps }
+    }
+
+    suspend fun setBillEscalationRate(rate: Double) {
+        context.settingsDataStore.edit { it[billEscalationRateKey] = rate }
+    }
+
+    suspend fun setPanelDegradationRate(rate: Double) {
+        context.settingsDataStore.edit { it[panelDegradationRateKey] = rate }
     }
 }

@@ -181,6 +181,7 @@ fun LumixNavHost(app: LumixApp) {
             composable(ROUTE_SAVINGS) {
                 SavingsScreen(
                     quoteRepository = app.quoteRepository,
+                    settingsRepository = app.settingsRepository,
                     onStartQuote = {
                         wizardViewModel.reset()
                         navController.navigate(ROUTE_WIZARD)

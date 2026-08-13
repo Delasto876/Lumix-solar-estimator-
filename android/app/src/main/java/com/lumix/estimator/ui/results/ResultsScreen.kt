@@ -33,7 +33,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SavedQuote
 import com.lumix.estimator.domain.QuoteInputs
@@ -43,7 +42,6 @@ import com.lumix.estimator.domain.SystemMode
 import com.lumix.estimator.domain.formatCurrency
 import com.lumix.estimator.domain.formatQty
 import com.lumix.estimator.pdf.QuotePdfGenerator
-import com.lumix.estimator.ui.components.AnimatedCounterText
 import com.lumix.estimator.ui.components.EnergyFlowDiagram
 import com.lumix.estimator.ui.components.FlowNode
 import com.lumix.estimator.ui.components.LumixPrimaryButton
@@ -54,7 +52,6 @@ import com.lumix.estimator.ui.components.SavingsGraph
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixColors
-import com.lumix.estimator.ui.theme.numberDisplayStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -137,6 +134,14 @@ fun ResultsScreen(
         val result = current.result
         val projection = remember(current) { SavingsCalculator.project(inputs, result) }
         val nodes = remember(result) { buildFlowNodes(result, inputs, projection.coveragePercent) }
+        val dailySolarKwh = result.pvKw * inputs.peakSunHours
+        val estimatedBackupHours = remember(inputs, result) {
+            if (result.totalBatteryKwh > 0 && result.batteryRequiredKwh > 0.01) {
+                inputs.backupHours * (result.totalBatteryKwh / result.batteryRequiredKwh)
+            } else 0.0
+        }
+        val backupMeetsTarget = estimatedBackupHours >= inputs.backupHours - 0.5
+        val installationCost = result.serviceCharge + result.deliveryCharge
 
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             LazyColumn(
@@ -152,23 +157,20 @@ fun ResultsScreen(
                             color = palette.solarYellowText,
                             fontWeight = FontWeight.Bold
                         )
-                        AnimatedCounterText(
-                            targetValue = result.pvKw,
-                            format = { "%.1f kW".format(it) },
-                            style = numberDisplayStyle(size = 46.sp),
-                            color = palette.textPrimary
-                        )
                         Text(
                             "Recommended solar system for ${inputs.propertyType.label.lowercase()}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = palette.textSecondary
                         )
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                        Text("Estimated System", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text("${result.panelCount} × ${result.panelWatts}W Panels", style = MaterialTheme.typography.bodyMedium)
-                        Text(result.inverterName, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+
+                item {
+                    SectionCard(title = "System") {
+                        StatRow("PV array", "%.2f kWp".format(result.pvKw), "${result.panelCount} × ${result.panelWatts}W panels")
+                        StatRow("Inverter", "%.1f kW".format(result.inverterKw), result.inverterName)
                         if (result.totalBatteryKwh > 0) {
-                            Text("${"%.1f".format(result.totalBatteryKwh)} kWh Battery", style = MaterialTheme.typography.bodyMedium)
+                            StatRow("Battery", "%.1f kWh".format(result.totalBatteryKwh), result.batteryName ?: "")
                         }
                         LumixPrimaryButton(
                             text = "⚡ Explore Your Energy",
@@ -185,31 +187,55 @@ fun ResultsScreen(
                 }
 
                 item {
-                    SectionCard(title = "Estimated Performance") {
+                    SectionCard(title = "Performance") {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             PerformanceStat(
-                                label = "☀️ Solar Production",
-                                value = "${projection.monthlyProductionKwh.toInt()} kWh/mo",
+                                label = "☀️ Daily Solar",
+                                value = "%.1f kWh".format(dailySolarKwh),
                                 modifier = Modifier.weight(1f)
                             )
+                            PerformanceStat(
+                                label = "📅 Annual Solar",
+                                value = "%.1f MWh".format(dailySolarKwh * 365 / 1000.0),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             PerformanceStat(
                                 label = "💰 Monthly Savings",
                                 value = formatCurrency(projection.monthlySavings),
                                 modifier = Modifier.weight(1f)
                             )
+                            PerformanceStat(
+                                label = "📉 Est. Payback",
+                                value = projection.paybackYears?.let { "%.1f yrs".format(it) } ?: "—",
+                                modifier = Modifier.weight(1f)
+                            )
                         }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                PerformanceStat(
-                                    label = "📉 Est. Payback",
-                                    value = projection.paybackYears?.let { "%.1f yrs".format(it) } ?: "—"
-                                )
-                            }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                             RingGauge(
                                 percent = projection.coveragePercent,
                                 diameter = 96.dp,
                                 strokeWidth = 9.dp,
                                 label = "coverage"
+                            )
+                        }
+                    }
+                }
+
+                if (result.totalBatteryKwh > 0) {
+                    item {
+                        SectionCard(title = "Backup") {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                PerformanceStat(label = "Target", value = "%.0f hrs".format(inputs.backupHours), modifier = Modifier.weight(1f))
+                                PerformanceStat(label = "Estimated", value = "%.1f hrs".format(estimatedBackupHours), modifier = Modifier.weight(1f))
+                            }
+                            Text(
+                                if (backupMeetsTarget) "✓ Meets backup target" else "⚠ Needs more battery to meet target",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (backupMeetsTarget) palette.energyGreenText else palette.warningRedText,
+                                modifier = Modifier.padding(top = 4.dp)
                             )
                         }
                     }
@@ -241,7 +267,19 @@ fun ResultsScreen(
                 }
 
                 item {
-                    SectionCard(title = "Material Cost Breakdown") {
+                    SectionCard(title = "Cost") {
+                        StatRow("Equipment", formatCurrency(result.materialsTotal), null)
+                        StatRow("Installation", formatCurrency(installationCost), null)
+                        if (result.discountAmount > 0) {
+                            StatRow("Discount", "-${formatCurrency(result.discountAmount)}", null)
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                        StatRow("TOTAL", formatCurrency(result.grandTotal), null, emphasize = true)
+                    }
+                }
+
+                item {
+                    SectionCard(title = "Material Breakdown") {
                         Row(modifier = Modifier.fillMaxWidth()) {
                             Text("Item", modifier = Modifier.weight(2f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                             Text("Qty", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
@@ -255,12 +293,6 @@ fun ResultsScreen(
                                 Text(formatCurrency(m.subtotal), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                             }
                         }
-                        HorizontalDivider()
-                        Text(
-                            "Grand Total: ${formatCurrency(result.grandTotal)}",
-                            fontWeight = FontWeight.Bold,
-                            color = palette.textPrimary
-                        )
                     }
                 }
             }
@@ -317,6 +349,35 @@ private fun PerformanceStat(label: String, value: String, modifier: Modifier = M
     Column(modifier = modifier.padding(vertical = 6.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
         Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+    }
+}
+
+/** A single clean "label — value (+ optional detail)" row, for the System/Cost summary cards. */
+@Composable
+private fun StatRow(label: String, value: String, detail: String?, emphasize: Boolean = false) {
+    val palette = LocalLumixPalette.current
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text(
+                label,
+                style = if (emphasize) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
+                fontWeight = if (emphasize) FontWeight.Bold else FontWeight.Normal,
+                color = if (emphasize) palette.textPrimary else palette.textSecondary
+            )
+            if (detail != null) {
+                Text(detail, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            }
+        }
+        Text(
+            value,
+            style = if (emphasize) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = palette.textPrimary
+        )
     }
 }
 

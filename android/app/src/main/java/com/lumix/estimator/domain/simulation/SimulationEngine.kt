@@ -18,7 +18,6 @@ object SimulationEngine {
     // (battery runtime estimates, cutoff display) stays in sync with the engine's own value.
     const val BATTERY_MIN_SOC_FRACTION = 0.20
     private const val BATTERY_MAX_SOC_FRACTION = 1.00
-    private const val BATTERY_CHARGE_EFFICIENCY = 0.95
     private const val FLOW_EPSILON = 0.01
     private const val BACKGROUND_LOAD_FRACTION = 0.4
     private const val BACKGROUND_LOAD_FLOOR_KW = 0.15
@@ -76,9 +75,8 @@ object SimulationEngine {
         gridServiceAmps: Double = DEFAULT_GRID_SERVICE_AMPS
     ): List<SimFrame> {
         val maxSocKwh = config.batteryCapacityKwh * BATTERY_MAX_SOC_FRACTION
-        val minSocKwh = config.batteryCapacityKwh * BATTERY_MIN_SOC_FRACTION
+        val minSocKwh = config.batteryCapacityKwh * config.batteryDepthOfDischargeFraction
         var batterySocKwh = (config.batteryCapacityKwh * startSocFraction).coerceIn(minSocKwh, maxSocKwh)
-        val maxBatteryRateKw = if (config.hasBattery) min(config.batteryCapacityKwh * 0.5, config.inverterKw.coerceAtLeast(0.1)) else 0.0
         // The day-shaped curve represents ambient/background load (standby draw, misc
         // cycling) not covered by the explicit appliance checklist; the checklist's total
         // is added on top so toggling an appliance has an immediate, visible effect rather
@@ -112,8 +110,15 @@ object SimulationEngine {
             // The grid connection is strictly import-only in every mode — solar never exports;
             // any surplus that can't be used or stored is simply curtailed.
             //
-            // SOL/SBU: solar → house first, surplus solar → battery, deficit → battery down to
-            // its reserve floor, only then → JPS. Grid never charges the battery.
+            // SOL: solar → house first, surplus solar → battery, deficit → battery down to its
+            // reserve floor — and that's the whole story. JPS is never touched, even if it's
+            // connected and the battery is exhausted; any remaining deficit goes unmet, exactly
+            // like a genuine off-grid system. This is the one mode where "gridConnected" doesn't
+            // guarantee JPS ever actually supplies anything.
+            //
+            // SBU: Solar → Battery → Utility — the same priority order as SOL, but JPS is kept
+            // as the last-resort fallback once the battery hits its reserve floor, instead of
+            // leaving the load unmet.
             //
             // UTI: JPS is the primary house supply whenever connected (battery is pure outage
             // backup — it does not discharge to serve the house while grid is up), and JPS can
@@ -122,6 +127,7 @@ object SimulationEngine {
             val gridConnectedNow = config.gridConnectable && gridConnected
             val utiServesHouseFromGrid = inverterMode == InverterMode.UTI && gridConnectedNow
             val allowGridChargeBattery = inverterMode == InverterMode.UTI && gridChargeEnabled && gridConnectedNow
+            val solarOnlyMode = inverterMode == InverterMode.SOL
 
             var solarToHouse = min(pv, load)
             var remainingPv = pv - solarToHouse
@@ -138,9 +144,15 @@ object SimulationEngine {
                 remainingLoad = 0.0
             }
 
+            // Both the charge and discharge caps taper with the battery's own current SOC
+            // (see BatteryPowerCurve) rather than staying flat at the rated max right up to
+            // 0%/100% — a real pack accepts/delivers less current near either end.
+            val socFraction = if (config.batteryCapacityKwh > 0) batterySocKwh / config.batteryCapacityKwh else 0.0
+
             if (config.hasBattery) {
+                val maxChargeRateKw = config.batteryMaxChargeKw * BatteryPowerCurve.chargeTaperFraction(socFraction)
                 val roomKwh = (maxSocKwh - batterySocKwh).coerceAtLeast(0.0)
-                val maxChargeThisStep = min(maxBatteryRateKw, roomKwh / dt)
+                val maxChargeThisStep = min(maxChargeRateKw, roomKwh / dt)
                 solarToBattery = min(remainingPv, maxChargeThisStep)
                 remainingPv -= solarToBattery
                 if (allowGridChargeBattery) {
@@ -151,13 +163,15 @@ object SimulationEngine {
 
             if (remainingLoad > FLOW_EPSILON) {
                 if (config.hasBattery) {
+                    val maxDischargeRateKw = config.batteryMaxDischargeKw *
+                        BatteryPowerCurve.dischargeTaperFraction(socFraction, config.batteryDepthOfDischargeFraction)
                     val availableKwh = (batterySocKwh - minSocKwh).coerceAtLeast(0.0)
-                    val maxDischargeThisStep = min(maxBatteryRateKw, availableKwh / dt)
+                    val maxDischargeThisStep = min(maxDischargeRateKw, availableKwh / dt)
                     batteryToHouse = min(remainingLoad, maxDischargeThisStep)
                     remainingLoad -= batteryToHouse
                 }
                 if (remainingLoad > FLOW_EPSILON) {
-                    if (!utiServesHouseFromGrid && gridConnectedNow) {
+                    if (!utiServesHouseFromGrid && gridConnectedNow && !solarOnlyMode) {
                         gridToHouse = remainingLoad
                     } else {
                         unmet = remainingLoad
@@ -186,7 +200,7 @@ object SimulationEngine {
                 }
             }
 
-            val chargeEnergyKwh = (solarToBattery + gridToBattery) * dt * BATTERY_CHARGE_EFFICIENCY
+            val chargeEnergyKwh = (solarToBattery + gridToBattery) * dt * config.batteryChargeEfficiency
             val dischargeEnergyKwh = batteryToHouse * dt
             batterySocKwh = (batterySocKwh + chargeEnergyKwh - dischargeEnergyKwh).coerceIn(minSocKwh, maxSocKwh)
 

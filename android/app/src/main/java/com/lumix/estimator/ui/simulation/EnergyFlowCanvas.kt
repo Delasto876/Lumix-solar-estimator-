@@ -2,9 +2,14 @@ package com.lumix.estimator.ui.simulation
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -12,12 +17,16 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.lumix.estimator.R
 import com.lumix.estimator.domain.simulation.EnergyFlow
 import com.lumix.estimator.domain.simulation.FlowDirection
@@ -53,6 +62,9 @@ private fun colorFor(path: EnergyPath, flow: EnergyFlow): Color = when (path.id)
  * how dark/cool the whole scene reads, so night always matches actual solar output hitting zero.
  * @param isStorm true for the heaviest weather state — adds a rain wash and falling streaks.
  * @param batterySocFraction 0f..1f state of charge; null hides the battery overlay (no battery in this system).
+ * @param simTimeText The current simulated time (already formatted, e.g. "12:42 PM"), shown as a
+ * subtle overlay in the scene's top-right corner — sky, not equipment, so nothing important is
+ * ever covered. Null hides it entirely.
  */
 @Composable
 fun EnergyFlowCanvas(
@@ -65,6 +77,7 @@ fun EnergyFlowCanvas(
     isStorm: Boolean = false,
     batterySocFraction: Float? = null,
     batteryCharging: Boolean = false,
+    simTimeText: String? = null,
     debugShowPaths: Boolean = SolarSimulationPaths.DEBUG_SHOW_PATHS
 ) {
     Box(modifier = modifier.fillMaxWidth().aspectRatio(IMAGE_ASPECT_RATIO)) {
@@ -88,6 +101,30 @@ fun EnergyFlowCanvas(
         }
 
         ParticleOverlay(flows = flows, debugShowPaths = debugShowPaths)
+
+        if (simTimeText != null) {
+            SimClockOverlay(text = simTimeText, modifier = Modifier.align(Alignment.TopEnd))
+        }
+    }
+}
+
+/** A small, subtle digital-clock chip in the scene's corner — the current simulated time, always legible over sky. */
+@Composable
+private fun SimClockOverlay(text: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .padding(10.dp)
+            .clip(RoundedCornerShape(50))
+            .background(Color.Black.copy(alpha = 0.32f))
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            fontFeatureSettings = "tnum"
+        )
     }
 }
 

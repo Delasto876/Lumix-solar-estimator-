@@ -37,8 +37,8 @@ import com.lumix.estimator.ui.wizard.steps.StepInverterPanels
 import com.lumix.estimator.ui.wizard.steps.StepManualMode
 import com.lumix.estimator.ui.wizard.steps.StepPropertySystem
 import com.lumix.estimator.ui.wizard.steps.StepQuoteMode
-import com.lumix.estimator.ui.wizard.steps.StepRoofMounting
 import com.lumix.estimator.ui.wizard.steps.StepRoofType
+import com.lumix.estimator.ui.wizard.steps.StepSystemReview
 import com.lumix.estimator.ui.wizard.steps.Step4Usage
 import com.lumix.estimator.ui.wizard.steps.Step5Backup
 import com.lumix.estimator.ui.wizard.steps.Step7Pricing
@@ -48,14 +48,14 @@ private val stepTitles = mapOf(
     2 to "Quote Mode",
     3 to "Property & System",
     4 to "Roof Type",
-    5 to "Roof Mounting",
-    6 to "Air Conditioning",
-    7 to "Appliances",
-    8 to "JPS Bill / Usage",
-    9 to "Backup Requirements",
-    10 to "Manual Mode",
-    11 to "Inverter & Panels",
-    12 to "Battery Bank",
+    5 to "Air Conditioning",
+    6 to "Appliances",
+    7 to "JPS Bill / Usage",
+    8 to "Backup Requirements",
+    9 to "Manual Mode",
+    10 to "Inverter & Panels",
+    11 to "Battery Bank",
+    12 to "System Review",
     13 to "Pricing & Discount"
 )
 
@@ -146,14 +146,14 @@ fun WizardScreen(
                     2 -> StepQuoteMode(inputs, viewModel::update)
                     3 -> StepPropertySystem(inputs, viewModel::update)
                     4 -> StepRoofType(inputs, viewModel::update)
-                    5 -> StepRoofMounting(inputs, viewModel::update)
-                    6 -> StepAirConditioning(inputs, viewModel::update)
-                    7 -> StepHouseholdAppliances(inputs, viewModel::update)
-                    8 -> if (inputs.quoteMode == QuoteMode.GUIDED) Step4Usage(inputs, viewModel::update)
-                    9 -> Step5Backup(inputs, viewModel::update)
-                    10 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepManualMode(inputs, viewModel::update)
-                    11 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepInverterPanels(inputs, viewModel::update)
-                    12 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepBatteryBank(inputs, viewModel::update)
+                    5 -> StepAirConditioning(inputs, viewModel::update)
+                    6 -> StepHouseholdAppliances(inputs, viewModel::update)
+                    7 -> if (inputs.quoteMode == QuoteMode.GUIDED) Step4Usage(inputs, viewModel::update)
+                    8 -> Step5Backup(inputs, viewModel::update)
+                    9 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepManualMode(inputs, viewModel::update)
+                    10 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepInverterPanels(inputs, viewModel::update)
+                    11 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepBatteryBank(inputs, viewModel::update)
+                    12 -> StepSystemReview(inputs, viewModel::update)
                     13 -> Step7Pricing(inputs, viewModel::update)
                 }
             }

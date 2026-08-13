@@ -12,11 +12,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -26,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SavedQuote
+import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.SavingsCalculator
 import com.lumix.estimator.domain.formatCurrency
 import com.lumix.estimator.ui.components.LargeTitleTopBar
@@ -34,18 +38,25 @@ import com.lumix.estimator.ui.components.RingGauge
 import com.lumix.estimator.ui.components.SavingsGraph
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
+import com.lumix.estimator.ui.theme.LumixColors
 import com.lumix.estimator.ui.theme.numberDisplayStyle
 import androidx.compose.ui.unit.sp
+
+private const val DEFAULT_PROJECTION_YEAR = 15
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SavingsScreen(
     quoteRepository: QuoteRepository,
+    settingsRepository: SettingsRepository,
     onStartQuote: () -> Unit
 ) {
     val palette = LocalLumixPalette.current
     val quotes by quoteRepository.observeAll().collectAsState(initial = null)
     var latest by remember { mutableStateOf<SavedQuote?>(null) }
+    val billEscalationRate by settingsRepository.billEscalationRate.collectAsState(initial = SavingsCalculator.BILL_ESCALATION_RATE)
+    val panelDegradationRate by settingsRepository.panelDegradationRate.collectAsState(initial = SavingsCalculator.PANEL_DEGRADATION_RATE)
+    var selectedYear by remember { mutableIntStateOf(DEFAULT_PROJECTION_YEAR) }
 
     val latestId = quotes?.firstOrNull()?.id
     LaunchedEffect(latestId) {
@@ -79,7 +90,10 @@ fun SavingsScreen(
             return@Scaffold
         }
 
-        val projection = remember(current) { SavingsCalculator.project(current.inputs, current.result) }
+        val projection = remember(current, billEscalationRate, panelDegradationRate) {
+            SavingsCalculator.project(current.inputs, current.result, billEscalationRate, panelDegradationRate)
+        }
+        val selectedPoint = projection.yearly.getOrElse(selectedYear - 1) { projection.yearly.last() }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -111,6 +125,43 @@ fun SavingsScreen(
                             value = formatCurrency(projection.yearly.last().cumulativeSavings)
                         )
                     }
+                }
+            }
+
+            item {
+                SectionCard(title = "Year-by-year projection") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Year $selectedYear", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                        Text(
+                            "Cumulative: ${formatCurrency(selectedPoint.cumulativeSavings)}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = palette.energyGreenText
+                        )
+                    }
+                    Slider(
+                        value = selectedYear.toFloat(),
+                        onValueChange = { selectedYear = it.toInt().coerceIn(1, projection.yearly.size) },
+                        valueRange = 1f..projection.yearly.size.toFloat(),
+                        steps = projection.yearly.size - 2,
+                        colors = SliderDefaults.colors(thumbColor = LumixColors.SolarYellow, activeTrackColor = LumixColors.SolarYellow)
+                    )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        StatColumn(label = "This year's savings", value = formatCurrency(selectedPoint.yearlySavings))
+                        StatColumn(label = "Cost without solar", value = formatCurrency(selectedPoint.costWithoutSolar))
+                        StatColumn(label = "Cost with solar", value = formatCurrency(selectedPoint.costWithSolar))
+                    }
+                    Text(
+                        "ESTIMATE — assumes %.1f%%/yr bill escalation and %.1f%%/yr panel degradation, editable in Settings."
+                            .format(billEscalationRate * 100.0, panelDegradationRate * 100.0),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textSecondary,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
                 }
             }
 

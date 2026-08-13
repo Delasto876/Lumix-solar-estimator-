@@ -164,7 +164,14 @@ fun SimulationScreen(
                         isStorm = isStorm,
                         batterySocFraction = batterySocFraction,
                         batteryCharging = frame.batteryPowerKw > 0.0,
+                        simTimeText = formatSimTime(state.currentHour),
                         modifier = Modifier.clip(RoundedCornerShape(LumixRadius.md))
+                    )
+                    TimeSlider(
+                        hour = state.currentHour,
+                        onScrub = viewModel::scrubTo,
+                        markerHour = state.batteryFullHour,
+                        modifier = Modifier.padding(top = 12.dp)
                     )
                     InspectChipRow(
                         hasBattery = config.hasBattery,
@@ -299,27 +306,6 @@ fun SimulationScreen(
                         },
                         modifier = Modifier.padding(top = 12.dp)
                     )
-                }
-            }
-
-            item {
-                SectionCard(title = "") {
-                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                        TimeDial(
-                            hour = state.currentHour,
-                            onScrub = viewModel::scrubTo,
-                            markerHour = state.batteryFullHour
-                        )
-                    }
-                    if (state.batteryFullHour != null) {
-                        Text(
-                            "🔋 Battery full at ${formatSimTime(state.batteryFullHour!!)}",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = palette.energyGreenText,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
                 }
             }
 

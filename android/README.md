@@ -1113,3 +1113,96 @@ recording: a naive test comparing SOC at a fixed hour across two load scenarios 
 or fail for the wrong reason if either run has already saturated at the battery's 100% ceiling or
 20% reserve floor by that hour — several early scenario attempts hit exactly this before
 adjusting starting SOC/battery size to leave headroom on both ends.
+
+## A21: battery power curve, SOL/SBU split, time slider, appliance minutes, wizard review step, results/savings rebuild
+
+A large round implementing a detailed spec covering the simulation's battery physics, its time
+controls, appliance scheduling, and the estimate wizard's late steps. Before touching anything,
+verified what the spec assumed was missing was often already true — the engine already
+integrates energy as power×dt at 5-minute resolution (not "SOC += fixed percentage"), already
+clamps at the 20%/100% floor/ceiling, and `SimSystemConfig.from(result)` was already the sole,
+demo-value-free bridge from the calculated quote into the simulation. What genuinely didn't
+exist is documented below.
+
+**1. Battery charge/discharge power curve.** `SimSystemConfig` gained
+`batteryMaxChargeKw`/`batteryMaxDischargeKw`/`batteryChargeEfficiency`/
+`batteryDepthOfDischargeFraction` (derived from the quoted battery+inverter — 0.5C typical
+LiFePO4 rate, capped by the inverter — this catalog has no per-model rate spec to read a real
+one from instead) so the engine reads these instead of hardcoding its own copies. New
+`BatteryPowerCurve` object tapers both rates by current SOC: full rate below 80%, stepping down
+through 90%/95%, to 10% of rated power right at the ceiling — and mirrored on the discharge side
+relative to the 20% reserve floor rather than absolute zero. Verified via the standalone
+harness: the curve strictly decreases in both directions, and a battery starting at 99% SOC
+genuinely charges at a fraction of its rated 5kW, not the flat max.
+
+**2. SOL and SBU inverter modes now actually differ.** The engine's own prior doc comment said
+so explicitly: "SBU: functionally the same priority as SOL." Now SOL is solar+battery only —
+JPS is never touched even when connected, so once the battery hits its floor any remaining
+deficit goes unmet, like a genuine off-grid system — while SBU keeps the same solar→battery
+priority but falls back to JPS once the battery is drawn down. Verified: at the reserve floor
+with no solar, SBU imports from JPS and reports zero unmet load; SOL imports nothing and reports
+the full deficit as unmet.
+
+**3. Time dial replaced with a horizontal slider + corner clock.** `TimeDial.kt` (the circular
+drag dial) is deleted; new `TimeSlider.kt` sits directly under the simulation scene showing the
+current time, a "battery full at…" marker, a 0–24h slider, and tick labels at
+00/06/09/12/15/18/21/24:00. `formatSimTime` moved into this new file (still used by
+`AppliancesSheet`/`EnergyGraph`). `EnergyFlowCanvas` gained a `simTimeText` param rendering a
+subtle time chip in the scene's top-right corner (sky, never over equipment). `TransportBar`'s
+speed options changed from 0.5/1/2/4× to 1/2/5/10× — the play loop already only ever accelerates
+the simulated-hour clock (`simHours = speed × elapsedRealSeconds / 60`), never touches the
+energy math directly, so 10× needed no engine change at all.
+
+**4. Appliance runtime supports minutes, and defaults are realistic per-appliance schedules.**
+The picker's "hours" stepper now steps by 5 minutes below an hour and 30 minutes above it, down
+to a 5-minute floor (`MIN_RUN_HOURS`), displayed as "10min"/"1h 30m" rather than always "%.1fh".
+New `defaultScheduleFor(SimApplianceType)` in the domain layer replaces the old "every appliance
+defaults to one all-day run" behavior with real per-type timing — lights get a brief pre-dawn
+window plus dusk-through-bedtime, the fridge stays all-day (a cycling compressor's average draw
+really is close to constant, unlike the others), TV/AC get evening windows, microwave/iron/pump
+get genuine ~10–15 minute events, water heater gets a morning+evening pair, and so on — all
+labeled as defaults and fully editable. `defaultApplianceStates()` now seeds every appliance's
+`runs` with this schedule (scaled to the wizard's quantity) even while off, so turning on a
+previously-off appliance (water heater, oven, etc.) via a period chip starts from its real
+duration instead of a generic 13-hour block. Verified: a 1200W microwave run for 10 minutes
+computes to ~0.20kWh, not rounded up to a 30-minute block.
+
+**5. Wizard: "3 Rail" step removed, new System Review step added, a real bug fixed.** Deleted
+`StepRoofMounting.kt` (the ZINC-only "use center rail" toggle) — zinc roofs now always use 3
+rails/row (its own prior default), matching the guidance that most roofs need it, without asking.
+All 13 step slots renumbered; `WizardViewModel.visibleSteps()`/`errorsForStep()` and
+`WizardScreen`'s title map/dispatch updated to match. While renumbering, fixed a real bug the
+same code surfaced: JPS Bill/Usage was only excluded from the step count for LOAD mode, but only
+ever *rendered* for GUIDED mode — MANUAL mode showed it in the step count and let you navigate to
+a blank page. Now excluded for both LOAD and MANUAL.
+
+A new step 12, **System Review** (`StepSystemReview.kt`), was inserted right before Pricing &
+Discount — a real engineering review, not a summary. It recomputes a live preview via
+`SystemCalculator.calculate()` (pricing isn't needed for this, so `PriceList.DEFAULT` stands in)
+and shows Load/Solar/Inverter/Battery/Grid sections with real figures, four pass/warn engineering
+checks (inverter capacity, battery capacity vs. requested backup, battery discharge power vs.
+peak load, PV array vs. inverter input limit), and a design-confidence percentage — 5 binary
+signals (customer details present, location present, usage grounded in a real kWh reading rather
+than the bill-mode placeholder, PSH confirmed away from the generic 5.5h default, exact hardware
+model chosen) — explicitly labeled as a data-completeness indicator, not a certification. Grid
+voltage/frequency/current-limit are shown as Jamaica's fixed residential-service reference values
+(220V/110V split-phase, 50Hz, 30A) rather than fake-editable fields, since nothing in the domain
+currently varies them per quote.
+
+**6. Results screen rebuilt into clean separated sections.** The old hero card mixed the PV
+number, panel count, inverter name and battery capacity into one run-on paragraph. Now: a
+**System** card (PV/Inverter/Battery as clean rows), a **Performance** card (daily/annual solar,
+monthly savings, payback, coverage ring), a new **Backup** card (target vs. estimated backup
+hours, with a pass/warn status line — this data didn't exist on the results screen at all
+before), the existing energy-flow diagram/roof visualization/20-year graph, and a new **Cost**
+summary (Equipment/Installation/Discount/TOTAL) ahead of the existing detailed material
+breakdown table.
+
+**7. Savings screen: year-15 slider + editable financial assumptions.** New slider (default:
+year 15) scrubs through `SavingsProjection.yearly` (already a real 20-year, degradation- and
+escalation-compounded series — this data already existed, it just weren't exposed year-by-year
+in the UI) showing that year's savings/cost figures prominently, above the existing full 20-year
+graph. `SavingsCalculator.project()` gained optional `billEscalationRate`/`panelDegradationRate`
+params (defaulting to the existing 6%/0.5% constants, so both other call sites needed no changes)
+now sourced from two new `SettingsRepository` fields, editable in a new "Financial assumptions"
+Settings section, labeled ESTIMATE.

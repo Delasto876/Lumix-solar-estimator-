@@ -25,7 +25,7 @@ import com.lumix.estimator.ui.components.GlassSurface
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixRadius
 
-private val speeds = listOf(0.5f, 1f, 2f, 4f)
+private val speeds = listOf(1f, 2f, 5f, 10f)
 
 @Composable
 fun TransportBar(

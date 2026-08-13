@@ -52,6 +52,7 @@ import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.data.ThemeMode
 import com.lumix.estimator.domain.PriceFields
 import com.lumix.estimator.domain.PriceList
+import com.lumix.estimator.domain.SavingsCalculator
 import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.ui.components.LargeTitleTopBar
 import com.lumix.estimator.ui.components.LumixSecondaryButton
@@ -79,6 +80,10 @@ fun SettingsScreen(
     val themeMode by settingsRepository.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
     val defaultTechnicalMode by settingsRepository.defaultTechnicalMode.collectAsState(initial = false)
     val defaultGridServiceAmps by settingsRepository.defaultGridServiceAmps.collectAsState(initial = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS)
+    val billEscalationRate by settingsRepository.billEscalationRate.collectAsState(initial = SavingsCalculator.BILL_ESCALATION_RATE)
+    val panelDegradationRate by settingsRepository.panelDegradationRate.collectAsState(initial = SavingsCalculator.PANEL_DEGRADATION_RATE)
+    val billEscalationRatePercent = billEscalationRate * 100.0
+    val panelDegradationRatePercent = panelDegradationRate * 100.0
 
     var editingDiscount by remember { mutableStateOf(false) }
     val regularPrices by priceRepository.regularPrices.collectAsState(initial = PriceList.DEFAULT)
@@ -145,6 +150,30 @@ fun SettingsScreen(
                         allowDecimal = false,
                         suffix = "A",
                         supportingText = "The main-breaker rating new simulations start with — matches a typical Jamaican residential service unless changed."
+                    )
+                }
+            }
+
+            item {
+                SectionCard(title = "Financial assumptions") {
+                    Text(
+                        "ESTIMATE — these two rates drive the 20-year savings projection on the Savings tab. They're assumptions, not measured or guaranteed figures.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textSecondary
+                    )
+                    NumberField(
+                        label = "Annual bill escalation",
+                        value = billEscalationRatePercent,
+                        onValueChange = { v -> scope.launch { settingsRepository.setBillEscalationRate((v / 100.0).coerceIn(0.0, 0.30)) } },
+                        suffix = "%/yr",
+                        supportingText = "How much JPS-style electricity bills are assumed to climb each year."
+                    )
+                    NumberField(
+                        label = "Annual panel degradation",
+                        value = panelDegradationRatePercent,
+                        onValueChange = { v -> scope.launch { settingsRepository.setPanelDegradationRate((v / 100.0).coerceIn(0.0, 5.0)) } },
+                        suffix = "%/yr",
+                        supportingText = "How much panel output is assumed to decline each year as they age."
                     )
                 }
             }

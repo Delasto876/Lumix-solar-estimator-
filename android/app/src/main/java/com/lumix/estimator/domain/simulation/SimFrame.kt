@@ -7,13 +7,14 @@ package com.lumix.estimator.domain.simulation
 enum class InverterMode(val label: String, val description: String) {
     SOL(
         "SOL",
-        "Solar first: the home runs on solar, surplus charges the battery, and JPS only " +
-            "steps in once the battery is drawn down."
+        "Solar only: the home runs on solar and battery alone. JPS is never used, even if " +
+            "it's connected — once the battery is drawn down, any remaining load simply goes " +
+            "unmet, the same as a true off-grid system."
     ),
     SBU(
         "SBU",
-        "Solar → Battery → Utility: functionally the same priority as SOL — solar first, " +
-            "battery next, JPS only once the battery is drawn down."
+        "Solar → Battery → Utility: solar first, battery next, and JPS steps in as a last " +
+            "resort once the battery is drawn down to its reserve floor."
     ),
     UTI(
         "UTI",

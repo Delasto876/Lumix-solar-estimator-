@@ -29,6 +29,7 @@ import com.lumix.estimator.ui.components.AnimatedCounterText
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixRadius
 import com.lumix.estimator.ui.theme.numberDisplayStyle
+import kotlin.math.roundToInt
 
 /**
  * A fixed, simplified time-of-day window for the appliance picker's 3-chip schedule control.
@@ -44,6 +45,9 @@ enum class DayPeriod(val label: String, val startHour: Double, val spanHours: Do
 /** The longest period span — also doubles as "the whole period" when hours is left at its max. */
 val MAX_DAY_PERIOD_SPAN = DayPeriod.entries.maxOf { it.spanHours }
 
+/** Shortest a run can be trimmed to — 5 minutes, for genuinely brief appliances (microwave, iron, pump). */
+const val MIN_RUN_HOURS = 5.0 / 60.0
+
 /**
  * Turns a picker's quantity/hours-per-period/selected-periods into the [ApplianceRun]s the
  * simulation engine actually consumes, and whether the appliance counts as on at all. No
@@ -56,7 +60,7 @@ fun buildApplianceSchedule(quantity: Int, hoursPerPeriod: Double, periods: Set<D
         ApplianceRun(
             quantity = quantity,
             startHour = period.startHour,
-            durationHours = hoursPerPeriod.coerceIn(0.5, period.spanHours)
+            durationHours = hoursPerPeriod.coerceIn(MIN_RUN_HOURS, period.spanHours)
         )
     }
     return true to runs
@@ -64,13 +68,18 @@ fun buildApplianceSchedule(quantity: Int, hoursPerPeriod: Double, periods: Set<D
 
 /**
  * Best-effort read of an appliance's current runs back into the picker's quantity/hours/periods
- * shape. The only two shapes runs ever actually take are "the fresh default single all-day run"
- * (nothing customized yet) or "whatever this same picker wrote last" — both are handled exactly;
- * anything else falls back to the same reasonable default as the fresh case.
+ * shape. The only two shapes runs ever actually take are [defaultScheduleFor]'s realistic
+ * starting schedule (nothing customized yet) or "whatever this same picker wrote last" — both
+ * are handled exactly. When off, the quantity/hours still seed from the first default run (not
+ * a generic 1-unit/max-span guess), so turning an off appliance on via a period chip starts from
+ * a sensible duration instead of an arbitrary all-day block.
  */
 private fun derivePickerState(state: ApplianceState): Triple<Int, Double, Set<DayPeriod>> {
-    if (!state.enabled || state.runs.isEmpty()) {
-        return Triple(1, MAX_DAY_PERIOD_SPAN, emptySet())
+    if (!state.enabled) {
+        val seed = state.runs.firstOrNull()
+        val quantity = seed?.quantity?.coerceAtLeast(1) ?: 1
+        val hours = seed?.durationHours?.coerceIn(MIN_RUN_HOURS, MAX_DAY_PERIOD_SPAN) ?: MAX_DAY_PERIOD_SPAN
+        return Triple(quantity, hours, emptySet())
     }
     val matched = state.runs.mapNotNull { run -> DayPeriod.entries.find { it.startHour == run.startHour }?.let { it to run } }
     if (matched.size == state.runs.size && matched.isNotEmpty()) {
@@ -79,6 +88,22 @@ private fun derivePickerState(state: ApplianceState): Triple<Int, Double, Set<Da
         return Triple(quantity, hours, matched.map { it.first }.toSet())
     }
     return Triple(state.totalQuantity.coerceAtLeast(1), MAX_DAY_PERIOD_SPAN, DayPeriod.entries.toSet())
+}
+
+/** 5-minute steps below an hour (for short "event" appliances), 30-minute steps at/above it. */
+private fun stepHours(current: Double, increase: Boolean): Double {
+    val step = if (current < 1.0) MIN_RUN_HOURS else 0.5
+    val next = if (increase) current + step else current - step
+    return next.coerceIn(MIN_RUN_HOURS, MAX_DAY_PERIOD_SPAN)
+}
+
+/** Minutes below an hour ("10min"), hours (with leftover minutes) at/above it ("1h", "1h 30m"). */
+private fun formatRunDuration(hours: Double): String {
+    val totalMinutes = (hours * 60).roundToInt()
+    if (totalMinutes < 60) return "${totalMinutes}min"
+    val h = totalMinutes / 60
+    val m = totalMinutes % 60
+    return if (m == 0) "${h}h" else "${h}h ${m}m"
 }
 
 @Composable
@@ -112,7 +137,8 @@ fun AppliancesSheetContent(
             color = palette.solarYellowText
         )
         Text(
-            "Set how many of each appliance you have, how many hours they run, and which part of the day — Morning, Noon, Night, any combination, or none to switch it off.",
+            "Set how many of each appliance you have, how long they run, and which part of the day — Morning, Noon, Night, any combination, or none to switch it off. " +
+                "DEFAULT SCHEDULE shown below is a typical starting point — edit anytime.",
             style = MaterialTheme.typography.labelSmall,
             color = palette.textSecondary,
             modifier = Modifier.padding(top = 6.dp)
@@ -151,7 +177,8 @@ private fun ApplianceScheduleRow(
             Text(type.label, style = MaterialTheme.typography.bodyLarge, color = palette.textPrimary)
             Text(
                 if (enabled) {
-                    "${type.watts} W each • $quantity unit${if (quantity == 1) "" else "s"} • ${periods.sortedBy { it.startHour }.joinToString(" + ") { it.label }}"
+                    "${type.watts} W each • $quantity unit${if (quantity == 1) "" else "s"} • ${formatRunDuration(hours)} • " +
+                        periods.sortedBy { it.startHour }.joinToString(" + ") { it.label }
                 } else {
                     "${type.watts} W each • off"
                 },
@@ -183,10 +210,10 @@ private fun ApplianceScheduleRow(
                     onIncrement = { onChange((quantity + 1).coerceAtMost(50), hours, periods) }
                 )
                 StepperRow(
-                    label = "Hours",
-                    value = "%.1fh".format(hours),
-                    onDecrement = { onChange(quantity, (hours - 0.5).coerceIn(0.5, MAX_DAY_PERIOD_SPAN), periods) },
-                    onIncrement = { onChange(quantity, (hours + 0.5).coerceIn(0.5, MAX_DAY_PERIOD_SPAN), periods) }
+                    label = "Runs for",
+                    value = formatRunDuration(hours),
+                    onDecrement = { onChange(quantity, stepHours(hours, increase = false), periods) },
+                    onIncrement = { onChange(quantity, stepHours(hours, increase = true), periods) }
                 )
             }
         }

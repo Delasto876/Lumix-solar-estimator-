@@ -30,7 +30,12 @@ object SavingsCalculator {
     const val PANEL_DEGRADATION_RATE = 0.005
     const val PROJECTION_YEARS = 20
 
-    fun project(inputs: QuoteInputs, result: QuoteResult): SavingsProjection {
+    fun project(
+        inputs: QuoteInputs,
+        result: QuoteResult,
+        billEscalationRate: Double = BILL_ESCALATION_RATE,
+        panelDegradationRate: Double = PANEL_DEGRADATION_RATE
+    ): SavingsProjection {
         val monthlyProductionKwh = result.pvKw * inputs.peakSunHours * 30.0
         val requiredMonthlyKwh = result.designDailyKwh * 30.0
 
@@ -61,8 +66,8 @@ object SavingsCalculator {
         val yearly = mutableListOf<SavingsYearPoint>()
         var cumulative = 0.0
         for (year in 1..PROJECTION_YEARS) {
-            val escalation = (1.0 + BILL_ESCALATION_RATE).pow(year - 1)
-            val degradation = (1.0 - PANEL_DEGRADATION_RATE).pow(year - 1)
+            val escalation = (1.0 + billEscalationRate).pow(year - 1)
+            val degradation = (1.0 - panelDegradationRate).pow(year - 1)
             val costWithoutSolar = baselineMonthlyBill * 12.0 * escalation
             val yearlySavings = (annualSavingsYear1 * escalation * degradation).coerceAtMost(costWithoutSolar)
             val costWithSolar = costWithoutSolar - yearlySavings
