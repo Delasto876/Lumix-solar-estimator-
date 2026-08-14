@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SavedQuote
+import com.lumix.estimator.domain.BackupCoverage
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.SavingsCalculator
@@ -135,12 +136,10 @@ fun ResultsScreen(
         val projection = remember(current) { SavingsCalculator.project(inputs, result) }
         val nodes = remember(result) { buildFlowNodes(result, inputs, projection.coveragePercent) }
         val dailySolarKwh = result.pvKw * inputs.peakSunHours
-        val estimatedBackupHours = remember(inputs, result) {
-            if (result.totalBatteryKwh > 0 && result.batteryRequiredKwh > 0.01) {
-                inputs.backupHours * (result.totalBatteryKwh / result.batteryRequiredKwh)
-            } else 0.0
-        }
-        val backupMeetsTarget = estimatedBackupHours >= inputs.backupHours - 0.5
+        // A54: result.estimatedBackupHours comes from BackupEstimator's real grid-disconnected
+        // simulation (computed once, in SystemCalculator.calculate) — the same figure System
+        // Review and the PDF show, not a separately recomputed ratio.
+        val backupMeetsTarget = result.estimatedBackupSufficient || result.estimatedBackupHours >= inputs.backupHours - 0.5
         val installationCost = result.serviceCharge + result.deliveryCharge
 
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -228,7 +227,11 @@ fun ResultsScreen(
                         SectionCard(title = "Backup") {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 PerformanceStat(label = "Target", value = "%.0f hrs".format(inputs.backupHours), modifier = Modifier.weight(1f))
-                                PerformanceStat(label = "Estimated", value = "%.1f hrs".format(estimatedBackupHours), modifier = Modifier.weight(1f))
+                                PerformanceStat(
+                                    label = "Estimated",
+                                    value = if (result.estimatedBackupSufficient) "%.0f+ hrs".format(result.estimatedBackupHours) else "%.1f hrs".format(result.estimatedBackupHours),
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                             Text(
                                 if (backupMeetsTarget) "✓ Meets backup target" else "⚠ Needs more battery to meet target",
@@ -237,6 +240,14 @@ fun ResultsScreen(
                                 color = if (backupMeetsTarget) palette.energyGreenText else palette.warningRedText,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
+                            if (result.estimatedBackupReason.isNotBlank()) {
+                                Text(
+                                    result.estimatedBackupReason,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = palette.textSecondary,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -381,6 +392,12 @@ private fun StatRow(label: String, value: String, detail: String?, emphasize: Bo
     }
 }
 
+private fun backupCoverageLabel(coverage: BackupCoverage): String = when (coverage) {
+    BackupCoverage.ESSENTIALS, BackupCoverage.CRITICAL_LOADS -> "critical loads only"
+    BackupCoverage.FULL, BackupCoverage.MOST_LOAD -> "most household load"
+    BackupCoverage.CUSTOM -> "the selected custom load"
+}
+
 private fun buildFlowNodes(
     result: QuoteResult,
     inputs: QuoteInputs,
@@ -420,7 +437,11 @@ private fun buildFlowNodes(
             subtitle = "${"%.1f".format(result.totalBatteryKwh)} kWh installed",
             glyph = "🔋",
             accentColor = palette.EnergyGreen,
-            detail = "Estimated backup: roughly ${inputs.backupHours.toInt()} hours, depending on which loads stay on during an outage."
+            detail = if (result.estimatedBackupSufficient) {
+                "Estimated backup: ${result.estimatedBackupHours.toInt()}+ hours in simulation, covering ${backupCoverageLabel(inputs.backupCoverage)}."
+            } else {
+                "Estimated backup: roughly ${"%.1f".format(result.estimatedBackupHours)} hours in simulation, covering ${backupCoverageLabel(inputs.backupCoverage)}."
+            }
         )
     }
     nodes += FlowNode(

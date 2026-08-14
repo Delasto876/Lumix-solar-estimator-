@@ -81,7 +81,23 @@ data class QuoteResult(
     val batterySelectionReason: String? = null,
     /** MANUAL only — set when the installer's own equipment choice may be undersized. Never set for GUIDED/LOAD, whose equipment is chosen specifically to avoid this. */
     val manualInverterWarning: String? = null,
-    val manualBatteryWarning: String? = null
+    val manualBatteryWarning: String? = null,
+
+    /**
+     * A54: the ONE backup-runtime figure — computed once, here, by actually running
+     * [com.lumix.estimator.domain.simulation.BackupEstimator] (a real grid-disconnected
+     * simulation of the exact selected system and appliance schedule) rather than a per-screen
+     * closed-form ratio. Every screen that shows "estimated backup" (System Review, Results,
+     * the PDF) reads this same field so they can never disagree with each other or with what
+     * the Simulation screen itself would show for the same outage. Defaults to 0.0/false/"" for
+     * quotes saved before this field existed — the historically accurate reading, since no such
+     * simulation-backed figure was computed for them either.
+     */
+    val estimatedBackupHours: Double = 0.0,
+    /** True if the simulated outage stayed fully covered for the whole search window (a well-sized system) rather than hitting a real shortfall — see [estimatedBackupHours]. */
+    val estimatedBackupSufficient: Boolean = false,
+    /** Plain-language explanation of what ended the simulated backup window (or that it didn't within the window tested) — see [estimatedBackupHours]. */
+    val estimatedBackupReason: String = ""
 ) {
     val pvKw: Double get() = panelCount * panelWatts / 1000.0
 }

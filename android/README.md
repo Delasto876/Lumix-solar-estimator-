@@ -2830,3 +2830,112 @@ cloud-smoothing test, full quote-to-simulation sync test, etc.) test behavior th
 correct going into this round and unchanged by it — not added as new test files this round, since
 adding tests for pre-existing, unmodified behavior isn't this round's actual change and risks
 implying those code paths were newly verified when they were only newly *read*.
+
+## A54 — Real simulation-driven backup estimate, replacing a closed-form ratio
+
+**Message**: "CLAUDE CODE — CORRECT SOLAR SIZING, BATTERY BACKUP, PV CURVE, SYSTEM FLOW, AND
+ESTIMATE UX" (43 sections, 2026-08-14). Headline claim: a LOAD-BASED system (10 kW inverter /
+10 kWh battery / 6 × 615 W PV) showed "Estimated backup: 11.9 hours" on the recommendation screen,
+while its own simulation showed solar powering the house during the day, a switch to battery around
+5:30pm, and a switch from battery to JPS around 8:30pm — implying a real runtime far shorter than
+11.9 hours. The message demanded ONE backup calculation shared by Sizing/Simulation/Recommendation/
+Quote, derived from an actual simulated load profile rather than a flat ratio.
+
+**Audit finding — the report's literal repro number aside, the underlying bug is real and was found
+in two places, not one.** `StepSystemReview.kt` and `ResultsScreen.kt` each computed their own,
+independent "Estimated backup" figure with the exact same flawed formula:
+
+```
+estimatedBackupHours = inputs.backupHours * (totalBatteryKwh / batteryRequiredKwh)
+```
+
+This is a closed-form ratio of two *nominal capacity* numbers (the requested target hours, scaled
+by how much bigger the selected battery is than the DOD-adjusted sizing target) — it never touches
+the actual appliance schedule, the day/night PV curve, the battery's real charge/discharge power
+taper, or the SOC reserve floor. It cannot disagree with itself, but it also has no relationship at
+all to what `SimulationEngine.buildDayTimeline` — the exact engine the Simulation screen runs —
+would actually show for the same system. Two independently-recomputed copies of the same wrong
+formula is precisely the "not ONE shared calculation" problem the message described.
+
+**Fix — `BackupEstimator.kt`** (new, `domain/simulation/`): runs the real
+`SimulationEngine.buildDayTimeline` as an actual outage — grid disconnected, battery starting at
+100% SOC, starting at dusk (`SimulationEngine.SUNSET_HOUR`, the conventional worst case a backup
+rating is judged against, since solar can't help again until the next sunrise) — using
+`defaultApplianceStates(inputs)`, the *exact same* function `SimulationViewModel` calls to build the
+Simulation screen's own appliance schedule from the same `QuoteInputs`. It scans forward (up to a
+72-hour search window, long enough to cross a full night-to-recharge cycle with margin) for the
+first frame where `unmetLoadKw` appears, and reports the real elapsed hours — or "sufficient" if the
+load stayed fully covered the whole window. The Critical Loads / Most Load / Custom coverage
+fraction (0.6 / 1.0 / custom) is factored out into `BackupEstimator.coverageFraction()`, the exact
+same fractions `SystemCalculator` already applies to `criticalDailyKwh` when sizing the battery, so
+sizing and the runtime estimate can never silently disagree on what "Critical Loads" means.
+
+To make this genuinely one calculation rather than a third copy, `buildDayTimeline` itself gained
+three new optional parameters (all defaulted to preserve every existing caller's exact behavior):
+`startHour` (first frame's clock hour, 0.0 for a normal midnight day), `durationHours` (span, 24.0
+by default), and `loadMultiplier` (scales the computed house load only — how the coverage fraction
+is represented without a second load model). `SystemCalculator.calculate()` now builds the
+`QuoteResult` as before, then runs `BackupEstimator.estimate(SimSystemConfig.from(result), input)`
+against that just-built system and folds the result back in via `.copy()` — so `estimatedBackupHours`
+/ `estimatedBackupSufficient` / `estimatedBackupReason` are computed exactly once per quote and read
+by every screen: `StepSystemReview.kt`, `ResultsScreen.kt`, and `QuotePdfGenerator.kt` all now read
+`result.estimatedBackupHours` instead of recomputing their own figure. The System Review and Results
+screens also now show the plain-language reason ("Battery reached its 20% reserve floor before solar
+could recharge it — based on the simulated load profile and coverage setting"), per the message's
+own explicit request in §3.
+
+**Verification — hand-traced in Python first** (this project's standing practice; no Gradle/JVM in
+this sandbox to run `./gradlew test`). `backup_sim.py` is a line-for-line port of
+`buildDayTimeline`'s outage branch (irradiance curve, NOCT temperature model, weekday load shape,
+`BatteryPowerCurve` taper, the SOC/reserve-floor logic) run against the reported system's real
+resolved hardware — 6 × 615 W (3.69 kWp), a 10 kW inverter, and the real SRNE SR-EOS10B battery spec
+(10.24 kWh, 51.2 V, 150 A max charge / 200 A max discharge, from `EquipmentSpecs.kt`) — because the
+report didn't include the underlying appliance list, the script sweeps a range of representative
+daily load levels rather than guessing the exact unlogged inputs:
+
+| avgDailyLoadKwh | Most Load coverage backup | SOC at cutoff |
+|---|---|---|
+| 5.0 kWh/day  | 72.0h (sufficient — PV recharge keeps pace) | 99.5% |
+| 30.0 kWh/day | 72.0h (sufficient) | 96.1% |
+| 60.0 kWh/day | **6.25h** (hits the 20% reserve floor) | 20.0% |
+| 100.0 kWh/day | 3.00h (hits the 20% reserve floor) | 20.9% |
+
+At 60 kWh/day (a plausible design load for a system sized to need a 10 kW inverter), the real
+simulated backup is 6.25 hours under Most Load coverage — a bounded, physically-derived number, not
+11.9. Switching the same system to Critical Loads coverage (0.6× load) pushes the same scenario back
+to "sufficient" (survives the full 72h window), demonstrating the coverage fraction actually taking
+effect end-to-end. `BackupEstimatorTest.kt` encodes these same traced numbers as JVM tests (all
+wizard-linked appliances zeroed out so `defaultApplianceStates` contributes nothing, isolating the
+test to the day-shaped background load — which is what makes the numbers exactly hand-computable),
+plus a test confirming `buildDayTimeline`'s new `startHour`/`durationHours`/`loadMultiplier`
+parameters default to the prior 24h/midnight-start/unscaled behavior for every existing caller.
+
+**Honest limitation**: the reported "11.9 hours vs. ~3-hour daily cycle" repro used the installer's
+own real (unlogged) appliance mix, which this round could not reproduce exactly — what's verified
+here is that the mechanism is now sound (one real simulation, run once, read everywhere) and that it
+produces bounded, physically-grounded numbers instead of an unconnected ratio, using representative
+loads at the same equipment scale as the report.
+
+**Scope note — not attempted this round.** This message's other 42 sections are a much larger
+product restructuring: an estimate-flow redesign that opens straight into the selected mode's own
+workflow and defers all quote/customer/site fields until "CREATE QUOTE" is clicked (§5–9, 35–36); a
+collapsible/tabbed Settings rebuild with a separate Materials section and a large set of new default
+settings (§10, 12); removing the separate discounted-price-list toggle in favor of one price plus a
+percent-or-fixed discount at quote time (§11) — note `useDiscountPriceList`/the two-price-list system
+still exists unchanged; site-specific PSH sourced from location/solar-resource data instead of a
+flat 5.5 default (§13–15); a battery-recharge-by-2PM feasibility check with an explicit
+"⚠ BATTERY RECHARGE TARGET NOT MET" warning (§22–23) — genuinely new, not built; a more flexible
+`findBestStringConfiguration` MPPT allocation algorithm that can choose uneven or partially-populated
+strings when an even split isn't valid (§24–28) — the engine still always splits panels evenly per
+tracker, the explicit choice locked in by the user's own A50 answer ("one string per MPPT tracker");
+an explicit source-switching "why" explanation surfaced in the Simulation UI (§31) — the engine
+already tracks enough state to derive this (as `BackupEstimator`'s own shortfall-reason logic now
+does for the backup case), but it isn't wired into the live simulation's status display yet; an
+expanded live simulation status/warning-threshold display (§33–34); and a consolidated "WHY WAS THIS
+SYSTEM SELECTED?" diagnostics panel surfacing pass/fail per check (§37–38) — the underlying reason
+strings (`panelSelectionReason`/`inverterSelectionReason`/`batterySelectionReason`,
+`PanelCompatibilityResult.notes`) already exist from A49–A52 but aren't assembled into one screen.
+`BackupCoverage`'s Critical Loads/Most Load/Custom split (§4) and the peak+surge-aware inverter
+selection and energy+power-aware battery selection (§20–21) were already built in A49/A50 and are
+unchanged this round. Each of these is substantial enough to deserve its own focused, audited round
+rather than a rushed pass alongside the critical backup-calculation bug this round actually fixes.

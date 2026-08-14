@@ -94,7 +94,23 @@ object SimulationEngine {
         inverterMode: InverterMode = InverterMode.SBU,
         gridChargeEnabled: Boolean = true,
         gridServiceAmps: Double = DEFAULT_GRID_SERVICE_AMPS,
-        dayType: DayType = DayType.WEEKDAY
+        dayType: DayType = DayType.WEEKDAY,
+        /** A54: first frame's clock hour — 0.0 for a normal midnight-to-midnight day (every existing
+         * caller). [BackupEstimator] starts this at dusk instead, to run an outage timeline forward
+         * from the same engine rather than a separate closed-form estimate. Uncapped (not mod 24) so
+         * SOC integrates continuously across a run that spans past midnight; every hour-of-day lookup
+         * inside this loop (irradiance, ambient temp, load shape) already wraps via `.mod(24.0)` on
+         * its own, so this stays correct past the first 24 hours. */
+        startHour: Double = 0.0,
+        /** A54: total simulated span in hours — 24.0 for every existing caller (one calendar day).
+         * [BackupEstimator] runs this out to a multi-day search window to find when an outage would
+         * first go unmet. */
+        durationHours: Double = 24.0,
+        /** A54: scales the computed house load only (not PV/battery physics) — how [BackupEstimator]
+         * represents "Critical Loads" / "Most Load" / a custom backup-coverage fraction without a
+         * second load model: the same blanket fraction [SystemCalculator]'s own sizing already
+         * applies to `criticalDailyKwh`, now shared by the simulation-driven estimate too. */
+        loadMultiplier: Double = 1.0
     ): List<SimFrame> {
         val maxSocKwh = config.batteryCapacityKwh * BATTERY_MAX_SOC_FRACTION
         val minSocKwh = config.batteryCapacityKwh * config.batteryDepthOfDischargeFraction
@@ -108,11 +124,11 @@ object SimulationEngine {
         val backgroundPerHourKw = (config.avgDailyLoadKwh / 24.0 * BACKGROUND_LOAD_FRACTION).coerceAtLeast(BACKGROUND_LOAD_FLOOR_KW)
         val dt = resolutionMinutes / 60.0
 
-        val steps = (24 * 60) / resolutionMinutes
+        val steps = ((durationHours * 60) / resolutionMinutes).toInt()
         val frames = ArrayList<SimFrame>(steps + 1)
 
         for (i in 0..steps) {
-            val hour = (i * resolutionMinutes) / 60.0
+            val hour = startHour + (i * resolutionMinutes) / 60.0
 
             val irradianceFraction = irradianceFactor(hour) * cloudMultiplier
             val potentialPv = (irradianceFraction * config.pvCapacityKw).coerceIn(0.0, config.inverterKw)
@@ -126,7 +142,7 @@ object SimulationEngine {
             val pv = (irradianceFraction * config.pvCapacityKw * temperatureDerate * SystemLosses.fixedSystemEfficiency)
                 .coerceIn(0.0, config.inverterKw)
 
-            val load = (loadFactor(hour, dayType) * backgroundPerHourKw + applianceLoadKw + totalApplianceLoadKwAt(applianceStates, hour, dayType))
+            val load = ((loadFactor(hour, dayType) * backgroundPerHourKw + applianceLoadKw + totalApplianceLoadKwAt(applianceStates, hour, dayType)) * loadMultiplier)
                 .coerceAtLeast(0.0)
 
             // The grid connection is strictly import-only in every mode — solar never exports;

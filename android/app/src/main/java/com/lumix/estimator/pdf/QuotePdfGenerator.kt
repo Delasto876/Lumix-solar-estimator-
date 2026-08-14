@@ -71,8 +71,11 @@ object QuotePdfGenerator {
         canvas.drawText("PV Array: ${result.panelCount} x ${result.panelWatts}W (${"%.2f".format(result.pvKw)} kW)", MARGIN, y, bodyPaint); y += 14f
         canvas.drawText("Inverter: ${result.inverterName}", MARGIN, y, bodyPaint); y += 14f
         if (result.totalBatteryKwh > 0) {
+            // A54: the simulated estimate (BackupEstimator, computed once in SystemCalculator),
+            // not a separately recomputed figure — matches what System Review/Results show.
+            val backupLabel = if (result.estimatedBackupSufficient) "${result.estimatedBackupHours.toInt()}+h" else "~${"%.1f".format(result.estimatedBackupHours)}h"
             canvas.drawText(
-                "Battery: ${"%.1f".format(result.totalBatteryKwh)} kWh (backup ~${"%.0f".format(inputs.backupHours)}h)",
+                "Battery: ${"%.1f".format(result.totalBatteryKwh)} kWh (estimated backup $backupLabel)",
                 MARGIN, y, bodyPaint
             ); y += 14f
         }

@@ -1,6 +1,8 @@
 package com.lumix.estimator.domain
 
+import com.lumix.estimator.domain.simulation.BackupEstimator
 import com.lumix.estimator.domain.simulation.SimApplianceType
+import com.lumix.estimator.domain.simulation.SimSystemConfig
 import com.lumix.estimator.domain.simulation.defaultDailyEnergyKwh
 import com.lumix.estimator.domain.simulation.defaultEffectiveDailyHours
 import kotlin.math.ceil
@@ -574,7 +576,7 @@ object SystemCalculator {
             batteryMaxDischargeKw = null
         }
 
-        return QuoteResult(
+        val result = QuoteResult(
             effectiveSystemMode = effectiveSystemMode,
             designDailyKwh = designDailyKwh,
             peakWatts = peakWatts,
@@ -611,6 +613,17 @@ object SystemCalculator {
             batterySelectionReason = batterySelectionReason,
             manualInverterWarning = manualInverterWarning,
             manualBatteryWarning = manualBatteryWarning
+        )
+
+        // A54: run the real backup estimate against the system that was JUST built (not a
+        // separate ratio) — see BackupEstimator's own doc for why this must be the one figure
+        // every screen (System Review, Results, PDF) reads instead of recomputing its own.
+        val backupEstimate = BackupEstimator.estimate(SimSystemConfig.from(result), input)
+
+        return result.copy(
+            estimatedBackupHours = backupEstimate.hours,
+            estimatedBackupSufficient = backupEstimate.sufficientForFullWindow,
+            estimatedBackupReason = backupEstimate.reason
         )
     }
 

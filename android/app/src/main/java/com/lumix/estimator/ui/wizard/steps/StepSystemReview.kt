@@ -73,9 +73,9 @@ fun StepSystemReview(
         if (preview.totalBatteryKwh > 0) min(preview.totalBatteryKwh * 0.5, preview.inverterKw.coerceAtLeast(0.1)) else 0.0
     }
     val peakLoadKw = preview.peakWatts / 1000.0
-    val estimatedBackupHours = remember(inputs, preview) {
-        if (preview.batteryRequiredKwh > 0.01) inputs.backupHours * (preview.totalBatteryKwh / preview.batteryRequiredKwh) else 0.0
-    }
+    // A54: preview.estimatedBackupHours comes from an actual grid-disconnected simulation of this
+    // exact system (BackupEstimator, run once inside SystemCalculator.calculate) — not a separate
+    // ratio computed here, so this can never disagree with what the Simulation screen would show.
 
     // A52: real series-topology electrical validation for the EXACT selected panel/inverter pair —
     // the same rules EquipmentSelectionEngine's own search applies (voltage adds across a series
@@ -233,12 +233,23 @@ fun StepSystemReview(
             SummaryRow("INVERTER", "%.1f kW".format(preview.inverterKw), preview.inverterName)
             if (preview.totalBatteryKwh > 0) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
-                SummaryRow("BATTERY", "%.2f kWh".format(preview.totalBatteryKwh), "Estimated backup: %.1f h".format(estimatedBackupHours))
+                SummaryRow(
+                    "BATTERY", "%.2f kWh".format(preview.totalBatteryKwh),
+                    (if (preview.estimatedBackupSufficient) "Estimated backup: %.0f+ h".format(preview.estimatedBackupHours) else "Estimated backup: %.1f h".format(preview.estimatedBackupHours))
+                )
             }
             HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
             SummaryRow("LOAD", "%.1f kWh/day".format(preview.designDailyKwh), "Peak %.2f kW".format(peakLoadKw))
             HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
             SummaryRow("BACKUP COVERAGE", coverageLabel(inputs.backupCoverage), null)
+            if (preview.totalBatteryKwh > 0 && preview.estimatedBackupReason.isNotBlank()) {
+                Text(
+                    preview.estimatedBackupReason,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
         }
 
         SectionCard(title = "") {
@@ -317,7 +328,16 @@ fun StepSystemReview(
                             ReviewRow("Usable capacity (80% DOD)", "%.1f kWh".format(preview.totalBatteryKwh * 0.8))
                             ReviewRow("Depth of discharge", "80% (20% reserve)")
                             ReviewRow("Maximum discharge power", "%.1f kW".format(batteryMaxDischargeKw))
-                            ReviewRow("Estimated backup duration", "%.1f h".format(estimatedBackupHours))
+                            ReviewRow(
+                                "Estimated backup duration",
+                                if (preview.estimatedBackupSufficient) "%.0f+ h".format(preview.estimatedBackupHours) else "%.1f h".format(preview.estimatedBackupHours)
+                            )
+                            Text(
+                                "From an actual simulated outage (grid disconnected at dusk, battery starting full) — not a flat energy/average-load ratio.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.textSecondary,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
                         }
                     }
                     Column {
