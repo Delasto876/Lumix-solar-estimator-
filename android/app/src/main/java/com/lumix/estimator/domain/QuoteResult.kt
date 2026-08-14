@@ -98,6 +98,15 @@ data class QuoteResult(
     val estimatedBackupSufficient: Boolean = false,
     /** Plain-language explanation of what ended the simulated backup window (or that it didn't within the window tested) — see [estimatedBackupHours]. */
     val estimatedBackupReason: String = "",
+    /**
+     * A64 (spec §8 — "Do not display '12-hour backup'... display 'Estimated backup: 8.1 hours'
+     * and BACKUP TARGET NOT MET"): whether [estimatedBackupHours] actually reaches
+     * [QuoteInputs.backupHours], the REQUESTED target — a distinct question from
+     * [estimatedBackupSufficient], which only means "survived the full multi-day stress window
+     * tested" (a much higher bar than any reasonably-sized backup battery is meant to clear). Null
+     * when there's no battery to check backup for, or for quotes saved before this field existed.
+     */
+    val batteryBackupTargetMet: Boolean? = null,
 
     /**
      * A54 (spec §22–23): whether the selected PV array can realistically recharge the battery from

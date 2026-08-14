@@ -3466,3 +3466,108 @@ threshold. This round's interpretation: if a candidate actually reaches the 90%-
 reach it, the closest one is kept without a separate "is this improvement big enough" gate. A
 threshold-based version (e.g. "only bump up if SOC-by-2PM improves by at least N points") would need
 a concrete number this round didn't have license to invent.
+
+## A64 — battery backup sizing driven by the real overnight load curve, verified by simulation
+
+The installer's 2026-08-14 "FIX 12-HOUR OVERNIGHT BACKUP SIZING + EDIT/RECALCULATE SYSTEM" message
+was two large, separate pieces of work: (1) a correctness fix to how backup battery capacity gets
+chosen, and (2) a new post-calculation Edit/Recalculate UI workflow. Asked which to do first, the
+answer was the sizing fix — the actual bug in the installer's own example (a LOAD-based quote
+whose own numbers said "~17 kWh needed" while selecting a 15 kWh battery) lives entirely in the
+engine, and the Edit/Recalculate UI would just be editing on top of whatever that engine produces.
+This round is the sizing fix only; Edit/Recalculate (spec §19-31) is not attempted here.
+
+**The bug, precisely.** The old formula was `criticalDailyKwh * (backupHours / 24) / BATTERY_DOD`
+— literally "average daily load, prorated by backup-hours-as-a-fraction-of-a-day," using a flat
+generic 80% depth-of-discharge assumption. This is exactly the "average daily load / 24 x 12"
+anti-pattern the installer's spec explicitly calls out (§5) — it has no time-of-day awareness at
+all (a load that's mostly daytime AC use gets prorated as if it were spread evenly through the
+night) and, separately, it used a *different* DOD assumption (flat 0.8) than the real per-model
+usable-energy fraction `EquipmentSelectionEngine.selectBestHybridBattery` actually searches
+against (a real SRNE datasheet's own usable/rated ratio, e.g. ~0.96 for the 5kWh tier) — two
+different "how much of this battery is usable" numbers computed for the same quote, which is the
+direct cause of the installer's own "17kWh needed, 15kWh selected" confusion.
+
+**`OvernightLoadProfile`** (new, `domain/simulation`): integrates the exact same appliance-duty-cycle
+load curve `SimulationEngine.buildDayTimeline` already computes for every other screen in this app
+— `SimFrame.houseLoadKw`, which the engine resolves before any PV/battery/grid routing happens for
+that frame, so no real PV/battery config is needed to ask "how much energy do the selected
+appliances, on their real schedules, actually draw over this window." The window is anchored at
+dusk (`SimulationEngine.SUNSET_HOUR`) for `backupHours` — deliberately the *same* anchor
+`BackupEstimator`'s own verification simulation already uses, so the REQUIREMENT this computes and
+the SIMULATION that verifies a battery choice against it can never silently describe two different
+periods (spec §6's "create ONE centralized battery-energy calculation").
+
+**`SystemCalculator.sizeHybridBatteryForBackup`** (new): replaces the flat formula for HYBRID mode.
+Runs `OvernightLoadProfile` to get a starting usable-energy target and an overnight peak-load
+figure (used for the battery's *discharge power* check, spec §7 — the overnight peak, not the
+whole day's worst-case simultaneous-everything figure `requiredInverterKw` already uses, since a
+battery only has to carry whatever's actually running overnight), runs
+`EquipmentSelectionEngine.selectBestHybridBattery`'s existing real tier/module search against it,
+then — this is the part that was missing entirely — **verifies** the pick with an actual
+`BackupEstimator` day-simulation instead of assuming a kWh number implies a runtime (spec §8: "the
+12-hour target must be VERIFIED BY SIMULATION"). If the simulated backup falls short, the
+usable-energy target is scaled up by the observed shortfall ratio (`windowHours / actualHours`,
+plus a small margin) and searched again — bounded at 4 attempts, never indefinitely, matching A63's
+own "+1/+2, never oversize indefinitely" philosophy for the exact same reason. If the baseline
+already meets target, it's returned untouched — no wasted simulations.
+
+Deliberately reuses `selectBestHybridBattery`'s existing smallest-total-usable-energy-across-tiers
+search on every attempt rather than hand-coding a "5 → 10 → 15 → 16 → 2×10" escalation path (spec
+§9): the catalog's own "15kWh" tier is already the real SRNE SR-EOS15B, whose real usable energy is
+15.42kWh (see `EquipmentSpecs.batteries`' own note — there's no separate 16kWh SKU to escalate to
+in this equipment library), so the real escalation space is just "more modules of whichever tier
+ends up smallest for a bigger target" — exactly what that search already recomputes fresh each
+attempt. `BatteryChoice` gained a `powerOk` field (spec §7's explicit "flag BATTERY POWER LIMIT" —
+the search already computed this locally, just never returned it as a distinct signal before).
+
+PV is a zero-capacity placeholder in every trial `SimSystemConfig` this function builds — not an
+oversight: `SimulationEngine.irradianceFactor` is 0 for the entire window being simulated (starting
+at dusk, for up to a day's worth of hours), so PV capacity has zero effect on the outcome for any
+backup request up to ~12 hours, and the real panel count isn't even chosen yet at this point in
+`calculate()` (panel sizing depends on the battery this function is choosing, not the reverse).
+
+**Consistency fix riding along.** `requiredBatteryUsableKwh`/`batteryRequiredKwh` — the figures
+`QuoteResult` displays as "required" — are now overwritten, for HYBRID mode, with the exact same
+values `sizeHybridBatteryForBackup` actually searched against (using the winning tier's own real
+usable fraction for the nominal-kWh conversion, not the generic 0.8 DOD). The displayed requirement
+and the actual selection logic can no longer show two different numbers for the same system.
+OFFGRID's simpler AGM-based sizing and MANUAL mode's warning comparisons are unchanged — this round
+was scoped to the HYBRID path the installer's own example was about.
+
+**`QuoteResult.batteryBackupTargetMet`** (new field): whether the *final* system's real simulated
+backup (`estimatedBackupHours`, already existing since A54) actually reaches the *requested*
+`backupHours` — distinct from the existing `estimatedBackupSufficient`, which only means "survived
+the full 72-hour stress-test window" (a much higher bar no reasonably-sized backup battery is
+meant to clear). Matches spec §8/§25's explicit "display 'Estimated backup: 8.1 hours' and BACKUP
+TARGET NOT MET" instruction — the *data* for that display now exists; wiring it into
+`StepSystemReview`/`ResultsScreen` UI is deferred along with the rest of the UI work this round
+didn't touch (see below).
+
+**Tests.** `OvernightLoadProfileTest.kt` (new): hand-traced via a direct Python port of
+`SimulationEngine`'s own `loadFactor` curve and background-load constants (0.4 fraction, 0.15kW
+floor, read directly from that file's source) — exact energy/peak numbers for a no-appliances
+scenario, plus structural invariants (zero window ⇒ zero result, `loadMultiplier` scales linearly,
+a longer window never has less energy than its own prefix). `SystemCalculatorBatteryBackupSizingTest.kt`
+(new): a trivially-oversized scenario asserted exactly (tiny load, 1-hour window, the smallest 5kWh
+tier trivially clears it on the first attempt — no escalation needed); the installer's own §32
+regression scenario (real LuxPower LXP-LB-US 12K + 27.1kWh/day + 12h Most Load), asserted only
+structurally (a real battery got picked, a real simulation actually ran, the required-energy figure
+is positive) rather than to an exact hour count — per §32's own explicit instruction ("Do NOT
+assume 15kWh provides 12 hours... the simulation determines the answer"), asserting a specific
+number here would mean fabricating a full day-simulation trace (background curve + duty-cycled
+appliances + SOC-dependent battery tapering) this round didn't build, the same honest limitation
+already disclosed for A63's own escalation loop's uncertain scenario.
+
+**Scope note — not attempted this round.** Sections 19-31 of the installer's message: a whole new
+post-calculation Edit/Recalculate UI (edit panels/inverter/battery after the initial calculation,
+re-run the full engineering pipeline, +Panel/-Panel and +Battery buttons with live electrical
+re-validation, a save-then-simulate-then-quote flow decoupled from customer/quote information). This
+round only fixed the *engine* those edits would need to call correctly — the edit surface itself,
+the System Review screen redesign with PASS/FAIL indicators (§24), and wiring
+`batteryBackupTargetMet` into any UI, are all separate, substantial work not started here. Also not
+attempted: driving the backup window's start hour from the actual simulated PV decline rather than
+the fixed `SUNSET_HOUR` constant (spec §2's "better" alternative) — the fixed constant already
+closely approximates it for Jamaica's near-equatorial ~12-hour day (dusk to `SUNSET_HOUR +
+backupHours` lands almost exactly on `SUNRISE_HOUR` for the default 12-hour case), so this was
+judged not worth the added complexity this round, but it remains a documented gap.

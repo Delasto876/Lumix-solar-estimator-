@@ -1,10 +1,12 @@
 package com.lumix.estimator.domain
 
 import com.lumix.estimator.domain.simulation.BackupEstimator
+import com.lumix.estimator.domain.simulation.OvernightLoadProfile
 import com.lumix.estimator.domain.simulation.RechargeFeasibility
 import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.SimSystemConfig
 import com.lumix.estimator.domain.simulation.SimulationEngine
+import com.lumix.estimator.domain.simulation.defaultApplianceStates
 import com.lumix.estimator.domain.simulation.defaultDailyEnergyKwh
 import com.lumix.estimator.domain.simulation.defaultEffectiveDailyHours
 import kotlin.math.ceil
@@ -162,6 +164,114 @@ object SystemCalculator {
         return chargeKw to dischargeKw
     }
 
+    /** Bounded, mirroring A63's own "+1/+2, never indefinitely" philosophy — see [sizeHybridBatteryForBackup]. */
+    private const val MAX_BATTERY_SIZING_ATTEMPTS = 4
+    private const val BACKUP_TARGET_EPSILON_HOURS = 0.1
+
+    internal data class HybridBatterySizing(
+        val choice: EquipmentSelectionEngine.BatteryChoice,
+        /** The usable-energy figure actually used for the winning attempt — becomes [QuoteResult.requiredBatteryUsableKwh], so the displayed "required" figure and the actual selection can never show two different numbers for the same system (spec §6's "do not double-count efficiency... ONE centralized battery-energy calculation"). */
+        val requiredUsableKwh: Double,
+        /** Null only when there's no backup requested at all ([QuoteInputs.backupHours] <= 0). */
+        val backupEstimate: BackupEstimator.BackupEstimate?
+    )
+
+    /**
+     * A64 (2026-08-14 "FIX 12-HOUR OVERNIGHT BACKUP SIZING" §1-9, §32-33): replaces the old flat
+     * `criticalDailyKwh * (backupHours / 24) / BATTERY_DOD` battery-sizing formula, which the
+     * installer's own reported bug showed producing a "requires ~17kWh" figure alongside a 15kWh
+     * selection — an average-load estimate with no relationship to what the selected appliances
+     * actually draw overnight, or to what the real simulation would say about the pick.
+     *
+     * This instead: (1) integrates the REAL appliance-schedule load curve over the actual backup
+     * window via [OvernightLoadProfile] — the same window [BackupEstimator]'s own verification
+     * simulation uses, by construction, so requirement and verification can never silently
+     * describe two different periods; (2) runs [EquipmentSelectionEngine.selectBestHybridBattery]'s
+     * real tier/module search against that figure; (3) VERIFIES the pick with an actual
+     * [BackupEstimator] day-simulation rather than assuming a kWh number implies a runtime; (4) if
+     * the simulated backup still falls short of the requested [QuoteInputs.backupHours], scales the
+     * usable-energy target up by the observed shortfall ratio and searches again — bounded at
+     * [MAX_BATTERY_SIZING_ATTEMPTS] attempts, never indefinitely (spec §9's "do not mix incompatible
+     * battery capacities" holds automatically: each attempt is still one single-tier
+     * [EquipmentSelectionEngine.selectBestHybridBattery] search, same as before).
+     *
+     * Deliberately reuses [EquipmentSelectionEngine.selectBestHybridBattery]'s existing
+     * smallest-total-usable-energy-across-tiers search on every attempt, rather than hand-coding a
+     * "5 -> 10 -> 15 -> 16 -> 2x10" escalation path: the installer's own catalog's "15kWh" tier is
+     * already the real SRNE SR-EOS15B, whose real usable energy is 15.42kWh (see
+     * [EquipmentSpecs.batteries]' own note — there is no separate distinct 16kWh SKU to escalate
+     * to), so the actual escalation space is "more modules of whichever tier ends up smallest,"
+     * exactly what that search already computes fresh for whatever target this function feeds it.
+     *
+     * PV is deliberately a zero-capacity placeholder in every trial [SimSystemConfig] built here —
+     * not an oversight: [SimulationEngine.irradianceFactor] is 0 for the entire window this
+     * simulates (starting at dusk, [SimulationEngine.SUNSET_HOUR], for [MAX_BATTERY_SIZING_ATTEMPTS]
+     * attempts of up to a day's worth of hours), so PV capacity has no effect on the outcome at all
+     * for any backup request up to ~12 hours — the real panel count isn't even chosen yet at this
+     * point in [calculate] (panel sizing depends on the battery this function is choosing).
+     */
+    internal fun sizeHybridBatteryForBackup(
+        input: QuoteInputs,
+        designDailyKwh: Double,
+        inverterKw: Double,
+        inverterName: String
+    ): HybridBatterySizing {
+        val windowHours = input.backupHours
+        if (windowHours <= 0.0) {
+            return HybridBatterySizing(EquipmentSelectionEngine.selectBestHybridBattery(0.0, 0.0, inverterKw), 0.0, null)
+        }
+
+        val coverageFraction = BackupEstimator.coverageFraction(input.backupCoverage, input.customBackupCoverageFraction)
+        val appliances = defaultApplianceStates(input)
+        val profile = OvernightLoadProfile.evaluate(
+            avgDailyLoadKwh = designDailyKwh,
+            applianceStates = appliances,
+            windowHours = windowHours,
+            loadMultiplier = coverageFraction
+        )
+
+        var targetUsableKwh = profile.energyKwh
+        var lastChoice = EquipmentSelectionEngine.selectBestHybridBattery(0.0, 0.0, inverterKw)
+        var lastEstimate: BackupEstimator.BackupEstimate? = null
+        var lastTargetUsableKwh = targetUsableKwh
+
+        for (attempt in 0 until MAX_BATTERY_SIZING_ATTEMPTS) {
+            val choice = EquipmentSelectionEngine.selectBestHybridBattery(targetUsableKwh, profile.peakKw, inverterKw)
+            lastChoice = choice
+            lastTargetUsableKwh = targetUsableKwh
+            if (choice.option == null || choice.totalKwh <= 0.0) {
+                lastEstimate = null
+                break
+            }
+
+            val (chargeKw, dischargeKw) = resolvedBatteryPowerKw(choice.option, choice.totalKwh, inverterKw)
+            val fallbackKw = min(choice.totalKwh * 0.5, inverterKw.coerceAtLeast(0.1))
+            val trialConfig = SimSystemConfig(
+                pvCapacityKw = 0.0, panelCount = 0, panelWatts = 0,
+                inverterKw = inverterKw, inverterName = inverterName,
+                batteryCapacityKwh = choice.totalKwh, batteryName = choice.option.name, hasBattery = true,
+                gridConnectable = false, avgDailyLoadKwh = designDailyKwh,
+                peakLoadKw = profile.peakKw.coerceAtLeast(designDailyKwh / 10.0),
+                batteryMaxChargeKw = chargeKw ?: fallbackKw,
+                batteryMaxDischargeKw = dischargeKw ?: fallbackKw,
+                batteryChargeEfficiency = 0.95,
+                batteryDepthOfDischargeFraction = SimulationEngine.BATTERY_MIN_SOC_FRACTION
+            )
+            val estimate = BackupEstimator.estimate(trialConfig, input)
+            lastEstimate = estimate
+
+            val hours = estimate?.hours ?: 0.0
+            if (hours >= windowHours - BACKUP_TARGET_EPSILON_HOURS) break
+
+            // Scale the target by the observed shortfall ratio (plus a small margin) rather than a
+            // fixed increment — a battery that only lasted half the window needs roughly double the
+            // usable energy, not "the next tier up regardless of how far off it was."
+            targetUsableKwh = if (hours > 0.05) targetUsableKwh * (windowHours / hours) * 1.05 else targetUsableKwh * 1.5
+        }
+
+        return HybridBatterySizing(lastChoice, lastTargetUsableKwh, lastEstimate)
+    }
+
     /**
      * A63 (spec §24-28's "ADD ONE OR TWO PANELS" rule): [baseline] is [EquipmentSelectionEngine]'s
      * own smallest-electrically-valid pick for a hybrid array with a battery to charge. This checks
@@ -297,8 +407,13 @@ object SystemCalculator {
         var batteryRequiredKwh = (criticalDailyKwh * backupFractionOfDay) / BATTERY_DOD
         // The real energy the backup load must draw (before the flat-DOD nominal-capacity
         // conversion above) — what EquipmentSelectionEngine actually sizes batteries against,
-        // per spec §14 (compare usable energy, not nominal kWh alone).
-        val requiredBatteryUsableKwh = criticalDailyKwh * backupFractionOfDay
+        // per spec §14 (compare usable energy, not nominal kWh alone). A64: this flat
+        // criticalDailyKwh*(backupHours/24) figure is only the OFFGRID/starting-point value now —
+        // HYBRID mode overwrites both this and batteryRequiredKwh below with the real
+        // simulation-driven figure from sizeHybridBatteryForBackup, so the "required" number shown
+        // to the installer always matches what actually drove the selection (the exact mismatch
+        // the installer's own 2026-08-14 bug report was about — "~17kWh needed, 15kWh selected").
+        var requiredBatteryUsableKwh = criticalDailyKwh * backupFractionOfDay
 
         var panelW = 595
         var effectiveSystemMode = input.systemMode
@@ -333,13 +448,30 @@ object SystemCalculator {
 
             when (input.systemMode) {
                 SystemMode.HYBRID -> {
-                    val batteryChoice = EquipmentSelectionEngine.selectBestHybridBattery(
-                        requiredBatteryUsableKwh, peakWatts / 1000.0, selectedInverter.kw
-                    )
+                    // A64: replaces the flat criticalDailyKwh*(backupHours/24) target with a real
+                    // overnight-load-simulation-driven, simulation-VERIFIED search — see
+                    // sizeHybridBatteryForBackup's own doc for the full rationale.
+                    val sizing = sizeHybridBatteryForBackup(input, designDailyKwh, selectedInverter.kw, selectedInverter.name)
+                    val batteryChoice = sizing.choice
                     chosenBattery = batteryChoice.option
                     batteryModuleCount = batteryChoice.moduleCount
                     totalBatteryKwh = batteryChoice.totalKwh
-                    batterySelectionReason = batteryChoice.reason
+                    requiredBatteryUsableKwh = sizing.requiredUsableKwh
+                    // Nominal "required" figure for display, using this same battery's own real
+                    // usable-energy fraction rather than the generic BATTERY_DOD assumption, so it
+                    // stays consistent with whatever tier sizing.choice actually picked.
+                    val usableFraction = if (batteryChoice.totalKwh > 0) batteryChoice.totalUsableKwh / batteryChoice.totalKwh else BATTERY_DOD
+                    batteryRequiredKwh = sizing.requiredUsableKwh / usableFraction.coerceAtLeast(0.01)
+                    val estimate = sizing.backupEstimate
+                    val backupNote = when {
+                        estimate == null -> ""
+                        estimate.hours >= input.backupHours - BACKUP_TARGET_EPSILON_HOURS ->
+                            " Simulated overnight backup: %.1f hours — meets the %.0f-hour target.".format(estimate.hours, input.backupHours)
+                        else ->
+                            " Simulated overnight backup: %.1f hours — BACKUP TARGET NOT MET (%.0f hours requested); this is the closest this catalog's battery tiers get within %d sizing attempts."
+                                .format(estimate.hours, input.backupHours, MAX_BATTERY_SIZING_ATTEMPTS)
+                    }
+                    batterySelectionReason = batteryChoice.reason + backupNote
                 }
                 SystemMode.OFFGRID -> {
                     if (batteryRequiredKwh > 0) {
@@ -798,11 +930,17 @@ object SystemCalculator {
         val simConfig = SimSystemConfig.from(result)
         val backupEstimate = BackupEstimator.estimate(simConfig, input)
         val rechargeCheck = RechargeFeasibility.evaluate(simConfig, input)
+        // A64 (spec §8/§25 — "Do not display '12-hour backup'... display the real simulated hours
+        // and BACKUP TARGET NOT MET"): distinct from estimatedBackupSufficient, which only means
+        // "survived the whole multi-day stress window tested" — this compares against what the
+        // installer actually requested.
+        val backupTargetMet = if (simConfig.hasBattery) backupEstimate.hours >= input.backupHours - BACKUP_TARGET_EPSILON_HOURS else null
 
         return result.copy(
             estimatedBackupHours = backupEstimate.hours,
             estimatedBackupSufficient = backupEstimate.sufficientForFullWindow,
             estimatedBackupReason = backupEstimate.reason,
+            batteryBackupTargetMet = backupTargetMet,
             batteryRechargeTargetMet = rechargeCheck?.targetMet,
             batteryRechargeSocAt2pmPercent = rechargeCheck?.socAtTargetHourPercent,
             batteryRechargeHour = rechargeCheck?.hourReachedTarget

@@ -383,7 +383,9 @@ object EquipmentSelectionEngine {
         val totalKwh: Double,
         val totalUsableKwh: Double,
         val totalMaxDischargeKw: Double,
-        val reason: String
+        val reason: String,
+        /** A64 (spec §7 — "the system must flag BATTERY POWER LIMIT"): true when [totalMaxDischargeKw] covers the requested discharge power, not just [totalUsableKwh] covering the energy requirement — a bank can have enough energy but still not enough power. */
+        val powerOk: Boolean = true
     )
 
     private fun batterySpecForTier(tierKwh: Double) = EquipmentSpecs.batterySpecFor(
@@ -430,6 +432,6 @@ object EquipmentSelectionEngine {
                 best.tier.kwh * usableFractionFor(best.tier.kwh), maxDischargeKwPerModule(best.tier.kwh),
                 if (!powerOk) " Discharge power is tight relative to peak load even with this module count — review." else ""
             )
-        return BatteryChoice(best.tier, best.modules, best.tier.kwh * best.modules, best.usableTotal, best.dischargeTotal, reason)
+        return BatteryChoice(best.tier, best.modules, best.tier.kwh * best.modules, best.usableTotal, best.dischargeTotal, reason, powerOk)
     }
 }
