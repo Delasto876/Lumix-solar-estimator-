@@ -3196,3 +3196,67 @@ battery).
 
 **Scope note — not attempted this round.** §10/12 (Settings restructuring), §13–15 (location-based
 PSH), and §24–28 (flexible MPPT allocation) remain open, as disclosed in A54–A58.
+
+## A60 — Location-based Peak Sun Hours estimate (spec §13–15)
+
+The spec's §13–15 objection: "DO NOT hard-code PSH = 5.5 for every location... use site location...
+If detailed solar resource data is unavailable, default planning PSH: 5.5, but clearly mark it as an
+estimate." Audit found two separate problems, not one. First, `peakSunHours` was only editable in
+`Step4Usage.kt`, and that step is GUIDED-mode-only — `WizardViewModel.designSteps()` removes it
+entirely for LOAD/MANUAL mode (`if (data.quoteMode != QuoteMode.GUIDED) steps.remove(7)`), so
+LOAD/MANUAL installers had no way to edit PSH anywhere in the app; every one of their systems really
+was sized off a single hardcoded 5.5 with zero override path. Second, `parish`/`nearestTown` were
+only editable in `StepCustomer.kt`, which A56 moved into the QUOTE_DETAILS flow — reached only via
+Create Quote, *after* Calculate System already ran. Even a parish-aware PSH default would have been
+computed too late to affect sizing.
+
+This app deliberately does not carry a maps/geolocation dependency — that was removed outright in
+A17/A18 — so "use site location" here means the parish/town picker that already existed, not a new
+GPS or Maps integration. A live per-site satellite irradiance lookup was ruled out for the same
+reason plus a more basic one: no such API is wired into this app and none is being added this round.
+
+**`SolarResource.kt`** (new, `domain/`): a parish-level PSH estimate table, 14 entries, one per
+`Catalog.parishTowns` key. This is explicitly **not** measured satellite GHI data — no such dataset
+is available to this app. It's a rough regional split positioned inside the exact range the spec's
+own cited sources give for Jamaica as a whole (Global Solar Atlas 4.18–5.90 kWh/m²/day; Jamaica
+Ministry of Energy ~5 kWh/m²/day; Jamaica Integrated Resource Plan ~5.5–6.0 kWh/m²/day for "much of
+Jamaica"), using well-established public knowledge of each parish's general climate — St. Elizabeth
+(5.8, the high end) is widely known as Jamaica's driest parish and agricultural "breadbasket";
+Portland (5.0, the low end) is widely known as its wettest, in the Blue and John Crow Mountains'
+rain shadow. `estimatedPshFor(parish)` falls back to the unchanged flat `NATIONAL_DEFAULT_PSH` (5.5)
+for a blank or unrecognized parish string — it never guesses beyond the disclosed table, and every
+UI surface that shows a resulting number says in plain text that it's a regional estimate, not a
+measured site value.
+
+**`StepPropertySystem.kt`** (design flow, step 3 — mode-agnostic, unlike the old GUIDED-only field
+it replaces) gets a new "Site location" section: parish/nearest-town pickers, matching the ones
+already in `StepCustomer.kt`, plus an editable Peak Sun Hours field. Picking a parish auto-fills PSH
+from `SolarResource.estimatedPshFor(parish)` — but only if the installer hasn't already typed their
+own figure. `QuoteInputs.peakSunHoursManuallySet: Boolean` (new field, defaults `false`) tracks that:
+it flips `true` the moment PSH is edited directly, and from then on a parish change never silently
+overwrites a deliberately chosen value. `Step4Usage.kt`'s now-redundant "Solar resource" PSH field
+was removed — one place to set it, reachable from every quote mode.
+
+`StepCustomer.kt` was deliberately left untouched. It still edits the same top-level
+`parish`/`nearestTown` fields (no data-model conflict — these were already flat `QuoteInputs`
+fields, not nested under a "Customer" object), but its handler doesn't touch `peakSunHours` at all.
+That's intentional: correcting a customer's parish spelling at quote-finalization time, after the
+system has already been sized and possibly simulated, must not retroactively resize it.
+`Validation.kt`'s `customerErrors` (still requiring a non-blank parish to finish QUOTE_DETAILS) was
+also left untouched — reasonable as-is, since parish is now normally already set during design, and
+declining to finish a quote with no delivery parish is still the right call.
+
+**Tests** (`SolarResourceTest.kt`): exact table values for the highest (St. Elizabeth, 5.8) and
+lowest (Portland, 5.0) parishes and one three-way tie (Kingston/St. Catherine/Clarendon, all 5.7);
+blank-parish and unrecognized-parish-string fallback to `NATIONAL_DEFAULT_PSH`; confirmation that
+`NATIONAL_DEFAULT_PSH` is still exactly the prior flat 5.5; and a full sweep of all 14
+`Catalog.parishes` confirming every estimate sits inside the disclosed Global Solar Atlas range
+(4.18–5.90) and that the table actually varies by parish rather than every name collapsing onto one
+value. The `StepPropertySystem.kt` auto-fill-unless-manually-set logic is plain Compose state
+handling with no existing test harness in this project (same as A56's `WizardViewModel` flow-mode
+logic) — verified by direct code trace rather than an automated test.
+
+**Scope note — not attempted this round.** §10/12 (Settings restructuring) and §24–28 (flexible MPPT
+allocation) remain open. §24–28 in particular partially revisits the "one string per MPPT tracker,
+even split only" decision the user made explicitly via a direct question earlier in this project — it
+should get its own check-in before being touched, not be folded into an unrelated round.

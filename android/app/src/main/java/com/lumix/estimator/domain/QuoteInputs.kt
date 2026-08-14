@@ -178,8 +178,14 @@ data class QuoteInputs(
     val usageMode: UsageMode = UsageMode.BILL,
     val avgBill: Double = 16000.0,
     val avgKwh: Double = 0.0,
-    /** Peak Sun Hours for this site. Estimator default (not a measured value) — see SystemCalculator.PSH doc. */
+    /**
+     * Peak Sun Hours for this site. A60: defaults from [SolarResource.estimatedPshFor] once
+     * [parish] is set (a rough regional estimate, not measured data — see that object's own doc)
+     * rather than one flat national number; still just an estimate either way, always editable.
+     */
     val peakSunHours: Double = 5.5,
+    /** A60: true once the installer has directly edited [peakSunHours] — stops a later [parish] change from silently overwriting a figure they deliberately chose. */
+    val peakSunHoursManuallySet: Boolean = false,
 
     val backupHoursPreset: Int? = 12,
     val backupHoursCustom: Double = 6.0,
