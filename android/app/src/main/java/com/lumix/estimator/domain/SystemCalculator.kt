@@ -1,6 +1,7 @@
 package com.lumix.estimator.domain
 
 import com.lumix.estimator.domain.simulation.BackupEstimator
+import com.lumix.estimator.domain.simulation.RechargeFeasibility
 import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.SimSystemConfig
 import com.lumix.estimator.domain.simulation.defaultDailyEnergyKwh
@@ -618,12 +619,17 @@ object SystemCalculator {
         // A54: run the real backup estimate against the system that was JUST built (not a
         // separate ratio) — see BackupEstimator's own doc for why this must be the one figure
         // every screen (System Review, Results, PDF) reads instead of recomputing its own.
-        val backupEstimate = BackupEstimator.estimate(SimSystemConfig.from(result), input)
+        val simConfig = SimSystemConfig.from(result)
+        val backupEstimate = BackupEstimator.estimate(simConfig, input)
+        val rechargeCheck = RechargeFeasibility.evaluate(simConfig, input)
 
         return result.copy(
             estimatedBackupHours = backupEstimate.hours,
             estimatedBackupSufficient = backupEstimate.sufficientForFullWindow,
-            estimatedBackupReason = backupEstimate.reason
+            estimatedBackupReason = backupEstimate.reason,
+            batteryRechargeTargetMet = rechargeCheck?.targetMet,
+            batteryRechargeSocAt2pmPercent = rechargeCheck?.socAtTargetHourPercent,
+            batteryRechargeHour = rechargeCheck?.hourReachedTarget
         )
     }
 

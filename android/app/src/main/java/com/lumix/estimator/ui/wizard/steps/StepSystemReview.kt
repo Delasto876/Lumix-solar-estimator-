@@ -41,6 +41,7 @@ import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.domain.UsageMode
 import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.ui.components.LumixPrimaryButton
+import com.lumix.estimator.ui.simulation.formatSimTime
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.components.SectionCard
@@ -156,6 +157,19 @@ fun StepSystemReview(
                 detail = if (!pvCompat.iscOk) {
                     "Series Isc %.1fA exceeds the inverter's implied max PV current — this is the panel's own current (voltage adds in series, current does not multiply by panel count)."
                         .format(pvCompat.stringIscA)
+                } else null
+            ),
+            // A54 (spec §22–23): a real simulated day, starting from the battery's reserve floor,
+            // checking whether the selected PV array can actually recharge it back to a usable SOC
+            // by early afternoon — calculated, not assumed passing just because sizing "looks" big enough.
+            EngineeringCheck(
+                label = "Battery can recharge to a usable SOC by ~2 PM",
+                pass = preview.batteryRechargeTargetMet != false,
+                detail = if (preview.batteryRechargeTargetMet == false) {
+                    val socText = "%.0f%%".format(preview.batteryRechargeSocAt2pmPercent ?: 0f)
+                    val whenText = preview.batteryRechargeHour?.let { "reached later, around ${formatSimTime(it)}" }
+                        ?: "never fully recharged within the simulated day"
+                    "⚠ BATTERY RECHARGE TARGET NOT MET — only $socText SOC by 2 PM ($whenText). Consider more PV, a smaller battery, or reduced daytime load."
                 } else null
             )
         )

@@ -2953,3 +2953,26 @@ diverge. `SimulationEngineStatusReasonTest.kt` covers every branch (pure branchi
 already-computed fields, no numeric model to hand-trace). The richer §33/34 "expanded live status
 display with inverter/battery/PV warning thresholds" is still deferred — this addendum is
 specifically the "explain the switch" ask, not the full status-panel redesign.
+
+**Addendum 2 (same round): §22–23 battery-recharge-by-2PM feasibility check.** Closed another
+deferred item — the sizing engine previously never checked whether the selected PV array could
+actually recharge the battery during the solar window; it was only ever checked against battery
+kWh (`totalBatteryKwh >= totalBatteryKwh / 4.0` in `SystemCalculator`'s panel-sizing floor), a
+crude proxy, not a real simulated check. Added `RechargeFeasibility.kt`: runs a normal
+grid-connected day through `SimulationEngine.buildDayTimeline`, starting the battery at its own
+reserve floor at midnight (the worst case — drawn all the way down overnight) with the real
+appliance schedule, and checks whether SOC reaches a "recharged" 90% by 2 PM. Computed once in
+`SystemCalculator.calculate()` alongside the backup estimate and folded into
+`QuoteResult.batteryRechargeTargetMet`/`batteryRechargeSocAt2pmPercent`/`batteryRechargeHour`
+(null when there's no battery to check). `StepSystemReview.kt` gained a new engineering check,
+"Battery can recharge to a usable SOC by ~2 PM", showing the spec's own requested
+"⚠ BATTERY RECHARGE TARGET NOT MET" wording with the actual SOC and either when it did recharge or
+that it never did within the simulated day — never silently passed.
+
+Hand-traced in Python (`recharge_sim.py`) against the same real hardware as the backup-estimate
+scenarios, across a load sweep that exercises all three outcomes: an adequately-sized array
+(avgDailyLoadKwh=60) reaches 100% SOC by 12:40pm — target met; a heavier load (90 kWh/day) reaches
+90% at 2:40pm, 85.1% actually on hand at the 2pm cutoff — a real, bounded "missed by a little"
+case; and a heavily undersized-for-that-load array (150 kWh/day) never reaches 90% within the
+simulated day at all — only 40.7% on hand by 2pm. `RechargeFeasibilityTest.kt` encodes all three
+traced outcomes plus the no-battery guard.

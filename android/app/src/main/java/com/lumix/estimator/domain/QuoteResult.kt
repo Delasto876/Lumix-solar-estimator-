@@ -97,7 +97,20 @@ data class QuoteResult(
     /** True if the simulated outage stayed fully covered for the whole search window (a well-sized system) rather than hitting a real shortfall — see [estimatedBackupHours]. */
     val estimatedBackupSufficient: Boolean = false,
     /** Plain-language explanation of what ended the simulated backup window (or that it didn't within the window tested) — see [estimatedBackupHours]. */
-    val estimatedBackupReason: String = ""
+    val estimatedBackupReason: String = "",
+
+    /**
+     * A54 (spec §22–23): whether the selected PV array can realistically recharge the battery from
+     * its reserve floor back to a real "recharged" SOC by early afternoon, computed once by
+     * [com.lumix.estimator.domain.simulation.RechargeFeasibility] against this exact system. Null
+     * when there's no battery to recharge (nothing to check) or for quotes saved before this field
+     * existed — the historically accurate reading either way.
+     */
+    val batteryRechargeTargetMet: Boolean? = null,
+    /** Battery SOC% at the 2 PM check hour — see [batteryRechargeTargetMet]. */
+    val batteryRechargeSocAt2pmPercent: Float? = null,
+    /** The hour SOC actually reached the recharge target, or null if it never did within the simulated day — see [batteryRechargeTargetMet]. */
+    val batteryRechargeHour: Double? = null
 ) {
     val pvKw: Double get() = panelCount * panelWatts / 1000.0
 }
