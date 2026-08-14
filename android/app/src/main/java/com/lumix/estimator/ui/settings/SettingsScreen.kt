@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Contrast
@@ -45,7 +44,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.PriceRepository
 import com.lumix.estimator.data.QuoteRepository
@@ -55,10 +53,11 @@ import com.lumix.estimator.domain.PriceFields
 import com.lumix.estimator.domain.PriceList
 import com.lumix.estimator.domain.SavingsCalculator
 import com.lumix.estimator.domain.simulation.SimulationEngine
+import com.lumix.estimator.ui.components.CollapsibleGroup
+import com.lumix.estimator.ui.components.CollapsibleSectionCard
 import com.lumix.estimator.ui.components.LargeTitleTopBar
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.components.NumberField
-import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixRadius
 import kotlinx.coroutines.launch
@@ -67,6 +66,14 @@ import kotlinx.coroutines.launch
  * The Settings tab: everything about the app itself rather than any one quote — appearance,
  * simulation defaults, the price list every quote is calculated from, and data management.
  * Replaces the old Profile tab, which was really just the price editor under a different name.
+ *
+ * A61 (spec §10/12 — "collapsible/tabbed Settings... separate Materials section"): every
+ * top-level section is now a [CollapsibleSectionCard] instead of an always-open flat scroll, and
+ * "Materials & Pricing" (formerly a bare "Price list" header directly above ~60 ungrouped price
+ * fields) is now its own clearly separated section whose ~9 material categories
+ * (`PriceFields.groups`) are each an independently collapsible [CollapsibleGroup]. Appearance
+ * starts expanded (the one section most people actually open Settings for); everything else
+ * starts collapsed so the tab reads as a short list of topics rather than one long form.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,7 +108,7 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                SectionCard(title = "Appearance") {
+                CollapsibleSectionCard(title = "Appearance", initiallyExpanded = true) {
                     SettingsRow(icon = Icons.Default.Contrast, title = "Theme", subtitle = "Follows the system unless overridden") {}
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                         ThemeMode.entries.forEachIndexed { index, mode ->
@@ -128,7 +135,7 @@ fun SettingsScreen(
             }
 
             item {
-                SectionCard(title = "Simulation defaults") {
+                CollapsibleSectionCard(title = "Simulation defaults") {
                     SettingsRow(
                         icon = Icons.Default.Speed,
                         title = "Technical mode by default",
@@ -153,7 +160,7 @@ fun SettingsScreen(
             }
 
             item {
-                SectionCard(title = "Financial assumptions") {
+                CollapsibleSectionCard(title = "Financial assumptions") {
                     Text(
                         "ESTIMATE — these two rates drive the 20-year savings projection on the Savings tab. They're assumptions, not measured or guaranteed figures.",
                         style = MaterialTheme.typography.labelSmall,
@@ -177,7 +184,14 @@ fun SettingsScreen(
             }
 
             item {
-                SectionCard(title = "Price list") {
+                // A61 (spec §10/12): Materials & Pricing is now its own section, separate from
+                // Appearance/Simulation/Financial rather than sharing the flat scroll they used to
+                // all live in — and its ~60 fields are grouped into per-category collapsibles
+                // (PriceFields.groups) instead of one long ungrouped list.
+                CollapsibleSectionCard(
+                    title = "Materials & Pricing",
+                    subtitle = "${PriceFields.all.size} priced items across ${PriceFields.groups.size} categories"
+                ) {
                     Text(
                         // A57 (spec §11): one price list — a discount is applied per-quote
                         // (percent or fixed) on top of these prices, not by swapping to a second set.
@@ -185,42 +199,31 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = palette.textSecondary
                     )
-                }
-            }
-
-            PriceFields.groups.forEach { group ->
-                item(key = "price_header_$group") {
-                    Text(
-                        group,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = palette.textPrimary,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-                }
-                items(PriceFields.all.filter { it.group == group }, key = { "price_${group}_${it.key}" }) { field ->
-                    NumberField(
-                        label = field.label,
-                        value = field.get(currentPrices),
-                        onValueChange = { v ->
-                            val updated = field.set(currentPrices, v)
-                            scope.launch { priceRepository.update(updated) }
-                        },
-                        suffix = "J$"
+                    PriceFields.groups.forEach { group ->
+                        CollapsibleGroup(title = group) {
+                            PriceFields.all.filter { it.group == group }.forEach { field ->
+                                NumberField(
+                                    label = field.label,
+                                    value = field.get(currentPrices),
+                                    onValueChange = { v ->
+                                        val updated = field.set(currentPrices, v)
+                                        scope.launch { priceRepository.update(updated) }
+                                    },
+                                    suffix = "J$"
+                                )
+                            }
+                        }
+                    }
+                    LumixSecondaryButton(
+                        text = "Reset prices to default",
+                        onClick = { scope.launch { priceRepository.resetToDefault() } },
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
 
             item {
-                LumixSecondaryButton(
-                    text = "Reset prices to default",
-                    onClick = { scope.launch { priceRepository.resetToDefault() } },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            item {
-                SectionCard(title = "Data") {
+                CollapsibleSectionCard(title = "Data") {
                     SettingsRow(
                         icon = Icons.Default.DeleteSweep,
                         title = "Clear quote history",

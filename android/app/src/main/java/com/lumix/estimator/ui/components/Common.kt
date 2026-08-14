@@ -1,8 +1,15 @@
 package com.lumix.estimator.ui.components
 
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +55,77 @@ fun SectionCard(
                 )
             }
             content()
+        }
+    }
+}
+
+/**
+ * A61 (spec §10/12 — "collapsible/tabbed Settings"): a [SectionCard] whose body is hidden
+ * behind a tappable header + chevron, same expand/collapse pattern A58's "WHY WAS THIS SYSTEM
+ * SELECTED?" panel already established (`SystemResultScreen.kt`'s `DiagnosticsSection`) — reused
+ * here rather than reinvented so the app has one collapsible-section idiom, not two.
+ */
+@Composable
+fun CollapsibleSectionCard(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    initiallyExpanded: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val palette = LocalLumixPalette.current
+    var expanded by remember { mutableStateOf(initiallyExpanded) }
+    SurfaceCard(modifier = modifier, shape = RoundedCornerShape(LumixRadius.lg)) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                    if (subtitle != null) {
+                        Text(subtitle, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+                    }
+                }
+                Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.titleMedium, color = palette.textSecondary)
+            }
+            AnimatedVisibility(visible = expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                Column(modifier = Modifier.padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    content()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A lighter-weight collapsible row for grouping content *inside* an already-expanded
+ * [CollapsibleSectionCard] — e.g. one PV/battery/wiring category inside the Materials & Pricing
+ * section — without stacking a second full card surface inside the first.
+ */
+@Composable
+fun CollapsibleGroup(
+    title: String,
+    modifier: Modifier = Modifier,
+    initiallyExpanded: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val palette = LocalLumixPalette.current
+    var expanded by remember { mutableStateOf(initiallyExpanded) }
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+            Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.labelLarge, color = palette.textSecondary)
+        }
+        AnimatedVisibility(visible = expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            Column(modifier = Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                content()
+            }
         }
     }
 }

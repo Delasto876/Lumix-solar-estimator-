@@ -3260,3 +3260,50 @@ logic) — verified by direct code trace rather than an automated test.
 allocation) remain open. §24–28 in particular partially revisits the "one string per MPPT tracker,
 even split only" decision the user made explicitly via a direct question earlier in this project — it
 should get its own check-in before being touched, not be folded into an unrelated round.
+
+## A61 — Collapsible Settings + a separate Materials & Pricing section (spec §10/12)
+
+The spec asked for a "collapsible/tabbed Settings rebuild with a separate Materials section." Audit
+found `SettingsScreen.kt` was one flat, always-expanded `LazyColumn`: Appearance, Simulation
+defaults, and Financial assumptions each got their own `SectionCard`, but pricing was worse — a bare
+"Price list" header directly above all ~60 `PriceFields` entries, grouped only by small text labels
+between them, no separation from the rest of the screen and no way to collapse any of it. Opening
+Settings meant scrolling past every material price just to reach "Clear quote history" at the bottom.
+
+**`CollapsibleSectionCard`/`CollapsibleGroup`** (new, `ui/components/Common.kt`): the former is a
+`SectionCard` with a tappable header + chevron gating an `AnimatedVisibility` body — the exact
+expand/collapse mechanics A58's "WHY WAS THIS SYSTEM SELECTED?" panel already proved out
+(`SystemResultScreen.kt`'s `DiagnosticsSection`), pulled into a shared component rather than
+reimplemented a third time; the latter is a lighter-weight version (no card surface, just a header
+row) for grouping content that's already nested inside an expanded section, so nesting Materials'
+per-category groups doesn't stack card-inside-card.
+
+**`SettingsScreen.kt`**: every top-level section (Appearance, Simulation defaults, Financial
+assumptions, Materials & Pricing, Data) is now a `CollapsibleSectionCard`. Appearance starts expanded
+(the one section most people open Settings to reach); the rest start collapsed, so the tab now reads
+as five short section headers instead of one long form. **Materials & Pricing is its own section**,
+separated from Appearance/Simulation/Financial rather than sharing their scroll — its subtitle states
+the total item/category count up front, computed live from `PriceFields` (`"59 priced items across 9
+categories"` as of this round), and each of `PriceFields.groups`' 9 categories (Hybrid Inverters
+(Verified), Hybrid Inverters (Manual only),
+Grid-tie Inverters, Off-grid Inverters, Batteries, Panels, Mounting Hardware, Wiring, Boxes &
+Protection) is its own independently collapsible `CollapsibleGroup` — an installer who only needs to
+adjust panel prices no longer has to scroll past inverters, batteries, and dozens of mounting/wiring/
+boxes-and-protection line items to find them.
+
+**Honest scope note on this round.** This addresses the "collapsible/tabbed" structure and the
+"separate Materials section" half of §10/12 literally and completely — nothing about pricing logic,
+field keys, or values changed, only how the screen organizes and reveals them. The other half of
+§10/12, "a large set of new default settings," was **not** attempted: the original spec message that
+introduced this ask (quoted in A54's own scope note) didn't enumerate what those new settings should
+be, and this round didn't have that list to work from. Rather than invent plausible-sounding settings
+fields nobody asked for, that part stays open until there's an actual list to build against. No
+domain logic changed this round, so no new hand-traced tests were added — the only thing that changed
+is Compose UI structure, verified by direct code trace (every existing `SectionCard` call site was
+confirmed to still receive the exact same content it did before, just now collapsible) rather than an
+automated test, consistent with how A56's own UI-only Compose changes were verified.
+
+**Scope note — remaining open items.** §13–15 (location-based PSH) is now done (A60). §24–28
+(flexible MPPT allocation) remains open and still needs its own check-in before being touched, since
+it partially revisits the "one string per MPPT tracker, even split only" decision the user made
+explicitly via a direct question earlier in this project.
