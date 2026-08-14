@@ -144,16 +144,93 @@ class EquipmentSelectionEngineTest {
     }
 
     // ---- 10. Vmp makes a string invalid (too short to reach the inverter's minimum MPPT operating voltage) ----
+    // A62 note: this scenario used to be driven through the panel-COUNT search
+    // (selectBestPanelConfigurationForLimits), relying on the old always-split-across-every-
+    // tracker rule to force short, undervolted strings for a small requirement. A62 replaced that
+    // rule with MpptStringPlanner, which now correctly falls back to fewer/longer strings (even a
+    // single string on one tracker) whenever that's what it takes to clear the Vmp floor — so the
+    // search now finds a genuinely valid single-tracker consolidation for any count above ~2-3
+    // panels, and the old scenario no longer produces an invalid result (correctly — that was
+    // exactly the "MPPT1=10, MPPT2=unused" case the new spec asked for). Genuine Vmp invalidity —
+    // a panel count too small to reach the floor even fully consolidated onto one string — is
+    // still real and still checked; testing it directly against one specific count (rather than
+    // through the search, which would just avoid the invalid count entirely) is what actually
+    // exercises that floor.
     @Test
-    fun `Vmp invalidates a panel configuration whose string is too short for the inverter's MPPT floor`() {
-        // Small requirement + many MPPT trackers -> very short strings (1-2 panels) whose Vmp
-        // never reaches a typical MPPT start voltage, even though Voc/power/current are generous.
-        val result = EquipmentSelectionEngine.selectBestPanelConfigurationForLimits(
-            requiredPvKw = 0.6, maxPvW = 100_000.0, maxPvV = 500.0, mpptTrackers = 3,
-            wattages = listOf(595)
+    fun `Vmp invalidates a single panel whose string can't reach the inverter's minimum MPPT floor even fully consolidated`() {
+        val result = EquipmentSelectionEngine.checkPanelInverterCompatibilityForLimits(
+            panelWatts = 595, panelCount = 1, maxPvW = 100_000.0, maxPvV = 500.0, mpptTrackers = 3
         )
-        assertFalse("expected this configuration to be flagged electrically invalid", result.electricallyValid)
-        assertTrue("expected the reason to explain the Vmp failure: ${result.reason}", result.reason.contains("Vmp", ignoreCase = true))
+        // Real 595W panel Vmp is 44.6V (EquipmentSpecs) — even the best possible topology for one
+        // panel (all of it on a single tracker, stringCounts = [1]) can't reach a 90V MPPT floor.
+        assertEquals(listOf(1), result.stringCounts)
+        assertFalse("expected this configuration to be flagged electrically invalid", result.valid)
+        assertTrue("expected the reason to explain the Vmp failure: ${result.notes}", result.notes.any { it.contains("Vmp", ignoreCase = true) })
+    }
+
+    // ---- A62: MPPT string allocation is genuinely flexible, not always an even split ----
+
+    @Test
+    fun `13 panels on a 2-MPPT inverter split 7 and 6, matching the spec's own worked example`() {
+        // Real 595W panel (Vmp 44.6V) comfortably clears the 90V floor even split 6-7, so full
+        // 2-tracker utilization is expected here — no fallback needed.
+        val result = EquipmentSelectionEngine.checkPanelInverterCompatibilityForLimits(
+            panelWatts = 595, panelCount = 13, maxPvW = 100_000.0, maxPvV = 500.0, mpptTrackers = 2
+        )
+        assertTrue("expected this configuration to be valid: ${result.notes}", result.valid)
+        assertEquals(listOf(7, 6), result.stringCounts)
+        assertEquals(2, result.trackersUsed)
+    }
+
+    @Test
+    fun `10 panels use a single MPPT string when splitting 5 and 5 would undervolt, leaving the second tracker unused`() {
+        // A synthetic low panel Vmp (via maxPvV/mpptTrackers alone can't force this — Vmp comes
+        // from EquipmentSpecs) isn't available through the public search API, so this is exercised
+        // at the MpptStringPlanner level directly (the exact function EquipmentSelectionEngine and
+        // PvElectricalModel both now share) — the spec's own worked example: "MPPT1=10, MPPT2=
+        // unused... IF the 5-panel strings would operate too close to or below the inverter's MPPT
+        // minimum voltage."
+        val counts = MpptStringPlanner.planStrings(panelCount = 10, maxTrackers = 2, vmpPerPanel = 12.0, minVmpPerString = 90.0)
+        assertEquals(listOf(10), counts)
+    }
+
+    @Test
+    fun `10 panels split 5 and 5 across both trackers when that split is not undervolted`() {
+        // Same panel count and tracker count as above, but with a real-scale panel Vmp (595W's
+        // 44.6V) where 5 x 44.6 = 223V comfortably clears the 90V floor — full 2-tracker
+        // utilization is preferred whenever it's valid, per the spec's own ranking ("GOOD MPPT
+        // UTILIZATION").
+        val counts = MpptStringPlanner.planStrings(panelCount = 10, maxTrackers = 2, vmpPerPanel = 44.6, minVmpPerString = 90.0)
+        assertEquals(listOf(5, 5), counts)
+    }
+
+    // ---- A62: the preferred 15% MPPT voltage design margin is a distinct, softer signal from the hard Voc ceiling ----
+
+    @Test
+    fun `a string within the hard voltage ceiling but outside the preferred 15 percent margin is still valid, just flagged`() {
+        // Real 595W panel Voc 52.6V, cold-corrected: 7 x 52.6 x 1.045 = 384.77V. maxPvV=400V, so
+        // this is comfortably under the hard ceiling (vocOk) but past the preferred design target
+        // of 400 x 0.85 = 340V.
+        val result = EquipmentSelectionEngine.checkPanelInverterCompatibilityForLimits(
+            panelWatts = 595, panelCount = 7, maxPvW = 50_000.0, maxPvV = 400.0, mpptTrackers = 1
+        )
+        assertTrue("expected this configuration to still be electrically valid: ${result.notes}", result.valid)
+        assertFalse("expected 384.8V to fall outside the preferred 340V (85%) design margin", result.withinPreferredVoltageMargin)
+        assertTrue(
+            "expected the notes to explain the margin, even though the string is still valid: ${result.notes}",
+            result.notes.any { it.contains("margin", ignoreCase = true) }
+        )
+    }
+
+    @Test
+    fun `a string inside both the hard ceiling and the preferred 15 percent margin is flagged as within margin`() {
+        // Same inverter limit as above, one fewer panel: 6 x 52.6 x 1.045 = 329.8V, under both the
+        // 400V hard ceiling and the 340V (85%) preferred target.
+        val result = EquipmentSelectionEngine.checkPanelInverterCompatibilityForLimits(
+            panelWatts = 595, panelCount = 6, maxPvW = 50_000.0, maxPvV = 400.0, mpptTrackers = 1
+        )
+        assertTrue("expected this configuration to be electrically valid: ${result.notes}", result.valid)
+        assertTrue("expected 329.8V to fall inside the preferred 340V (85%) design margin", result.withinPreferredVoltageMargin)
     }
 
     // ---- 11. Isc/Imp exceeds inverter limits ----

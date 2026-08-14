@@ -80,12 +80,15 @@ object EquipmentSelectionEngine {
         val totalPvKw: Double,
         val oversizePercent: Double,
         val electricallyValid: Boolean,
-        val reason: String
+        val reason: String,
+        /** A62: panel counts per string, longest-first, as actually chosen — see [MpptStringPlanner]. Empty when [panelCount] is 0. */
+        val stringCounts: List<Int> = emptyList()
     )
 
     private data class PanelCandidate(
         val watts: Int, val count: Int, val totalKw: Double, val oversizePercent: Double,
-        val valid: Boolean, val notes: List<String>, val estimated: Boolean
+        val valid: Boolean, val notes: List<String>, val estimated: Boolean,
+        val stringCounts: List<Int> = emptyList(), val withinPreferredMargin: Boolean = true
     )
 
     /**
@@ -110,10 +113,27 @@ object EquipmentSelectionEngine {
         val vmpOk: Boolean,
         val iscOk: Boolean,
         val notes: List<String>,
-        val estimated: Boolean
+        val estimated: Boolean,
+        /** A62: panel counts per string, longest-first, as actually chosen by [MpptStringPlanner] — may use fewer than [mpptTrackers] strings (see that object's own doc). Sums to the candidate's total panel count. */
+        val stringCounts: List<Int> = emptyList(),
+        /** A62 (spec §24-28 — "10% design margin... 380 x 0.85 = 323V", i.e. a 15% margin by their own worked arithmetic): true when the longest string's cold-corrected Voc stays within [PREFERRED_VOC_MARGIN_FRACTION] of [mpptVoltageMaxV], not just under the hard ceiling. A softer, preferred signal — [vocOk] alone still decides electrical validity. */
+        val withinPreferredVoltageMargin: Boolean = true
     ) {
         val valid: Boolean get() = powerOk && vocOk && vmpOk && iscOk
+        /** How many of [mpptTrackers] the chosen [stringCounts] actually populate. */
+        val trackersUsed: Int get() = stringCounts.size
     }
+
+    /**
+     * A62 (spec §24-28): "Target maximum operating voltage: 380 x 0.85 = 323V" is the one worked
+     * number the spec message gives for its preferred design margin — its own opening line calls
+     * this a "10% design margin," but 380 x 0.85 is actually a 15% reduction, and every other
+     * mention in that same message ("preferred 15% operating target," "Calculate preferred 15%
+     * operating margin") agrees with the arithmetic, not the "10%" label. Resolved in favor of what
+     * the numbers actually say — 0.85, a 15% margin — since that's the figure used consistently
+     * everywhere it's actually computed with.
+     */
+    private const val PREFERRED_VOC_MARGIN_FRACTION = 0.85
 
     /** Core evaluation against explicit limits — shared by the search in [selectBestPanelConfigurationForLimits] and standalone validation via [checkPanelInverterCompatibilityForLimits]. */
     private fun evaluateCandidate(watts: Int, count: Int, maxPvW: Double, maxPvV: Double, mpptTrackers: Int): PanelCompatibilityResult {
@@ -128,8 +148,12 @@ object EquipmentSelectionEngine {
         }
         val elec = panelElectricalFor(watts)
         val totalKw = count * watts / 1000.0
-        val longestStringPanels = ceil(count.toDouble() / mpptTrackers).toInt()
-        val shortestStringPanels = (count / mpptTrackers).coerceAtLeast(1)
+        // A62: real per-string topology (may use fewer than mpptTrackers strings — see
+        // MpptStringPlanner's own doc for when and why), replacing the old always-split-across-
+        // every-tracker assumption.
+        val stringCounts = MpptStringPlanner.planStrings(count, mpptTrackers, elec.vmpV, MIN_MPPT_OPERATING_VOLTAGE)
+        val longestStringPanels = stringCounts.max()
+        val shortestStringPanels = stringCounts.min()
         val correctedVoc = elec.vocV * longestStringPanels * COLD_TEMP_VOC_CORRECTION
         val shortestStringVmp = elec.vmpV * shortestStringPanels
         val impliedMaxCurrentA = maxPvW / maxPvV
@@ -144,6 +168,11 @@ object EquipmentSelectionEngine {
             notes += "longest MPPT string Voc %.0fV (%d panels, cold-corrected) exceeds inverter max PV voltage %.0fV"
                 .format(correctedVoc, longestStringPanels, maxPvV)
         }
+        val withinPreferredVoltageMargin = correctedVoc <= maxPvV * PREFERRED_VOC_MARGIN_FRACTION
+        if (vocOk && !withinPreferredVoltageMargin) {
+            notes += "longest MPPT string Voc %.0fV (%d panels, cold-corrected) is within the inverter's hard limit but outside the preferred 15%% design margin (target <= %.0fV)"
+                .format(correctedVoc, longestStringPanels, maxPvV * PREFERRED_VOC_MARGIN_FRACTION)
+        }
         val vmpOk = shortestStringVmp >= MIN_MPPT_OPERATING_VOLTAGE
         if (!vmpOk) {
             notes += "shortest MPPT string Vmp %.0fV (%d panels) is below the inverter's minimum MPPT operating voltage %.0fV"
@@ -153,6 +182,10 @@ object EquipmentSelectionEngine {
         if (!iscOk) {
             notes += "panel Isc %.1fA exceeds the inverter's implied max PV current per tracker %.1fA".format(elec.iscA, impliedMaxCurrentA)
         }
+        if (stringCounts.size < mpptTrackers) {
+            notes += "using %d of %d available MPPT trackers (%s panels) — splitting across all %d would undervolt the shortest string"
+                .format(stringCounts.size, mpptTrackers, stringCounts.joinToString("+"), mpptTrackers)
+        }
 
         return PanelCompatibilityResult(
             arrayKw = totalKw, requiredMaxPvKw = maxPvW / 1000.0,
@@ -160,7 +193,8 @@ object EquipmentSelectionEngine {
             stringImpA = elec.impA, stringIscA = elec.iscA,
             mpptVoltageMaxV = maxPvV, mpptTrackers = mpptTrackers,
             powerOk = powerOk, vocOk = vocOk, vmpOk = vmpOk, iscOk = iscOk,
-            notes = notes, estimated = elec.estimated
+            notes = notes, estimated = elec.estimated,
+            stringCounts = stringCounts, withinPreferredVoltageMargin = withinPreferredVoltageMargin
         )
     }
 
@@ -186,18 +220,22 @@ object EquipmentSelectionEngine {
 
     /**
      * Evaluates real candidate configurations across every panel wattage this catalog sells —
-     * several counts per wattage, not just "round up." Panels are split as evenly as possible
-     * across the chosen inverter's own real MPPT-tracker count ([EquipmentSpecs.InverterSpec.mpptCount],
-     * defaulting to 2 when unmatched) with each tracker's string checked independently as ONE
-     * series string (per spec §5's no-parallel-strings-within-one-input rule) — using the
-     * inverter's own built-in tracker inputs this way isn't the ad-hoc parallel-string wiring the
-     * spec is warning against; it's how these inverters are designed to be used, and it's what
-     * keeps this check from flagging completely ordinary residential arrays as invalid just
-     * because a real inverter's real max-PV-voltage (500-600V in this library) can't fit an
-     * entire double-digit panel count in one string. Rejects any candidate whose worst (longest)
-     * tracker string's cold-corrected Voc or Isc, or the array's total power, exceeds the
-     * inverter's matched real limits (or a conservative fallback where no exact spec match
-     * exists), then scores what's left toward: within the preferred 10-20% headroom band, even
+     * several counts per wattage, not just "round up." Panels are split across the chosen
+     * inverter's own real MPPT-tracker count ([EquipmentSpecs.InverterSpec.mpptCount], defaulting
+     * to 2 when unmatched) via [MpptStringPlanner] (A62, spec §24-28) — as evenly as possible
+     * across however many trackers actually get used, preferring full tracker utilization but
+     * allowing an uneven split, or even leaving a tracker unused, when that's what keeps every
+     * string's voltage inside the inverter's valid range (see that object's own doc) — with each
+     * tracker's string checked independently as ONE series string (per spec §5's no-parallel-
+     * strings-within-one-input rule). Using the inverter's own built-in tracker inputs this way
+     * isn't the ad-hoc parallel-string wiring the spec is warning against; it's how these
+     * inverters are designed to be used, and it's what keeps this check from flagging completely
+     * ordinary residential arrays as invalid just because a real inverter's real max-PV-voltage
+     * (500-600V in this library) can't fit an entire double-digit panel count in one string.
+     * Rejects any candidate whose worst (longest) tracker string's cold-corrected Voc or Isc, or
+     * the array's total power, exceeds the inverter's matched real limits (or a conservative
+     * fallback where no exact spec match exists), then scores what's left toward: within the
+     * preferred 10-20% headroom band, inside the preferred 15% MPPT voltage design margin, even
      * panel count, closest to a 15% midpoint target, and least total oversizing — never the
      * largest or smallest available option "because it's available." Electrical validity always
      * outranks every scoring preference.
@@ -236,7 +274,10 @@ object EquipmentSelectionEngine {
         fun evaluate(watts: Int, count: Int): PanelCandidate {
             val result = evaluateCandidate(watts, count, maxPvW, maxPvV, mpptTrackers)
             val oversize = (result.arrayKw - requiredPvKw) / requiredPvKw * 100.0
-            return PanelCandidate(watts, count, result.arrayKw, oversize, result.valid, result.notes, result.estimated)
+            return PanelCandidate(
+                watts, count, result.arrayKw, oversize, result.valid, result.notes, result.estimated,
+                result.stringCounts, result.withinPreferredVoltageMargin
+            )
         }
 
         val allCandidates = wattages.flatMap { w ->
@@ -257,16 +298,21 @@ object EquipmentSelectionEngine {
             compareBy(
                 // 1. In-band always beats out-of-band.
                 { if (inHeadroomBand(it.oversizePercent)) 0 else 1 },
-                // 2. Even-count preference only ever decides between two in-band candidates — spec
+                // 2. A62 (spec §24-28 ranking: "ELECTRICALLY VALID" then "SAFE MPPT VOLTAGE
+                //    MARGIN" before anything else) — among otherwise-equal in-band/out-of-band
+                //    candidates, one whose longest string stays inside the preferred 15% design
+                //    margin (not just the hard ceiling) is preferred.
+                { if (it.withinPreferredMargin) 0 else 1 },
+                // 3. Even-count preference only ever decides between two in-band candidates — spec
                 //    §3 explicitly forbids letting it force large deliberate oversizing, so an
                 //    out-of-band candidate never gets an evenness bonus here (that would let a much
                 //    worse oversize like 12x700W@86.7% beat a 3x700W@40% just for being even).
                 { if (inHeadroomBand(it.oversizePercent) && it.count % 2 != 0) 1 else 0 },
-                // 3. Otherwise minimize distance from the 15% band midpoint — this is what actually
+                // 4. Otherwise minimize distance from the 15% band midpoint — this is what actually
                 //    stops the "13 is odd, therefore 14" failure mode out-of-band: a genuinely
                 //    closer odd candidate always beats a farther even one.
                 { abs(it.oversizePercent - 15.0) },
-                // 4. Last-resort tiebreak among near-identical distances, even out-of-band.
+                // 5. Last-resort tiebreak among near-identical distances, even out-of-band.
                 { if (it.count % 2 == 0) 0 else 1 },
                 { it.totalKw },
                 { it.count }
@@ -284,10 +330,16 @@ object EquipmentSelectionEngine {
             else -> " %.1f%% headroom — outside the preferred 10-20%% range; no closer electrically-valid/even configuration was available.".format(best.oversizePercent)
         }
         val estimateNote = if (best.estimated) " (${best.watts}W panel electrical figures estimated — no exact datasheet match in the equipment library)" else ""
-        val reason = "%.2f kW required — %d × %dW panels = %.2f kW.%s %s%s"
-            .format(requiredPvKw, best.count, best.watts, best.totalKw, rangeNote, checklist, estimateNote)
+        val marginNote = if (best.valid && !best.withinPreferredMargin) " Longest string is inside the inverter's hard voltage limit but outside the preferred 15% design margin." else ""
+        val stringNote = if (best.stringCounts.size > 1) {
+            " MPPT strings: " + best.stringCounts.mapIndexed { i, n -> "String ${i + 1} = $n panels" }.joinToString(", ") + "."
+        } else if (best.stringCounts.size == 1) {
+            " Single MPPT string (${best.stringCounts[0]} panels)."
+        } else ""
+        val reason = "%.2f kW required — %d × %dW panels = %.2f kW.%s %s%s%s%s"
+            .format(requiredPvKw, best.count, best.watts, best.totalKw, rangeNote, checklist, marginNote, stringNote, estimateNote)
 
-        return PanelChoice(best.watts, best.count, best.totalKw, best.oversizePercent, best.valid, reason)
+        return PanelChoice(best.watts, best.count, best.totalKw, best.oversizePercent, best.valid, reason, best.stringCounts)
     }
 
     data class InverterChoice(val option: InverterOption, val headroomPercent: Double, val reason: String)

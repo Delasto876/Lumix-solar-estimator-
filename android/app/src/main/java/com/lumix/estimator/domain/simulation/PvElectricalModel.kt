@@ -1,15 +1,18 @@
 package com.lumix.estimator.domain.simulation
 
 import com.lumix.estimator.domain.EquipmentSpecs
+import com.lumix.estimator.domain.MpptStringPlanner
 
 /**
- * A53: real per-string PV electrical behavior, replacing a flat hardcoded PV voltage. Panel count
- * is split across the selected inverter's own real MPPT-tracker count (the exact same "split as
- * evenly as possible" rule [EquipmentSelectionEngine] already validates a design's string topology
- * against — so what the simulation shows is the same topology the sizing engine actually checked,
- * not a second, disconnected assumption). Each tracker's series-string Vmp/Voc is temperature-
- * corrected from the panel's own (real or disclosed-typical) datasheet coefficients using the cell
- * temperature [SystemLosses] already derives for this instant — no new temperature model needed.
+ * A53/A62: real per-string PV electrical behavior, replacing a flat hardcoded PV voltage. Panel
+ * count is split across the selected inverter's own real MPPT-tracker count using the exact same
+ * [MpptStringPlanner] rule [com.lumix.estimator.domain.EquipmentSelectionEngine] already validates
+ * a design's string topology against — one shared function, not two separately-maintained copies —
+ * so what the simulation shows is always the same topology the sizing engine actually chose,
+ * including the A62 case where fewer than every available tracker gets used. Each tracker's
+ * series-string Vmp/Voc is temperature-corrected from the panel's own (real or disclosed-typical)
+ * datasheet coefficients using the cell temperature [SystemLosses] already derives for this
+ * instant — no new temperature model needed.
  *
  * Voltage moves with panel count, MPPT topology, and cell temperature; it is NOT simply
  * proportional to delivered power. An MPPT keeps its string near operating Vmp whenever there's
@@ -33,18 +36,6 @@ object PvElectricalModel {
 
     /** Typical low-end MPPT start voltage for this inverter class — matches [com.lumix.estimator.domain.EquipmentSelectionEngine]'s own disclosed assumption, kept consistent here rather than re-guessed. */
     private const val MIN_MPPT_OPERATING_VOLTAGE = 90.0
-
-    /**
-     * Splits [totalPanelCount] across [mpptTrackers] as evenly as possible (first trackers get the
-     * remainder), mirroring [com.lumix.estimator.domain.EquipmentSelectionEngine]'s own distribution
-     * so a design's validated string topology and the simulation's displayed topology never disagree.
-     */
-    private fun panelsPerTracker(totalPanelCount: Int, mpptTrackers: Int): List<Int> {
-        if (mpptTrackers <= 0 || totalPanelCount <= 0) return emptyList()
-        val base = totalPanelCount / mpptTrackers
-        val remainder = totalPanelCount % mpptTrackers
-        return (0 until mpptTrackers).map { i -> if (i < remainder) base + 1 else base }
-    }
 
     /**
      * One instant's per-MPPT electrical state for [config]'s actual selected panel/inverter.
@@ -73,7 +64,12 @@ object PvElectricalModel {
         val iscPanel = panelSpec?.iscA ?: (impPanel * 1.06)
         val tempCoeffVoc = panelSpec?.tempCoeffVocPctPerC ?: -0.29
 
-        val counts = panelsPerTracker(panelCount, mpptTrackers)
+        // A62: MpptStringPlanner may deliberately use fewer than mpptTrackers strings (see its own
+        // doc) — padded back out to the inverter's real physical tracker count so an unused MPPT
+        // still shows up as its own inactive/zero readout, instead of silently vanishing from the
+        // per-tracker breakdown.
+        val plannedCounts = MpptStringPlanner.planStrings(panelCount, mpptTrackers, vmpPanel, MIN_MPPT_OPERATING_VOLTAGE)
+        val counts = plannedCounts + List((mpptTrackers - plannedCounts.size).coerceAtLeast(0)) { 0 }
         // Array is electrically "live" (MPPT holding a real operating voltage) whenever there's
         // any potential production this instant — independent of how much of it is actually being
         // used downstream. This is what keeps voltage from collapsing to zero during curtailment

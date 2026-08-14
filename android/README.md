@@ -3307,3 +3307,88 @@ automated test, consistent with how A56's own UI-only Compose changes were verif
 (flexible MPPT allocation) remains open and still needs its own check-in before being touched, since
 it partially revisits the "one string per MPPT tracker, even split only" decision the user made
 explicitly via a direct question earlier in this project.
+
+## A62 — Flexible MPPT string allocation, real per-string electrical topology (spec §24–28)
+
+§24–28 was flagged as needing a check-in before touching it, since it partially revisited the
+"one string per MPPT tracker, even split only" decision from A50's own explicit question. Asked —
+the installer's answer, in full, was a detailed replacement spec: allow uneven MPPT strings when
+electrically valid and a better design, target a 15% MPPT voltage design margin (their own opening
+line calls it "10%", but every actual calculation in the message — including its own worked example,
+380V × 0.85 = 323V — computes a 15% reduction; resolved in favor of the arithmetic, disclosed below),
+and rank candidates: electrically valid > safe voltage margin > battery-can-reach-target-SOC >
+daytime load support > inverter compatibility > good MPPT utilization > even distribution when
+practical > minimal added panels > minimal oversizing.
+
+**Audit.** `EquipmentSelectionEngine.evaluateCandidate` always split a panel count across *every*
+available MPPT tracker via `ceil`/`floor` — an odd count already produced an uneven split (13
+panels/2 trackers already gave 7+6, not a hard "round to 14"), but the engine never considered using
+*fewer* trackers, i.e. it could never produce the installer's own "MPPT1=10, MPPT2=unused" example.
+Separately, `PvElectricalModel.panelsPerTracker` (A53, the live simulation's per-MPPT voltage
+readout) duplicated that same always-split-every-tracker rule as its own private copy — a real risk:
+if only one of the two got the new flexible behavior, a design's validated topology and the
+simulation's displayed topology would silently disagree.
+
+**`MpptStringPlanner.kt`** (new, `domain/`): the single shared rule both now call.
+`planStrings(panelCount, maxTrackers, vmpPerPanel, minVmpPerString)` tries every tracker down from
+`maxTrackers` to 1, splitting as evenly as possible at each step, and returns the first split whose
+*shortest* string clears `minVmpPerString` — preferring full utilization, falling back to fewer,
+longer (higher-voltage) strings only when that's what it takes to clear the undervoltage floor.
+Using fewer trackers can never fix the opposite problem (a string too close to the voltage
+*ceiling* — fewer/longer strings only ever raise voltage), so that direction is deliberately not
+handled here; a panel count that overvolts even the fullest split is simply too large for that
+inverter, which the caller's own panel-*count* search already handles by trying smaller counts.
+
+**`EquipmentSelectionEngine`**: `evaluateCandidate` now calls `MpptStringPlanner` instead of its own
+inline `ceil`/`floor`, and `PanelCompatibilityResult` gains `stringCounts` (the real per-string
+panel counts chosen, longest-first — may be shorter than `mpptTrackers` when a tracker goes
+unused) and `withinPreferredVoltageMargin` (a softer signal than the hard `vocOk` — true when the
+longest string's cold-corrected Voc stays inside the preferred 15% design margin, not just under
+the absolute ceiling; a design can be `valid` while failing this, and both are surfaced separately
+rather than conflated). `selectBestPanelConfigurationForLimits`'s scoring gained a tier for
+`withinPreferredVoltageMargin`, placed right after electrical validity and before the existing
+10–20% headroom-band scoring — matching the installer's own "electrically valid, then safe voltage
+margin" priority order. `PanelChoice.reason` now names the actual strings chosen (e.g. "MPPT
+strings: String 1 = 7 panels, String 2 = 6 panels" or "Single MPPT string (10 panels)") instead of
+implying an even split that may no longer be what was picked.
+
+**`PvElectricalModel.mpptReadouts`**: its own private `panelsPerTracker` was deleted outright and
+replaced with a call to the same `MpptStringPlanner.planStrings` — one function, not two
+independently-maintained copies, so the live simulation's per-tracker voltage readout can never
+drift from what the sizing engine actually validated. When the planner uses fewer trackers than the
+inverter physically has, the result is padded back out with zero-panel/inactive entries so an
+unused MPPT still renders as its own row (`TechnicalDetailsCard.kt`'s existing per-tracker list,
+untouched — it already handled a zero-panel tracker before this round, from the old algorithm's own
+uneven-remainder case) instead of silently disappearing from the technical readout.
+
+**Tests.** `MpptStringPlannerTest.kt`: the installer's own two worked examples verbatim (13
+panels/2 MPPT → [7, 6]; 10 panels/2 MPPT → [10] with the second tracker unused when a 5+5 split
+would undervolt, vs. [5, 5] when it wouldn't), plus boundary cases (progressive 3→2→1-tracker
+fallback, single-tracker inverters, zero panels/zero trackers, a lone panel on a multi-tracker
+inverter). `EquipmentSelectionEngineTest.kt` gained direct tests for the same two worked examples
+run through the full `checkPanelInverterCompatibilityForLimits` path (confirming `stringCounts` and
+validity together, using the real 595W panel's datasheet Vmp/Voc) and for `withinPreferredVoltageMargin`
+distinguishing "valid but past the preferred 15% margin" from "valid and within it" (384.8V vs.
+329.8V against a 400V ceiling — hand-traced first). Test 10 from A50 ("Vmp invalidates a panel
+configuration whose string is too short for the inverter's MPPT floor") no longer produces an
+invalid result through the *search* — correctly: that scenario was exactly the "short strings
+because we insist on using every tracker" failure mode this round fixed, and the search now finds
+the valid single-tracker consolidation instead. It was replaced with a test of genuine Vmp
+invalidity — a single panel, which can't reach the MPPT floor even fully consolidated onto one
+string — checked directly via `checkPanelInverterCompatibilityForLimits` rather than the search
+(the search wouldn't return an invalid pick for a count it can just avoid). All other existing
+`EquipmentSelectionEngineTest.kt` and `PvElectricalModelTest.kt` cases were checked by hand against
+the new algorithm and confirmed unaffected — every one of them uses panel counts whose strings
+clear the 90V MPPT floor at full tracker utilization already, so the fallback path never triggers
+for them and their asserted numbers are unchanged.
+
+**Scope note — not attempted this round.** The installer's full spec went well beyond string
+topology: an explicit "add 1 or 2 panels only if it produces a *meaningful* improvement in battery
+charging speed / daytime load contribution / SOC-by-~1:30PM" search step, driven by running an
+actual simulated day (PV curve + load profile + battery efficiency + charge power limit) *inside*
+the panel-count candidate search itself, ranked above this round's existing headroom-band heuristic.
+That's a materially larger integration — wiring `RechargeFeasibility`'s day-simulation machinery
+(A54) into the search loop that currently only compares candidates by static kW headroom — and
+wasn't attempted this round; the existing 10–20% headroom-band scoring remains the stand-in for
+"reasonable margin without oversizing" it was already serving. §10/12's "large set of new default
+settings" (still no enumerated list to build against) remains open as disclosed in A61.
