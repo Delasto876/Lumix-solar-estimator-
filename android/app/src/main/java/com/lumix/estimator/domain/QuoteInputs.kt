@@ -212,7 +212,10 @@ data class QuoteInputs(
 
     val budgetBand: String = "none",
     val deliveryCharge: Double = 0.0,
-    val useDiscountPriceList: Boolean = false,
+    // A57 (spec §11): the separate "discount price list" toggle this field used to drive was
+    // removed — one price list, discount applied via discountType/discountValue only. Field
+    // itself is gone too (kotlinx.serialization's ignoreUnknownKeys=true means older saved quotes
+    // with this key still decode fine; it's just no longer read).
     val discountType: DiscountType = DiscountType.NONE,
     val discountValue: Double = 0.0,
 

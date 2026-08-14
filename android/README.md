@@ -3087,3 +3087,37 @@ discounted-price-list toggle) were not touched — `useDiscountPriceList`/the tw
 is unchanged, and Settings still isn't restructured. §13–15 (location-based PSH), §24–28 (flexible
 MPPT string allocation), §33–34 (expanded live status display), and §37–38 (diagnostics panel) also
 remain open, as disclosed in A54/A55.
+
+## A57 — One price list, discount applied at quote time (spec §11)
+
+Removed the separate "use discounted price list" system: `PriceRepository` used to store and
+expose two complete, independently-editable `PriceList`s (`regularPrices`/`discountPrices`), and
+`QuoteInputs.useDiscountPriceList` picked which one `SystemCalculator.calculate` priced the whole
+quote from — a second, competing price system running alongside the already-existing
+percent-or-fixed `discountType`/`discountValue` mechanism applied on top of the subtotal. The spec
+was explicit: "there should be ONE original price... do not maintain two competing price systems."
+
+**Fix.** `SystemCalculator.calculate(input, prices)` now takes exactly one `PriceList` (was
+`(input, regularPrices, discountPrices)`, selecting between them internally via the now-removed
+`useDiscountPriceList` field). `PriceRepository` collapsed to one `prices: Flow<PriceList>` /
+`update()` / `resetToDefault()` — the discount-list DataStore keys are simply never written or read
+again (no migration needed; an old install's stored discount prices are just orphaned, harmless
+bytes). `Step7Pricing.kt` lost the "Use discount price list" switch entirely — the ADD DISCOUNT /
+SKIP + percent-or-fixed flow immediately below it already did exactly what the spec asked for and
+needed no changes. `SettingsScreen.kt`'s price editor lost its "Regular / Discount" segmented
+toggle — one price list to edit, with a note that discounts are applied per-quote instead.
+
+`QuoteInputs.useDiscountPriceList` was deleted outright rather than deprecated — safe because
+`QuoteRepository`'s JSON decoder already has `ignoreUnknownKeys = true`, so an older saved quote's
+JSON blob still decodes fine with the extra key simply ignored.
+
+**Tests** (`DiscountTest.kt`): confirms `grandTotal == preDiscountTotal` with no discount, that a
+percent discount removes exactly that percentage of the subtotal, that a fixed discount subtracts
+a flat amount clamped at the subtotal (never goes negative), and — the actual "two competing price
+systems" bug shape — that `materialsTotal` is bit-identical regardless of which discount type or
+value is configured, since there is only the one price list feeding it now.
+
+**Scope note — not attempted this round.** §10/12 (collapsible/tabbed Settings, editable Materials
+section, the larger set of new default settings) and §13–15/24–28/33–34/37–38 (location-based PSH,
+flexible MPPT allocation, expanded live status, diagnostics panel) remain open, as disclosed in
+A54–A56.

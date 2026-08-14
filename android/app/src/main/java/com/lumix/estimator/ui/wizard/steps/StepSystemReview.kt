@@ -68,7 +68,7 @@ fun StepSystemReview(
     val palette = LocalLumixPalette.current
     val scope = rememberCoroutineScope()
     val gridServiceAmps by settingsRepository.defaultGridServiceAmps.collectAsState(initial = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS)
-    val preview = remember(inputs) { SystemCalculator.calculate(inputs, PriceList.DEFAULT, PriceList.DEFAULT) }
+    val preview = remember(inputs) { SystemCalculator.calculate(inputs, PriceList.DEFAULT) }
     val requiredInverterKw = remember(preview) { preview.peakWatts * 1.25 / 1000.0 }
     val batteryMaxDischargeKw = remember(preview) {
         if (preview.totalBatteryKwh > 0) min(preview.totalBatteryKwh * 0.5, preview.inverterKw.coerceAtLeast(0.1)) else 0.0

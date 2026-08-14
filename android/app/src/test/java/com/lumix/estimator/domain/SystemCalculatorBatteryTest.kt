@@ -29,13 +29,13 @@ class SystemCalculatorBatteryTest {
 
     @Test
     fun `all six battery tiers sum into totalBatteryKwh`() {
-        val result = SystemCalculator.calculate(manualHybridInputs(), PriceList.DEFAULT, PriceList.DEFAULT)
+        val result = SystemCalculator.calculate(manualHybridInputs(), PriceList.DEFAULT)
         assertEquals(82.0, result.totalBatteryKwh, 0.01)
     }
 
     @Test
     fun `each tier prices at its own placeholder rate, custom priced per kWh`() {
-        val result = SystemCalculator.calculate(manualHybridInputs(), PriceList.DEFAULT, PriceList.DEFAULT)
+        val result = SystemCalculator.calculate(manualHybridInputs(), PriceList.DEFAULT)
         val batteryCost = result.materials.filter { it.name.contains("LiFePO4") }.sumOf { it.subtotal }
         assertEquals(2_934_000.0, batteryCost, 1.0)
     }
@@ -44,8 +44,8 @@ class SystemCalculatorBatteryTest {
     fun `custom field contributes nothing when either side is left at zero`() {
         val zeroCount = manualHybridInputs().copy(manualBattCustomKwh = 12.0, manualBattCustomCount = 0)
         val zeroKwh = manualHybridInputs().copy(manualBattCustomKwh = 0.0, manualBattCustomCount = 3)
-        val resultZeroCount = SystemCalculator.calculate(zeroCount, PriceList.DEFAULT, PriceList.DEFAULT)
-        val resultZeroKwh = SystemCalculator.calculate(zeroKwh, PriceList.DEFAULT, PriceList.DEFAULT)
+        val resultZeroCount = SystemCalculator.calculate(zeroCount, PriceList.DEFAULT)
+        val resultZeroKwh = SystemCalculator.calculate(zeroKwh, PriceList.DEFAULT)
         // 82 - 16 (the custom 8kWh x2 contribution) = 66 from the five fixed tiers alone.
         assertEquals(66.0, resultZeroCount.totalBatteryKwh, 0.01)
         assertEquals(66.0, resultZeroKwh.totalBatteryKwh, 0.01)
@@ -53,7 +53,7 @@ class SystemCalculatorBatteryTest {
 
     @Test
     fun `battery module count includes every tier's units`() {
-        val result = SystemCalculator.calculate(manualHybridInputs(), PriceList.DEFAULT, PriceList.DEFAULT)
+        val result = SystemCalculator.calculate(manualHybridInputs(), PriceList.DEFAULT)
         // 1 (5k) + 1 (10k) + 1 (15k) + 1 (16k) + 1 (20k) + 2 (custom) = 7 module quantities in the priced materials list.
         val moduleCount = result.materials.filter { it.name.contains("LiFePO4") }.sumOf { it.qty }
         assertEquals(7.0, moduleCount, 0.01)

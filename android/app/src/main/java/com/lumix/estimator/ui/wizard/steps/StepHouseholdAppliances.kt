@@ -118,7 +118,7 @@ fun StepHouseholdAppliances(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> Quo
 @Composable
 private fun LoadAuditPreview(inputs: QuoteInputs) {
     val palette = LocalLumixPalette.current
-    val preview = remember(inputs) { SystemCalculator.calculate(inputs, PriceList.DEFAULT, PriceList.DEFAULT) }
+    val preview = remember(inputs) { SystemCalculator.calculate(inputs, PriceList.DEFAULT) }
     val shape = remember(inputs) { previewLoadShape(inputs) }
 
     SectionCard(title = "Your load profile") {

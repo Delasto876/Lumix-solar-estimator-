@@ -145,9 +145,14 @@ object SystemCalculator {
         return c
     }
 
-    fun calculate(input: QuoteInputs, regularPrices: PriceList, discountPrices: PriceList): QuoteResult {
-        val prices = if (input.useDiscountPriceList) discountPrices else regularPrices
-
+    /**
+     * A57 (spec §11 — "remove the separate 'use discounted price' option... do not maintain two
+     * competing price systems"): ONE price list. What used to be a second, fully separate
+     * "discount price list" the installer could swap the whole quote onto is gone; a discount is
+     * now only ever [QuoteInputs.discountType]/[QuoteInputs.discountValue] — percent or fixed —
+     * applied on top of this one price list's subtotal, below.
+     */
+    fun calculate(input: QuoteInputs, prices: PriceList): QuoteResult {
         val (dailyKwhLoads, peakWatts) = loadsKwhAndPeak(input)
 
         val approxKwhFromBill = if (input.quoteMode == QuoteMode.GUIDED) {
@@ -695,7 +700,7 @@ object SystemCalculator {
      */
     fun hasUnacknowledgedManualWarnings(input: QuoteInputs): Boolean {
         if (input.quoteMode != QuoteMode.MANUAL) return false
-        val preview = calculate(input, PriceList.DEFAULT, PriceList.DEFAULT)
+        val preview = calculate(input, PriceList.DEFAULT)
         return listOfNotNull(preview.manualInverterWarning, preview.manualBatteryWarning)
             .any { it !in input.manualWarningsAcknowledged }
     }

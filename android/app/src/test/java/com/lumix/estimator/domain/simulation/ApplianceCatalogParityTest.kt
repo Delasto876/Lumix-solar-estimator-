@@ -62,8 +62,8 @@ class ApplianceCatalogParityTest {
         val withIt = withoutIt.copy(
             appliances = withoutIt.appliances.toMutableMap().apply { this[ApplianceType.SECURITY_SYSTEM] = ApplianceLoad(qty = 1) }
         )
-        val resultWithout = SystemCalculator.calculate(withoutIt, PriceList.DEFAULT, PriceList.DEFAULT)
-        val resultWith = SystemCalculator.calculate(withIt, PriceList.DEFAULT, PriceList.DEFAULT)
+        val resultWithout = SystemCalculator.calculate(withoutIt, PriceList.DEFAULT)
+        val resultWith = SystemCalculator.calculate(withIt, PriceList.DEFAULT)
         assertTrue(
             "selecting a previously wizard-unreachable appliance must increase the calculated daily energy",
             resultWith.designDailyKwh > resultWithout.designDailyKwh

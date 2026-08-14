@@ -154,10 +154,9 @@ class WizardViewModel(
     fun calculateAndSave(onDone: (Long) -> Unit) {
         viewModelScope.launch {
             _isCalculating.value = true
-            val regular = priceRepository.regularPrices.first()
-            val discount = priceRepository.discountPrices.first()
+            val prices = priceRepository.prices.first()
             val data = _inputs.value
-            val calc = SystemCalculator.calculate(data, regular, discount)
+            val calc = SystemCalculator.calculate(data, prices)
             _result.value = calc
             val existingId = _savedQuoteId.value
             val id = if (existingId != null) {

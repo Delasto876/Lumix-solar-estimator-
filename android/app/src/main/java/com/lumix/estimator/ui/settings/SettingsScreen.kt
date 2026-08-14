@@ -86,10 +86,7 @@ fun SettingsScreen(
     val billEscalationRatePercent = billEscalationRate * 100.0
     val panelDegradationRatePercent = panelDegradationRate * 100.0
 
-    var editingDiscount by remember { mutableStateOf(false) }
-    val regularPrices by priceRepository.regularPrices.collectAsState(initial = PriceList.DEFAULT)
-    val discountPrices by priceRepository.discountPrices.collectAsState(initial = PriceList.DEFAULT)
-    val currentPrices = if (editingDiscount) discountPrices else regularPrices
+    val currentPrices by priceRepository.prices.collectAsState(initial = PriceList.DEFAULT)
 
     var showClearHistoryConfirm by remember { mutableStateOf(false) }
 
@@ -182,21 +179,12 @@ fun SettingsScreen(
             item {
                 SectionCard(title = "Price list") {
                     Text(
-                        "These prices feed every quote across the app.",
+                        // A57 (spec §11): one price list — a discount is applied per-quote
+                        // (percent or fixed) on top of these prices, not by swapping to a second set.
+                        "These prices feed every quote across the app. Apply a discount per-quote from the Pricing step.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = palette.textSecondary
                     )
-                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                        listOf(false, true).forEachIndexed { index, isDiscount ->
-                            SegmentedButton(
-                                selected = editingDiscount == isDiscount,
-                                onClick = { editingDiscount = isDiscount },
-                                shape = SegmentedButtonDefaults.itemShape(index, 2)
-                            ) {
-                                Text(if (isDiscount) "Discount price list" else "Regular price list")
-                            }
-                        }
-                    }
                 }
             }
 
@@ -216,9 +204,7 @@ fun SettingsScreen(
                         value = field.get(currentPrices),
                         onValueChange = { v ->
                             val updated = field.set(currentPrices, v)
-                            scope.launch {
-                                if (editingDiscount) priceRepository.updateDiscount(updated) else priceRepository.updateRegular(updated)
-                            }
+                            scope.launch { priceRepository.update(updated) }
                         },
                         suffix = "J$"
                     )
@@ -227,12 +213,8 @@ fun SettingsScreen(
 
             item {
                 LumixSecondaryButton(
-                    text = "Reset ${if (editingDiscount) "discount" else "regular"} prices to default",
-                    onClick = {
-                        scope.launch {
-                            if (editingDiscount) priceRepository.resetDiscountToDefault() else priceRepository.resetRegularToDefault()
-                        }
-                    },
+                    text = "Reset prices to default",
+                    onClick = { scope.launch { priceRepository.resetToDefault() } },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
