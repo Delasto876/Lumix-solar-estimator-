@@ -3121,3 +3121,44 @@ value is configured, since there is only the one price list feeding it now.
 section, the larger set of new default settings) and §13–15/24–28/33–34/37–38 (location-based PSH,
 flexible MPPT allocation, expanded live status, diagnostics panel) remain open, as disclosed in
 A54–A56.
+
+## A58 — Diagnostics panel: "WHY WAS THIS SYSTEM SELECTED?" (spec §37–38)
+
+The spec asked for a diagnostics panel showing PASS/FAIL per engineering check (PV/INVERTER/
+BATTERY ENERGY/BATTERY POWER/MPPT/VOC/VMP) plus rejection reasons. Audit found every individual
+check already existed — A49's inverter/battery sizing checks, A52's real electrical validation,
+A54's recharge-target check — but only inline inside `StepSystemReview.kt`'s "SYSTEM CHECK"
+section during the design flow; the new post-Calculate `SystemResultScreen` (A56) had none of it.
+
+**`SystemDiagnostics.kt`** (new, `domain/`): the one place these checks are now built —
+`checksFor(result: QuoteResult): List<DiagnosticCheck>`, a pure function reusable anywhere a
+`QuoteResult` exists. Same 8 checks `StepSystemReview.kt` already computed (left untouched — a
+working, already-shipped screen, not worth the regression risk of refactoring for this round),
+labeled to match the spec's own naming (PV/INVERTER ×2/BATTERY ENERGY/BATTERY POWER/VOC/VMP/MPPT),
+plus the A54 recharge-target check as a ninth.
+
+**Wired into `SystemResultScreen.kt`**: a collapsible "WHY WAS THIS SYSTEM SELECTED?" section —
+closed by default, header shows an at-a-glance pass count — showing every check plus (for GUIDED/
+LOAD, where `EquipmentSelectionEngine` actually made a choice) the plain-language reason each of
+PV/Inverter/Battery was picked, straight from `QuoteResult.panelSelectionReason`/
+`inverterSelectionReason`/`batterySelectionReason` (already computed since A49, never surfaced on
+this screen before). MANUAL mode's own equipment choice runs through the identical checks, since
+they're computed from the selected system's own numbers, not from how it was chosen.
+
+**Honest limitation.** The spec's other example — showing a REJECTED candidate's own reason (e.g.
+"10 × 720W: FAILED — PV array exceeds inverter maximum PV input") — is not built. That needs
+`EquipmentSelectionEngine`'s search functions to return the full evaluated-and-rejected candidate
+list, not just the winner; today they only return the winning `PanelChoice`/`InverterChoice`/
+`BatteryChoice`. What's built here is the full breakdown for the system that WAS selected
+(everything checked against it, pass or fail) — not a comparison against every alternative that
+wasn't. Extending the search functions to also expose rejected candidates is a real, separate
+engine change this round didn't attempt.
+
+**Tests** (`SystemDiagnosticsTest.kt`): reuses the exact 6×615W (passes)/14×615W (fails on real PV
+input power) regression pair against the real Deye SUN-6K-SG01LP1-US spec already established in
+`EquipmentSelectionEngineTest.kt` (A52), plus synthetic battery-energy/recharge/backup-coverage
+failure cases built directly from `QuoteResult` fields.
+
+**Scope note — not attempted this round.** §10/12 (Settings restructuring), §13–15 (location-based
+PSH), §24–28 (flexible MPPT allocation), and §33–34 (expanded live status display) remain open, as
+disclosed in A54–A57.

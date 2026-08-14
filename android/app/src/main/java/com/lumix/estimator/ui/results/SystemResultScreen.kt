@@ -1,5 +1,11 @@
 package com.lumix.estimator.ui.results
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,7 +37,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SavedQuote
+import com.lumix.estimator.domain.DiagnosticCheck
+import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.SavingsCalculator
+import com.lumix.estimator.domain.SystemDiagnostics
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.components.RingGauge
@@ -179,6 +188,84 @@ fun SystemResultScreen(
                     }
                 }
             }
+
+            item {
+                // A58 (spec §37–38): the diagnostics panel — every engineering check that went
+                // into (or would have blocked) this exact system, plus the plain-language reasons
+                // GUIDED/LOAD's EquipmentSelectionEngine picked each component, all in one place.
+                DiagnosticsSection(result)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticsSection(result: QuoteResult) {
+    val palette = LocalLumixPalette.current
+    var open by remember(result) { mutableStateOf(false) }
+    val checks = remember(result) { SystemDiagnostics.checksFor(result) }
+    val failCount = checks.count { !it.pass }
+    val reasons = listOfNotNull(
+        result.panelSelectionReason?.let { "PV" to it },
+        result.inverterSelectionReason?.let { "Inverter" to it },
+        result.batterySelectionReason?.let { "Battery" to it }
+    )
+
+    SectionCard(title = "") {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { open = !open },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("WHY WAS THIS SYSTEM SELECTED?", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                Text(
+                    if (failCount == 0) "All checks pass" else "$failCount check${if (failCount == 1) "" else "s"} need review",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (failCount == 0) palette.energyGreenText else palette.solarAmberText
+                )
+            }
+            Text(if (open) "▾" else "▸", style = MaterialTheme.typography.titleMedium, color = palette.textSecondary)
+        }
+        AnimatedVisibility(visible = open, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            Column(modifier = Modifier.padding(top = 12.dp)) {
+                if (reasons.isNotEmpty()) {
+                    reasons.forEach { (label, reason) ->
+                        Text(
+                            "$label — $reason",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.textSecondary,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                }
+                checks.forEach { check -> DiagnosticRow(check) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticRow(check: DiagnosticCheck) {
+    val palette = LocalLumixPalette.current
+    Column(modifier = Modifier.padding(vertical = 3.dp)) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                if (check.pass) "PASS" else "FAIL",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (check.pass) palette.energyGreenText else palette.warningRedText
+            )
+            Text(check.label, style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
+        }
+        if (check.detail != null) {
+            Text(
+                check.detail,
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.solarAmberText,
+                modifier = Modifier.padding(start = 48.dp, top = 2.dp)
+            )
         }
     }
 }
