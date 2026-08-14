@@ -2939,3 +2939,17 @@ strings (`panelSelectionReason`/`inverterSelectionReason`/`batterySelectionReaso
 selection and energy+power-aware battery selection (§20–21) were already built in A49/A50 and are
 unchanged this round. Each of these is substantial enough to deserve its own focused, audited round
 rather than a rushed pass alongside the critical backup-calculation bug this round actually fixes.
+
+**Addendum (same round): §31 source-switching explanation.** Closed one of the deferred items above
+— the Simulation screen's status line (`StatusStatement` in `SimulationScreen.kt`) previously showed
+only `frame.status.label` ("JPS POWERING HOME") with no explanation. Added
+`SimulationEngine.statusReason(frame, config)`: a pure function returning a plain-language reason
+whenever the frame involves the grid or an unmet load (battery reached its reserve floor vs. hit its
+discharge power limit vs. no battery in the system at all; JPS topping off the battery in
+Utility-first mode; demand exceeding total supply) — null for the ordinary solar/battery cases,
+where there's nothing surprising to explain. Uses the same reserve-floor framing as
+`BackupEstimator`'s own shortfall reason so the two descriptions of "battery hit its floor" never
+diverge. `SimulationEngineStatusReasonTest.kt` covers every branch (pure branching logic on
+already-computed fields, no numeric model to hand-trace). The richer §33/34 "expanded live status
+display with inverter/battery/PV warning thresholds" is still deferred — this addendum is
+specifically the "explain the switch" ask, not the full status-panel redesign.

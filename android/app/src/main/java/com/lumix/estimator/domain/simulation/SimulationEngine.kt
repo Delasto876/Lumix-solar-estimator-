@@ -360,4 +360,27 @@ object SimulationEngine {
         }
         return null
     }
+
+    /**
+     * A54 (spec §31): plain-language "why" for a frame whose [SimFrame.status] involves the grid
+     * or an unmet load — the message's own request that a battery→utility switch (or any moment
+     * the grid has to step in) be explained rather than silently shown as a status label. Null for
+     * every other status, where there's nothing surprising to explain (solar/battery covering the
+     * load normally). Uses the same reserve-floor framing as [BackupEstimator]'s own shortfall
+     * reason, so the two never describe the same physical event differently.
+     */
+    fun statusReason(frame: SimFrame, config: SimSystemConfig): String? {
+        val reserveFloorPercent = config.batteryDepthOfDischargeFraction * 100.0
+        return when (frame.status) {
+            SystemStatus.GRID_POWERING_HOME, SystemStatus.BATTERY_PLUS_GRID -> when {
+                !config.hasBattery -> "No battery in this system — JPS covers the load directly."
+                frame.batterySocPercent <= reserveFloorPercent + 1.5f ->
+                    "Battery reached its %.0f%% reserve floor.".format(reserveFloorPercent)
+                else -> "Battery discharge power limit reached for this load."
+            }
+            SystemStatus.GRID_CHARGING_BATTERY -> "JPS is topping off the battery (Utility-first mode)."
+            SystemStatus.POWER_LIMITED -> "Demand exceeds what solar, battery, and the grid connection can currently supply."
+            else -> null
+        }
+    }
 }

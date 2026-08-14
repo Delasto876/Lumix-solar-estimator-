@@ -52,6 +52,7 @@ import com.lumix.estimator.domain.simulation.EnergyFlowResolver
 import com.lumix.estimator.domain.simulation.InverterMode
 import com.lumix.estimator.domain.simulation.LoadAudit
 import com.lumix.estimator.domain.simulation.SimFrame
+import com.lumix.estimator.domain.simulation.SimSystemConfig
 import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.domain.simulation.TechnicalModel
 import com.lumix.estimator.domain.simulation.WeatherState
@@ -166,7 +167,7 @@ fun SimulationScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    StatusStatement(frame)
+                    StatusStatement(frame, config)
                     ModeToggle(technicalMode = state.technicalMode, onToggle = viewModel::setTechnicalMode)
                 }
             }
@@ -591,17 +592,30 @@ private fun OutageBanner() {
 
 /** One elegant statement of what the system is doing right now — not a pill competing with four others. */
 @Composable
-private fun StatusStatement(frame: SimFrame) {
+private fun StatusStatement(frame: SimFrame, config: SimSystemConfig) {
     val palette = LocalLumixPalette.current
     val color = statusColor(frame.status)
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(color))
-        Text(
-            frame.status.label.uppercase(),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = palette.textPrimary
-        )
+    // A54 (spec §31): a battery→utility switch (or any grid involvement) shown with WHY, not
+    // silently — SimulationEngine.statusReason() is null for the ordinary solar/battery cases.
+    val reason = remember(frame) { SimulationEngine.statusReason(frame, config) }
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(color))
+            Text(
+                frame.status.label.uppercase(),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = palette.textPrimary
+            )
+        }
+        if (reason != null) {
+            Text(
+                reason,
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary,
+                modifier = Modifier.padding(start = 15.dp, top = 1.dp)
+            )
+        }
     }
 }
 
