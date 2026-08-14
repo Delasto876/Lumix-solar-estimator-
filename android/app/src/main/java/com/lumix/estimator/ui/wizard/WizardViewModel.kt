@@ -16,6 +16,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
+/**
+ * A56 (spec §5–9, 35–36 — "do NOT require quote information before the installer can design and
+ * simulate the system... only when CREATE QUOTE is selected should the app ask for quote-specific
+ * information"): which half of the wizard's step numbers is currently active. DESIGN is every
+ * system-sizing step (2 through 12 — Quote Mode through System Review); QUOTE_DETAILS is only
+ * steps 1 (Customer) and 13 (Pricing & Discount), reached exclusively via `SystemResultScreen`'s
+ * CREATE QUOTE button — never a prerequisite for calculating or simulating a system.
+ */
+enum class WizardFlowMode { DESIGN, QUOTE_DETAILS }
+
 class WizardViewModel(
     private val quoteRepository: QuoteRepository,
     private val priceRepository: PriceRepository
@@ -24,8 +34,11 @@ class WizardViewModel(
     private val _inputs = MutableStateFlow(QuoteInputs())
     val inputs: StateFlow<QuoteInputs> = _inputs.asStateFlow()
 
-    private val _currentStep = MutableStateFlow(1)
+    private val _currentStep = MutableStateFlow(2)
     val currentStep: StateFlow<Int> = _currentStep.asStateFlow()
+
+    private val _flowMode = MutableStateFlow(WizardFlowMode.DESIGN)
+    val flowMode: StateFlow<WizardFlowMode> = _flowMode.asStateFlow()
 
     private val _result = MutableStateFlow<QuoteResult?>(null)
     val result: StateFlow<QuoteResult?> = _result.asStateFlow()
@@ -41,7 +54,9 @@ class WizardViewModel(
     // 7 JPS Bill/Usage (GUIDED only), 8 Backup Requirements, 9 Manual Mode (MANUAL only),
     // 10 Inverter & Panels (MANUAL only), 11 Battery Bank (MANUAL only), 12 System Review,
     // 13 Pricing & Discount. (The old "Roof Mounting / 3-rail" step was removed — zinc roofs
-    // just always use 3 rails/row now, its own prior default, rather than asking.)
+    // just always use 3 rails/row now, its own prior default, rather than asking.) A56: 1 and 13
+    // moved out of the normal forward sequence into [WizardFlowMode.QUOTE_DETAILS] — see that
+    // enum's own doc.
     val totalSteps = 13
 
     fun update(transform: (QuoteInputs) -> QuoteInputs) {
@@ -59,9 +74,9 @@ class WizardViewModel(
         }
     }
 
-    fun visibleSteps(): List<Int> {
+    private fun designSteps(): List<Int> {
         val data = _inputs.value
-        val steps = (1..totalSteps).toMutableList()
+        val steps = (2 until totalSteps).toMutableList() // 2..12 — every sizing/design step
         // JPS Bill/Usage only makes sense in GUIDED mode — LOAD mode sizes from appliance load
         // directly, MANUAL mode has its own explicit sizing steps. (Previously this only
         // excluded LOAD mode, leaving a blank page reachable in MANUAL mode's step count.)
@@ -72,6 +87,13 @@ class WizardViewModel(
             steps.remove(11)
         }
         return steps
+    }
+
+    private fun quoteDetailSteps(): List<Int> = listOf(1, totalSteps)
+
+    fun visibleSteps(): List<Int> = when (_flowMode.value) {
+        WizardFlowMode.DESIGN -> designSteps()
+        WizardFlowMode.QUOTE_DETAILS -> quoteDetailSteps()
     }
 
     fun goNext(): Boolean {
@@ -105,13 +127,30 @@ class WizardViewModel(
         return visible.indexOf(_currentStep.value) == visible.lastIndex
     }
 
+    /**
+     * A56: entered from `SystemResultScreen`'s CREATE QUOTE button. Design inputs (already
+     * calculated and saved via [calculateAndSave]) are untouched — this only switches which steps
+     * are visible, so [calculateAndSave] finishes the SAME saved row rather than starting over.
+     */
+    fun startQuoteDetails() {
+        _flowMode.value = WizardFlowMode.QUOTE_DETAILS
+        _currentStep.value = 1
+    }
+
     fun reset() {
         _inputs.value = QuoteInputs()
-        _currentStep.value = 1
+        _flowMode.value = WizardFlowMode.DESIGN
+        _currentStep.value = 2
         _result.value = null
         _savedQuoteId.value = null
     }
 
+    /**
+     * A56: saves a preliminary row the first time (no customer/discount yet — DESIGN flow's
+     * "Calculate System"), then overwrites that SAME row once QUOTE_DETAILS finishes ("Save
+     * Quote") — see [com.lumix.estimator.data.QuoteRepository.update]'s own doc for why this must
+     * never become a second row for the same project.
+     */
     fun calculateAndSave(onDone: (Long) -> Unit) {
         viewModelScope.launch {
             _isCalculating.value = true
@@ -120,7 +159,13 @@ class WizardViewModel(
             val data = _inputs.value
             val calc = SystemCalculator.calculate(data, regular, discount)
             _result.value = calc
-            val id = quoteRepository.save(data, calc)
+            val existingId = _savedQuoteId.value
+            val id = if (existingId != null) {
+                quoteRepository.update(existingId, data, calc)
+                existingId
+            } else {
+                quoteRepository.save(data, calc)
+            }
             _savedQuoteId.value = id
             _isCalculating.value = false
             onDone(id)

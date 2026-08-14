@@ -70,7 +70,10 @@ fun WizardScreen(
     viewModel: WizardViewModel,
     settingsRepository: SettingsRepository,
     onBackToHome: () -> Unit,
-    onResults: (Long) -> Unit
+    /** A56: DESIGN flow's last step ("Calculate System") finished — a preliminary row now exists; go to `SystemResultScreen`. */
+    onSystemCalculated: (Long) -> Unit,
+    /** A56: QUOTE_DETAILS flow's last step ("Save Quote") finished — the same row is now complete; go to the full `ResultsScreen`. */
+    onQuoteSaved: (Long) -> Unit
 ) {
     val palette = LocalLumixPalette.current
     var showCalculationSequence by remember { mutableStateOf(false) }
@@ -80,7 +83,7 @@ fun WizardScreen(
             onComplete = {
                 viewModel.calculateAndSave { id ->
                     showCalculationSequence = false
-                    onResults(id)
+                    if (viewModel.flowMode.value == WizardFlowMode.DESIGN) onSystemCalculated(id) else onQuoteSaved(id)
                 }
             }
         )
@@ -89,6 +92,7 @@ fun WizardScreen(
 
     val inputs by viewModel.inputs.collectAsState()
     val currentStep by viewModel.currentStep.collectAsState()
+    val flowMode by viewModel.flowMode.collectAsState()
     val visibleSteps = viewModel.visibleSteps()
     val stepIndex = visibleSteps.indexOf(currentStep).coerceAtLeast(0)
     val errors = viewModel.errorsForStep(currentStep)
@@ -115,11 +119,18 @@ fun WizardScreen(
             ) {
                 LumixSecondaryButton(text = "Back", onClick = { viewModel.goBack() }, enabled = stepIndex > 0)
                 if (isLast) {
+                    // A56: DESIGN's last step (System Review) only needs to know the system itself
+                    // is valid — no quote/pricing fields exist yet at this point in the flow.
+                    // QUOTE_DETAILS's last step (Pricing & Discount) is gated on its own step's
+                    // errors, the same check the old single "Calculate" button used.
+                    val calcEnabled = when (flowMode) {
+                        WizardFlowMode.DESIGN -> !SystemCalculator.hasUnacknowledgedManualWarnings(inputs)
+                        WizardFlowMode.QUOTE_DETAILS -> errors.isEmpty()
+                    }
                     LumixPrimaryButton(
-                        text = "Calculate",
+                        text = if (flowMode == WizardFlowMode.DESIGN) "Calculate System" else "Save Quote",
                         onClick = { showCalculationSequence = true },
-                        enabled = viewModel.errorsForStep(13).isEmpty() &&
-                            !SystemCalculator.hasUnacknowledgedManualWarnings(inputs)
+                        enabled = calcEnabled
                     )
                 } else {
                     LumixPrimaryButton(text = "Next", onClick = { viewModel.goNext() })

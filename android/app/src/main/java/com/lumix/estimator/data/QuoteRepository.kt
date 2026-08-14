@@ -19,25 +19,36 @@ class QuoteRepository(private val dao: QuoteDao) {
 
     fun observeAll(): Flow<List<QuoteEntity>> = dao.observeAll()
 
-    suspend fun save(inputs: QuoteInputs, result: QuoteResult): Long {
-        val entity = QuoteEntity(
-            timestamp = System.currentTimeMillis(),
-            customerName = inputs.customerName,
-            customerContact = inputs.customerContact,
-            parish = inputs.parish,
-            nearestTown = inputs.nearestTown,
-            propertyType = inputs.propertyType.label,
-            quoteMode = inputs.quoteMode.name,
-            systemMode = result.effectiveSystemMode.name,
-            pvKw = result.pvKw,
-            panelCount = result.panelCount,
-            inverterName = result.inverterName,
-            batteryKwh = result.totalBatteryKwh,
-            grandTotal = result.grandTotal,
-            inputsJson = json.encodeToString(inputs),
-            resultJson = json.encodeToString(result)
-        )
-        return dao.insert(entity)
+    private fun entityFor(id: Long, timestamp: Long, inputs: QuoteInputs, result: QuoteResult) = QuoteEntity(
+        id = id,
+        timestamp = timestamp,
+        customerName = inputs.customerName,
+        customerContact = inputs.customerContact,
+        parish = inputs.parish,
+        nearestTown = inputs.nearestTown,
+        propertyType = inputs.propertyType.label,
+        quoteMode = inputs.quoteMode.name,
+        systemMode = result.effectiveSystemMode.name,
+        pvKw = result.pvKw,
+        panelCount = result.panelCount,
+        inverterName = result.inverterName,
+        batteryKwh = result.totalBatteryKwh,
+        grandTotal = result.grandTotal,
+        inputsJson = json.encodeToString(inputs),
+        resultJson = json.encodeToString(result)
+    )
+
+    suspend fun save(inputs: QuoteInputs, result: QuoteResult): Long =
+        dao.insert(entityFor(id = 0, timestamp = System.currentTimeMillis(), inputs = inputs, result = result))
+
+    /**
+     * A56: overwrites an already-saved row in place — used when CREATE QUOTE finishes a system
+     * that was already calculated (and saved) earlier in the estimate flow, so the project stays
+     * one row (and one quote ID, so an in-progress SIMULATE link keeps working) rather than
+     * duplicating.
+     */
+    suspend fun update(id: Long, inputs: QuoteInputs, result: QuoteResult) {
+        dao.update(entityFor(id = id, timestamp = System.currentTimeMillis(), inputs = inputs, result = result))
     }
 
     suspend fun getSavedQuote(id: Long): SavedQuote? {

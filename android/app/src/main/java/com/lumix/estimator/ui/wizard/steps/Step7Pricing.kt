@@ -128,7 +128,7 @@ fun Step7Pricing(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -
         }
 
         Text(
-            "Tap Calculate to generate the quote. It will be saved to your quote history automatically.",
+            "Tap Save Quote to finish. This system was already calculated — this just adds the customer, pricing, and discount details to it.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

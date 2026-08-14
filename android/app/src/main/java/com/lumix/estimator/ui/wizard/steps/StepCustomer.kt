@@ -15,8 +15,9 @@ import com.lumix.estimator.ui.components.LabeledDropdown
 import com.lumix.estimator.ui.components.SectionCard
 
 /**
- * The wizard's first step — every quote starts by identifying who it's for, before any
- * electricity-usage or system-sizing question. Nothing here is required (matches the rest of
+ * A56: reached only via CREATE QUOTE, after a system has already been designed and calculated —
+ * this is no longer the wizard's first step (spec §5–9: quote/customer details are never a
+ * prerequisite for sizing or simulating a system). Nothing here is required (matches the rest of
  * this lenient, mostly-optional wizard — parish is the one exception, kept required since
  * downstream delivery/PDF content depends on it).
  */
@@ -85,7 +86,7 @@ fun StepCustomer(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -
         }
 
         Text(
-            "Next: what kind of system this is, and a bit about the property.",
+            "Next: pricing and any discount, then Save Quote.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

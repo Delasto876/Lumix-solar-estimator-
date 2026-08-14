@@ -3023,3 +3023,67 @@ Both changes are scoped exactly as requested — no attempt this round at the re
 from the "CORRECT SOLAR SIZING..." message (§37–38 diagnostics panel, §33–34 expanded live status,
 §11 discount-list removal, §13–15 location-based PSH, §24–28 flexible MPPT allocation, §5–10/35–36
 estimate-flow and Settings restructuring).
+
+## A56 — Estimate flow redesign: design first, quote later (spec §5–9, 35–36)
+
+Picked up the largest remaining item from the "CORRECT SOLAR SIZING..." message: the wizard forced
+Customer details (step 1) and Pricing & Discount (step 13) around every design step, so an installer
+couldn't calculate, review, or simulate a system without first entering a customer name/parish and
+passing through a discount screen — directly against the message's explicit "do NOT require quote/
+customer/site details before the installer can design and simulate the system... only when CREATE
+QUOTE is selected should the app ask for quote-specific information."
+
+**Audit.** Traced exactly which of the wizard's 13 steps are genuinely needed for sizing math vs.
+purely quote/customer bookkeeping. Only `parish` (step 1) had any validation requirement at all
+(`Validation.customerErrors`), and it's read nowhere in `SystemCalculator` — confirmed via a full
+grep of the domain layer. Step 13 (delivery charge, discount type/value) only affects
+`materialsTotal → grandTotal`, never PV/inverter/battery sizing. Both steps were safe to move out
+of the required sequence entirely.
+
+**`WizardFlowMode` (new enum, `WizardViewModel.kt`).** `DESIGN` (steps 2–12 — Quote Mode through
+System Review) and `QUOTE_DETAILS` (steps 1 and 13 only), reached exclusively via the new
+`SystemResultScreen`'s CREATE QUOTE button. `visibleSteps()` is now flow-aware; `reset()` starts
+fresh in DESIGN at step 2 (Quote Mode) instead of step 1 (Customer); `startQuoteDetails()` switches
+to the other set without touching any already-entered design data.
+
+**One saved row per project, not two.** `calculateAndSave()` now checks whether a quote ID already
+exists: DESIGN's "Calculate System" inserts a preliminary row (blank customer, no discount — those
+fields don't exist yet); QUOTE_DETAILS's later "Save Quote" *updates that same row* rather than
+inserting a duplicate, so a SIMULATE link opened before the quote was ever finished keeps pointing
+at the right data. Added `QuoteDao.update`/`QuoteRepository.update` (Room `@Update`) for this — no
+schema change, since `QuoteEntity`'s shape is unchanged.
+
+**New `SystemResultScreen.kt`** — what DESIGN's "Calculate System" now leads to instead of the full
+pricing/PDF `ResultsScreen`: PV/Inverter/Battery, production vs. required load with a coverage ring,
+the A54 backup estimate (with its reason) and A54 recharge-target warning — no customer fields, no
+discount, no PDF export. Three actions: **Simulate** (opens the Simulation screen against the
+already-saved preliminary row), **Edit System** (pops back into the wizard, still in DESIGN mode,
+exactly where System Review left off), **Create Quote** (switches the SAME wizard instance to
+QUOTE_DETAILS and pops back to it — no duplicate wizard navigation entry).
+
+**Wiring**: `LumixNavHost.kt` gained a `system-result/{quoteId}` route between `wizard` and
+`results/{quoteId}`. `WizardScreen`'s single `onResults` callback split into `onSystemCalculated`
+(→ SystemResultScreen) and `onQuoteSaved` (→ the full ResultsScreen, `popUpTo(HOME)` exactly as
+before). The bottom-bar button is now flow-aware: "Calculate System" (gated only on
+MANUAL-mode-warnings, the same check `StepSystemReview`'s own gate already used) during DESIGN,
+"Save Quote" (gated on Pricing's own validation, the same check the old single "Calculate" button
+used) during QUOTE_DETAILS. Every existing "start a new quote" entry point (Home, Estimate tab,
+Systems tab, Savings tab, Results screen's "New quote" button) already just calls
+`wizardViewModel.reset()` then navigates to `wizard` — unchanged, and now correctly lands on Quote
+Mode instead of Customer.
+
+**Honest limitation — no test coverage added this round.** `WizardViewModel`/`QuoteRepository` are
+Android `ViewModel`/Room classes with real framework dependencies (`viewModelScope`, `Room` DAOs);
+this project has never had test infrastructure for that layer (no Robolectric/instrumented tests
+exist anywhere in the codebase — only pure-JVM domain-logic tests, hand-traced in Python first, the
+established discipline for the numeric engine). Adding that infrastructure is a real, separate task
+this round didn't attempt — the flow-mode/step-list logic itself was verified by direct manual
+trace instead (worked through both flows' exact step sequences, `visibleSteps()` output, and the
+`calculateAndSave` insert-vs-update branch by hand against the code as written).
+
+**Scope note — not attempted this round.** The remaining ask from §10/12 (collapsible/tabbed
+Settings, editable Materials section, many new default settings) and §11 (removing the separate
+discounted-price-list toggle) were not touched — `useDiscountPriceList`/the two-price-list system
+is unchanged, and Settings still isn't restructured. §13–15 (location-based PSH), §24–28 (flexible
+MPPT string allocation), §33–34 (expanded live status display), and §37–38 (diagnostics panel) also
+remain open, as disclosed in A54/A55.

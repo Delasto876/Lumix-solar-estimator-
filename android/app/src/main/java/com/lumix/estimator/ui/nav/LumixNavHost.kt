@@ -28,6 +28,7 @@ import com.lumix.estimator.ui.estimate.EstimateLandingScreen
 import com.lumix.estimator.ui.history.HistoryScreen
 import com.lumix.estimator.ui.home.HomeScreen
 import com.lumix.estimator.ui.results.ResultsScreen
+import com.lumix.estimator.ui.results.SystemResultScreen
 import com.lumix.estimator.ui.savings.SavingsScreen
 import com.lumix.estimator.ui.settings.SettingsScreen
 import com.lumix.estimator.ui.simulation.SimulationScreen
@@ -38,6 +39,7 @@ import com.lumix.estimator.ui.wizard.WizardViewModel
 private const val ROUTE_HOME = "home"
 private const val ROUTE_ESTIMATE = "estimate"
 private const val ROUTE_WIZARD = "wizard"
+private const val ROUTE_SYSTEM_RESULT = "system-result/{quoteId}"
 private const val ROUTE_RESULTS = "results/{quoteId}"
 private const val ROUTE_SIMULATION = "simulation/{quoteId}"
 private const val ROUTE_SYSTEMS = "systems"
@@ -125,11 +127,35 @@ fun LumixNavHost(app: LumixApp) {
                     viewModel = wizardViewModel,
                     settingsRepository = app.settingsRepository,
                     onBackToHome = { navController.popBackStack(ROUTE_HOME, inclusive = false) },
-                    onResults = { id ->
+                    // A56: DESIGN flow finishing ("Calculate System") lands on the lightweight
+                    // engineering-only SystemResultScreen — WIZARD stays on the back stack so
+                    // "Edit System" there is just a pop, not a fresh navigate.
+                    onSystemCalculated = { id -> navController.navigate("system-result/$id") },
+                    // QUOTE_DETAILS flow finishing ("Save Quote") is the real end of this whole
+                    // estimate — clears WIZARD/SYSTEM_RESULT off the stack same as before.
+                    onQuoteSaved = { id ->
                         navController.navigate("results/$id") {
                             popUpTo(ROUTE_HOME)
                         }
                     }
+                )
+            }
+
+            composable(
+                ROUTE_SYSTEM_RESULT,
+                arguments = listOf(navArgument("quoteId") { type = NavType.LongType })
+            ) { entry ->
+                val quoteId = entry.arguments?.getLong("quoteId") ?: 0L
+                SystemResultScreen(
+                    quoteId = quoteId,
+                    quoteRepository = app.quoteRepository,
+                    onSimulate = { id -> navController.navigate("simulation/$id") },
+                    onEditSystem = { navController.popBackStack() },
+                    onCreateQuote = {
+                        wizardViewModel.startQuoteDetails()
+                        navController.popBackStack()
+                    },
+                    onBackToHome = { navController.popBackStack(ROUTE_HOME, inclusive = false) }
                 )
             }
 
