@@ -53,7 +53,10 @@ import com.lumix.estimator.domain.simulation.InverterMode
 import com.lumix.estimator.domain.simulation.LoadAudit
 import com.lumix.estimator.domain.simulation.SimFrame
 import com.lumix.estimator.domain.simulation.SimSystemConfig
+import com.lumix.estimator.domain.simulation.SimWarning
 import com.lumix.estimator.domain.simulation.SimulationEngine
+import com.lumix.estimator.domain.simulation.SimulationWarnings
+import com.lumix.estimator.domain.simulation.WarningLevel
 import com.lumix.estimator.domain.simulation.TechnicalModel
 import com.lumix.estimator.domain.simulation.WeatherState
 import com.lumix.estimator.domain.simulation.applianceDailyEnergyByCategoryKwh
@@ -209,6 +212,15 @@ fun SimulationScreen(
 
             item {
                 LivePowerRow(frame)
+            }
+
+            // A59: always visible in Basic mode, not gated behind the Technical toggle — meant to
+            // read like a real inverter's own front-panel warning light, not a diagnostics screen.
+            val warnings = SimulationWarnings.warningsFor(frame, config)
+            if (warnings.isNotEmpty()) {
+                item {
+                    WarningsRow(warnings)
+                }
             }
 
             if (state.appliances.values.count { it.enabled } <= 1) {
@@ -615,6 +627,21 @@ private fun StatusStatement(frame: SimFrame, config: SimSystemConfig) {
                 color = palette.textSecondary,
                 modifier = Modifier.padding(start = 15.dp, top = 1.dp)
             )
+        }
+    }
+}
+
+/** A59: one compact line per active threshold warning — CAUTION in amber, ALERT in red, matching the existing status-color convention (`statusColor`). */
+@Composable
+private fun WarningsRow(warnings: List<SimWarning>) {
+    val palette = LocalLumixPalette.current
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        warnings.forEach { warning ->
+            val color = if (warning.level == WarningLevel.ALERT) palette.warningRedText else palette.solarAmberText
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(color))
+                Text(warning.label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = color)
+            }
         }
     }
 }

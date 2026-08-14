@@ -3162,3 +3162,37 @@ failure cases built directly from `QuoteResult` fields.
 **Scope note — not attempted this round.** §10/12 (Settings restructuring), §13–15 (location-based
 PSH), §24–28 (flexible MPPT allocation), and §33–34 (expanded live status display) remain open, as
 disclosed in A54–A57.
+
+## A59 — Live simulation warning thresholds (spec §33–34)
+
+The spec asked for threshold-based operational warnings on the live simulation status: inverter
+80%/90%/100% (HIGH LOAD/NEAR LIMIT/LIMIT REACHED), battery 25%/20% (LOW BATTERY/RESERVE), and PV
+morning/evening/night labels (LOW PV OUTPUT/PV OFF — NO SUN). Audit confirmed the raw figures these
+would be computed from already exist (`SimFrame.inverterLoadKw`, `batterySocPercent`,
+`potentialPvKw`, `SimulationEngine.irradianceFactor`) — A53's `TechnicalDetailsCard` and the Basic
+mode's `LivePowerRow` both surface the numbers, but nothing evaluated them against a threshold or
+showed a warning label anywhere.
+
+**`SimulationWarnings.kt`** (new, `domain/simulation/`): `warningsFor(frame, config): List<SimWarning>`
+— a pure function returning zero or more `SimWarning(label, level)`. Inverter load fraction
+(`inverterLoadKw / inverterKw`) checked against the spec's own 80/90/100% bands; battery checked
+against a 25% caution band above the *real* reserve floor (`SimulationEngine.BATTERY_MIN_SOC_FRACTION`,
+20% — not a second hardcoded number, so this warning threshold and the actual SOC floor the engine
+enforces can never drift apart); PV checked for "off" (`potentialPvKw <= 0.01`, i.e. actually dark)
+versus a low-irradiance shoulder (`irradianceFactor(hour) <= 0.35`, the same curve every other PV
+calculation in this app already uses) versus full midday production (no warning).
+
+**Wired into `SimulationScreen.kt`** as a small always-visible warnings row directly under the
+Basic-mode live power stats — deliberately not gated behind the Technical toggle, since these are
+meant to read like a real inverter's own front-panel warning light (glance-able), not something an
+installer has to dig into a diagnostics view for. CAUTION warnings show in amber, ALERT in red,
+reusing the same color convention `StatusStatement`'s status dot already established.
+
+**Tests** (`SimulationWarningsTest.kt`): exact 80/90/100% inverter boundaries, exact 25%/20% (real
+reserve floor) battery boundaries, no-battery-system never producing a battery warning, night vs.
+shoulder vs. midday PV labeling (irradiance figures at each test hour hand-traced with a Python
+port of `irradianceFactor` first), and multiple simultaneous warnings (night + critically low
+battery).
+
+**Scope note — not attempted this round.** §10/12 (Settings restructuring), §13–15 (location-based
+PSH), and §24–28 (flexible MPPT allocation) remain open, as disclosed in A54–A58.
