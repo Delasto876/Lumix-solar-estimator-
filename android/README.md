@@ -2976,3 +2976,50 @@ scenarios, across a load sweep that exercises all three outcomes: an adequately-
 case; and a heavily undersized-for-that-load array (150 kWh/day) never reaches 90% within the
 simulated day at all — only 40.7% on hand by 2pm. `RechargeFeasibilityTest.kt` encodes all three
 traced outcomes plus the no-battery guard.
+
+## A55 — Expanded battery capacity options and full appliance-catalog parity
+
+Two direct installer requests (2026-08-14), alongside continuing the "CORRECT SOLAR SIZING..."
+message's deferred items.
+
+**1. MANUAL mode battery bank — 5/10/15 → 5/10/15/16/20 + custom.** `StepBatteryBank.kt`'s hybrid
+battery picker only offered 5, 10, and 15 kWh count fields. Added 16 kWh and 20 kWh count fields
+(same "class label, not a matched real product" costing pattern the existing three already use —
+see `Catalog.kt`'s own doc on why the nominal kWh label, not an exact real product rating, is what
+`SystemCalculator`'s material-cost switch keys off) plus a genuine custom-capacity field (kWh per
+unit + count), priced at a new placeholder $/kWh rate (`PriceList.batteryLFPCustomPerKwh`) rather
+than a fixed per-unit price, since a custom capacity has no fixed class price to key off. All six
+inputs (`manualBatt5k/10k/15k/16k/20k`, `manualBattCustomKwh`/`manualBattCustomCount`) now flow
+through the same three places the original three did: `totalBatteryKwh`/`batteryModuleCount` in
+`SystemCalculator.calculate()`, the `batteryCostForWireRule` pricing switch, and the priced
+materials list — so the new tiers size, price, and back the same battery/backup/recharge checks
+(A54) as the original three, not a separate parallel path. `SystemCalculatorBatteryTest.kt` verifies
+all six tiers sum correctly, price at their own placeholder rates, and that the custom field
+contributes nothing when either side (kWh or count) is left at zero.
+
+**2. Wizard appliance picker — 19 items → full parity with the Simulation screen's 46-item catalog.**
+Audit confirmed the installer's report exactly: `ApplianceType` (the wizard's
+`StepHouseholdAppliances.kt` picker) covered only 19 of `SimApplianceType`'s 46 entries (air fryer,
+security system, EV charger, pool pump, vacuum cleaner, and 21 others were only ever reachable from
+the Simulation screen's own richer `AppliancesSheet.kt` picker — a deliberate A48 scope decision
+this round reverses per the installer's explicit request). `ApplianceType` now mirrors every
+non-Air-Conditioner `SimApplianceType` entry (label, watts, and category all copied verbatim, so
+the two pickers group and list identically) — the original 19 constants keep their exact names
+(`kotlinx.serialization` encodes enums by name; renaming would break decoding older saved quotes),
+only their `category` strings were updated to match `SimApplianceType`'s naming. `defaultAppliances()`
+now derives from `ApplianceType.entries` directly rather than a hand-maintained list. Every new type
+was wired all the way through, not just added to the enum:
+`SystemCalculator.simTypeFor()`'s exhaustive `when` (a compile-time guarantee every `ApplianceType`
+maps to a real `SimApplianceType` — Kotlin refuses to compile a non-exhaustive `when` over an enum
+with no `else`) and `defaultApplianceStates()` in `SimAppliance.kt`, where every previously-`stateOff`
+entry became `stateFromWizard`, since every one now has a real wizard field. No UI code changed in
+either picker — both already rendered generically from `<Type>.entries.groupBy { it.category }`, so
+the expanded catalog appears automatically. `ApplianceCatalogParityTest.kt` verifies the 45/46 count
+match, that a previously simulation-only type (pool pump) is now enabled by a wizard selection, that
+an appliance the wizard never touched stays off (no more separate "on by default" set), and that a
+newly-reachable type (security system) actually increases calculated daily energy.
+
+Both changes are scoped exactly as requested — no attempt this round at the remaining deferred items
+from the "CORRECT SOLAR SIZING..." message (§37–38 diagnostics panel, §33–34 expanded live status,
+§11 discount-list removal, §13–15 location-based PSH, §24–28 flexible MPPT allocation, §5–10/35–36
+estimate-flow and Settings restructuring).

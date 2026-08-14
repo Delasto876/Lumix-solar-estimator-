@@ -37,6 +37,34 @@ object SystemCalculator {
         ApplianceType.TV -> SimApplianceType.TELEVISION
         ApplianceType.COMPUTER -> SimApplianceType.DESKTOP_COMPUTER
         ApplianceType.GAMING_CONSOLE -> SimApplianceType.GAME_CONSOLE
+        // A54: the rest of SimApplianceType's catalog, newly reachable from the wizard's own
+        // picker (previously only selectable from the Simulation screen's fuller picker).
+        ApplianceType.AIR_FRYER -> SimApplianceType.AIR_FRYER
+        ApplianceType.RICE_COOKER -> SimApplianceType.RICE_COOKER
+        ApplianceType.PRESSURE_COOKER -> SimApplianceType.PRESSURE_COOKER
+        ApplianceType.STANDING_FAN -> SimApplianceType.STANDING_FAN
+        ApplianceType.BEDROOM_FAN -> SimApplianceType.BEDROOM_FAN
+        ApplianceType.LED_BEDROOM -> SimApplianceType.LED_BEDROOM
+        ApplianceType.LED_KITCHEN -> SimApplianceType.LED_KITCHEN
+        ApplianceType.LED_BATHROOM -> SimApplianceType.LED_BATHROOM
+        ApplianceType.OUTDOOR_FLOODLIGHT -> SimApplianceType.OUTDOOR_FLOODLIGHT
+        ApplianceType.SET_TOP_BOX -> SimApplianceType.SET_TOP_BOX
+        ApplianceType.WIFI_ROUTER -> SimApplianceType.WIFI_ROUTER
+        ApplianceType.MODEM -> SimApplianceType.MODEM
+        ApplianceType.PHONE_CHARGERS -> SimApplianceType.PHONE_CHARGERS
+        ApplianceType.LAPTOP -> SimApplianceType.LAPTOP
+        ApplianceType.PRINTER -> SimApplianceType.PRINTER
+        ApplianceType.SOUND_SYSTEM -> SimApplianceType.SOUND_SYSTEM
+        ApplianceType.INSTANT_SHOWER -> SimApplianceType.INSTANT_SHOWER
+        ApplianceType.HAIR_DRYER -> SimApplianceType.HAIR_DRYER
+        ApplianceType.CURLING_IRON -> SimApplianceType.CURLING_IRON
+        ApplianceType.VACUUM_CLEANER -> SimApplianceType.VACUUM_CLEANER
+        ApplianceType.SEWING_MACHINE -> SimApplianceType.SEWING_MACHINE
+        ApplianceType.SECURITY_SYSTEM -> SimApplianceType.SECURITY_SYSTEM
+        ApplianceType.GATE_OPENER -> SimApplianceType.GATE_OPENER
+        ApplianceType.EV_CHARGER_L1 -> SimApplianceType.EV_CHARGER_L1
+        ApplianceType.EV_CHARGER_L2 -> SimApplianceType.EV_CHARGER_L2
+        ApplianceType.POOL_PUMP -> SimApplianceType.POOL_PUMP
     }
 
     /** Fallback only — every real calculation uses [QuoteInputs.peakSunHours] (per-quote, editable, default 5.5) instead. */
@@ -261,8 +289,17 @@ object SystemCalculator {
                     val total5 = input.manualBatt5k * 5.0
                     val total10 = input.manualBatt10k * 10.0
                     val total15 = input.manualBatt15k * 15.0
-                    totalBatteryKwh = total5 + total10 + total15
-                    batteryModuleCount = input.manualBatt5k + input.manualBatt10k + input.manualBatt15k
+                    val total16 = input.manualBatt16k * 16.0
+                    val total20 = input.manualBatt20k * 20.0
+                    // A54: custom capacity/count fields ("add your own capacity") — a negative or
+                    // zero entry on either side contributes nothing, same guard as every count field.
+                    val totalCustom = if (input.manualBattCustomKwh > 0 && input.manualBattCustomCount > 0) {
+                        input.manualBattCustomKwh * input.manualBattCustomCount
+                    } else 0.0
+                    totalBatteryKwh = total5 + total10 + total15 + total16 + total20 + totalCustom
+                    batteryModuleCount = input.manualBatt5k + input.manualBatt10k + input.manualBatt15k +
+                        input.manualBatt16k + input.manualBatt20k +
+                        (if (totalCustom > 0) input.manualBattCustomCount else 0)
                     if (batteryModuleCount > 0) {
                         val avgKwh = totalBatteryKwh / batteryModuleCount
                         chosenBattery = BatteryOption("Hybrid LiFePO4 mix", avgKwh) { 0.0 }
@@ -381,7 +418,14 @@ object SystemCalculator {
                 } else 0.0
             }
             else -> when (effectiveSystemMode) {
-                SystemMode.HYBRID -> input.manualBatt5k * prices.batteryLFP5k + input.manualBatt10k * prices.batteryLFP10k + input.manualBatt15k * prices.batteryLFP15k
+                SystemMode.HYBRID -> input.manualBatt5k * prices.batteryLFP5k +
+                    input.manualBatt10k * prices.batteryLFP10k +
+                    input.manualBatt15k * prices.batteryLFP15k +
+                    input.manualBatt16k * prices.batteryLFP16k +
+                    input.manualBatt20k * prices.batteryLFP20k +
+                    (if (input.manualBattCustomKwh > 0 && input.manualBattCustomCount > 0) {
+                        input.manualBattCustomKwh * input.manualBattCustomCount * prices.batteryLFPCustomPerKwh
+                    } else 0.0)
                 SystemMode.OFFGRID -> input.manualAgmCount * prices.batteryAGM12V
                 SystemMode.GRIDTIE -> 0.0
             }
@@ -492,6 +536,15 @@ object SystemCalculator {
                 if (input.manualBatt5k > 0) materials += MaterialLine("5kWh LiFePO4", input.manualBatt5k.toDouble(), prices.batteryLFP5k)
                 if (input.manualBatt10k > 0) materials += MaterialLine("10kWh LiFePO4", input.manualBatt10k.toDouble(), prices.batteryLFP10k)
                 if (input.manualBatt15k > 0) materials += MaterialLine("15kWh LiFePO4", input.manualBatt15k.toDouble(), prices.batteryLFP15k)
+                if (input.manualBatt16k > 0) materials += MaterialLine("16kWh LiFePO4", input.manualBatt16k.toDouble(), prices.batteryLFP16k)
+                if (input.manualBatt20k > 0) materials += MaterialLine("20kWh LiFePO4", input.manualBatt20k.toDouble(), prices.batteryLFP20k)
+                if (input.manualBattCustomKwh > 0 && input.manualBattCustomCount > 0) {
+                    materials += MaterialLine(
+                        "%.1fkWh LiFePO4 (custom)".format(input.manualBattCustomKwh),
+                        input.manualBattCustomCount.toDouble(),
+                        input.manualBattCustomKwh * prices.batteryLFPCustomPerKwh
+                    )
+                }
             } else if (effectiveSystemMode == SystemMode.OFFGRID && input.manualAgmCount > 0) {
                 materials += MaterialLine("12V AGM battery", input.manualAgmCount.toDouble(), prices.batteryAGM12V)
             }

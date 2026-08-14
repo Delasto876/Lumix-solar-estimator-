@@ -41,43 +41,88 @@ enum class ManualModeType { BATTERY_LED, PANEL_LED, FULL_MANUAL }
 enum class DiscountType { NONE, PERCENT, FIXED }
 
 /**
- * A29/A48: the ONE master appliance catalog for the wizard side (Guided/Load-Based/Manual all
+ * A29/A48/A54: the ONE master appliance catalog for the wizard side (Guided/Load-Based/Manual all
  * share this single `StepHouseholdAppliances` step — see `WizardScreen.kt`'s step dispatch,
  * which doesn't branch by mode for step 6). Each entry's name is the exact same one the
  * Simulation's own picker uses for its wizard-linked counterpart (see
  * [com.lumix.estimator.domain.simulation.defaultApplianceStates]'s `stateFromWizard` calls) —
  * that shared enum identity, not a display-string match, is the "stable ID" connecting the two.
- * Deliberately kept to the basic categories/types requested — richer/secondary appliances (a
- * second fridge, security system, EV charger, etc.) stay reachable from the Simulation's own
- * fuller picker, not duplicated here.
+ *
+ * A54 (installer request, 2026-08-14: "the section to choose appliances ... that list only show
+ * some appliances" — update it to match the Simulation window's fuller picker): this now mirrors
+ * every entry in [com.lumix.estimator.domain.simulation.SimApplianceType] (except Air Conditioner,
+ * which keeps its own dedicated wizard step/[AcLoad]) — label, watts, and category all copied
+ * verbatim from that catalog so the two pickers show the identical list. The original 19 entries
+ * keep their original constant names (kotlinx.serialization encodes enums by name — renaming would
+ * break decoding older saved quotes); only their `category` strings were updated to match
+ * [com.lumix.estimator.domain.simulation.SimApplianceType]'s category naming exactly.
  */
 @Serializable
 enum class ApplianceType(val label: String, val watts: Int, val category: String) {
-    // Cooling
-    FAN("Fans", 60, "Cooling"),
     // Kitchen
     FRIDGE("Refrigerators", 150, "Kitchen"),
     FREEZER("Deep Freezers", 200, "Kitchen"),
-    STOVE("Stove", 3000, "Kitchen"),
-    OVEN("Oven", 3000, "Kitchen"),
-    MICROWAVE("Microwaves", 1200, "Kitchen"),
     ELECTRIC_KETTLE("Electric Kettle", 1500, "Kitchen"),
+    MICROWAVE("Microwaves", 1200, "Kitchen"),
     TOASTER("Toaster", 1200, "Kitchen"),
     BLENDER("Blender", 400, "Kitchen"),
-    // Water
-    WATER_HEATER("Water Heater", 3800, "Water"),
-    WATER_PUMP("Water Pump", 750, "Water"),
+    STOVE("Stove", 3000, "Kitchen"),
+    OVEN("Oven", 3000, "Kitchen"),
+    AIR_FRYER("Air Fryer", 1500, "Kitchen"),
+    RICE_COOKER("Rice Cooker", 700, "Kitchen"),
+    PRESSURE_COOKER("Pressure Cooker", 1000, "Kitchen"),
+
+    // Cooling & Comfort
+    FAN("Fans", 60, "Cooling & Comfort"),
+    STANDING_FAN("Pedestal/Standing Fan", 50, "Cooling & Comfort"),
+    BEDROOM_FAN("Bedroom Fan", 50, "Cooling & Comfort"),
+
+    // Lighting
+    LIGHTS("Lights", 10, "Lighting"),
+    OUTDOOR_LIGHTS("Outdoor Lights", 10, "Lighting"),
+    LED_BEDROOM("LED Lighting — Bedroom", 10, "Lighting"),
+    LED_KITCHEN("LED Lighting — Kitchen", 10, "Lighting"),
+    LED_BATHROOM("LED Lighting — Bathroom", 10, "Lighting"),
+    OUTDOOR_FLOODLIGHT("Outdoor Security Floodlight", 30, "Lighting"),
+
+    // Electronics & Networking
+    TV("TVs", 80, "Electronics & Networking"),
+    COMPUTER("Computer", 150, "Electronics & Networking"),
+    GAMING_CONSOLE("Gaming Console", 120, "Electronics & Networking"),
+    SET_TOP_BOX("Set-Top/Cable Box", 15, "Electronics & Networking"),
+    WIFI_ROUTER("Wi-Fi Router", 10, "Electronics & Networking"),
+    MODEM("Modem/ONT", 12, "Electronics & Networking"),
+    PHONE_CHARGERS("Phone Chargers", 10, "Electronics & Networking"),
+    LAPTOP("Laptop", 65, "Electronics & Networking"),
+    PRINTER("Computer Printer", 35, "Electronics & Networking"),
+    SOUND_SYSTEM("Sound System", 100, "Electronics & Networking"),
+
+    // Water & Heating
+    WATER_HEATER("Water Heater", 3800, "Water & Heating"),
+    WATER_PUMP("Water Pump", 750, "Water & Heating"),
+    INSTANT_SHOWER("Instant Electric Shower", 4500, "Water & Heating"),
+
+    // Personal Care
+    HAIR_DRYER("Hair Dryer", 1500, "Personal Care"),
+    CURLING_IRON("Curling/Flat Iron", 60, "Personal Care"),
+
     // Laundry
     WASHER("Washers", 600, "Laundry"),
     DRYER("Dryers", 1500, "Laundry"),
     IRON("Irons", 1200, "Laundry"),
-    // Lighting
-    LIGHTS("Lights", 10, "Lighting"),
-    OUTDOOR_LIGHTS("Outdoor Lights", 10, "Lighting"),
-    // Entertainment
-    TV("TVs", 80, "Entertainment"),
-    COMPUTER("Computer", 150, "Entertainment"),
-    GAMING_CONSOLE("Gaming Console", 120, "Entertainment")
+
+    // Cleaning & Misc
+    VACUUM_CLEANER("Vacuum Cleaner", 900, "Cleaning & Misc"),
+    SEWING_MACHINE("Sewing Machine", 100, "Cleaning & Misc"),
+
+    // Security & Access
+    SECURITY_SYSTEM("Security/CCTV System", 40, "Security & Access"),
+    GATE_OPENER("Electric Gate/Garage Opener", 500, "Security & Access"),
+
+    // EV & Outdoor
+    EV_CHARGER_L1("EV Charger — 110V (L1)", 1400, "EV & Outdoor"),
+    EV_CHARGER_L2("EV Charger — 220V (L2)", 5000, "EV & Outdoor"),
+    POOL_PUMP("Pool Pump", 1000, "EV & Outdoor")
 }
 
 @Serializable
@@ -106,27 +151,10 @@ data class AcLoad(
     val customHours: Double = 4.0
 )
 
-fun defaultAppliances(): Map<ApplianceType, ApplianceLoad> = mapOf(
-    ApplianceType.FAN to ApplianceLoad(),
-    ApplianceType.FRIDGE to ApplianceLoad(qty = 1),
-    ApplianceType.FREEZER to ApplianceLoad(),
-    ApplianceType.STOVE to ApplianceLoad(),
-    ApplianceType.OVEN to ApplianceLoad(),
-    ApplianceType.MICROWAVE to ApplianceLoad(),
-    ApplianceType.ELECTRIC_KETTLE to ApplianceLoad(),
-    ApplianceType.TOASTER to ApplianceLoad(),
-    ApplianceType.BLENDER to ApplianceLoad(),
-    ApplianceType.WATER_HEATER to ApplianceLoad(),
-    ApplianceType.WATER_PUMP to ApplianceLoad(),
-    ApplianceType.WASHER to ApplianceLoad(),
-    ApplianceType.DRYER to ApplianceLoad(),
-    ApplianceType.IRON to ApplianceLoad(),
-    ApplianceType.LIGHTS to ApplianceLoad(),
-    ApplianceType.OUTDOOR_LIGHTS to ApplianceLoad(),
-    ApplianceType.TV to ApplianceLoad(),
-    ApplianceType.COMPUTER to ApplianceLoad(),
-    ApplianceType.GAMING_CONSOLE to ApplianceLoad()
-)
+fun defaultAppliances(): Map<ApplianceType, ApplianceLoad> = ApplianceType.entries.associateWith { type ->
+    // FRIDGE is the one appliance almost every household already has — same starting default as before.
+    if (type == ApplianceType.FRIDGE) ApplianceLoad(qty = 1) else ApplianceLoad()
+}
 
 @Serializable
 data class QuoteInputs(
@@ -166,6 +194,12 @@ data class QuoteInputs(
     val manualBatt5k: Int = 0,
     val manualBatt10k: Int = 0,
     val manualBatt15k: Int = 0,
+    // A54: installer request ("make it 5, 10, 15, 16, 20 and a custom field to add the capacity").
+    val manualBatt16k: Int = 0,
+    val manualBatt20k: Int = 0,
+    /** Custom nominal capacity per unit (kWh) for MANUAL mode's "add your own capacity" battery field — paired with [manualBattCustomCount]. Ignored (treated as 0 total kWh) when either is <= 0. */
+    val manualBattCustomKwh: Double = 0.0,
+    val manualBattCustomCount: Int = 0,
     val manualAgmCount: Int = 0,
     val manualOffgridUseAutoTransfer: Boolean = true,
     /**

@@ -36,6 +36,14 @@ data class PriceList(
     val batteryLFP5k: Double = 215000.0,
     val batteryLFP10k: Double = 420000.0,
     val batteryLFP15k: Double = 520000.0,
+    // A54: MANUAL mode's battery bank step previously only offered 5/10/15 kWh — added per
+    // installer request ("make it 5, 10, 15, 16, 20 and a custom field"). 16k/20k are additional
+    // MANUAL-only nominal-capacity classes (same "class label, not a matched real product" costing
+    // pattern the existing 5/10/15 fields already use — see Catalog.kt's own doc on this).
+    val batteryLFP16k: Double = 555000.0,
+    val batteryLFP20k: Double = 680000.0,
+    /** Placeholder $/kWh rate for MANUAL mode's custom battery-capacity field — installer enters any kWh figure and a count; cost = kWh x count x this rate. */
+    val batteryLFPCustomPerKwh: Double = 34000.0,
 
     val batteryAGM12V: Double = 45000.0,
 
@@ -125,6 +133,9 @@ object PriceFields {
         PriceFieldSpec("batteryLFP5k", "5 kWh LiFePO4 (SRNE SR-EOS05B)", "Batteries", { it.batteryLFP5k }, { p, v -> p.copy(batteryLFP5k = v) }),
         PriceFieldSpec("batteryLFP10k", "10 kWh LiFePO4 (SRNE SR-EOS10B)", "Batteries", { it.batteryLFP10k }, { p, v -> p.copy(batteryLFP10k = v) }),
         PriceFieldSpec("batteryLFP15k", "15 kWh LiFePO4 (SRNE SR-EOS15B)", "Batteries", { it.batteryLFP15k }, { p, v -> p.copy(batteryLFP15k = v) }),
+        PriceFieldSpec("batteryLFP16k", "16 kWh LiFePO4 (Manual only)", "Batteries", { it.batteryLFP16k }, { p, v -> p.copy(batteryLFP16k = v) }),
+        PriceFieldSpec("batteryLFP20k", "20 kWh LiFePO4 (Manual only)", "Batteries", { it.batteryLFP20k }, { p, v -> p.copy(batteryLFP20k = v) }),
+        PriceFieldSpec("batteryLFPCustomPerKwh", "Custom-capacity LiFePO4 (per kWh)", "Batteries", { it.batteryLFPCustomPerKwh }, { p, v -> p.copy(batteryLFPCustomPerKwh = v) }),
         PriceFieldSpec("batteryAGM12V", "12V AGM battery (~2.4kWh)", "Batteries", { it.batteryAGM12V }, { p, v -> p.copy(batteryAGM12V = v) }),
 
         PriceFieldSpec("panel595W", "595W PV panel (JA Solar JAM72D40-GB)", "Panels", { it.panel595W }, { p, v -> p.copy(panel595W = v) }),
