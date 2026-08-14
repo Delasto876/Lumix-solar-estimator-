@@ -3392,3 +3392,77 @@ That's a materially larger integration — wiring `RechargeFeasibility`'s day-si
 wasn't attempted this round; the existing 10–20% headroom-band scoring remains the stand-in for
 "reasonable margin without oversizing" it was already serving. §10/12's "large set of new default
 settings" (still no enumerated list to build against) remains open as disclosed in A61.
+
+## A63 — Battery recharge drives panel count, replacing the 10–20% headroom target entirely
+
+Asked directly whether the "add 1 or 2 panels only if it meaningfully helps recharge" step from
+A62's own scope note should layer on top of A50's 10–20% headroom-band scoring or replace it —
+the answer was to replace it entirely. This round does exactly that.
+
+**`EquipmentSelectionEngine.selectBestPanelConfigurationForLimits`**: the old scoring (prefer
+10–20% headroom, then an even total panel count, then closest to a 15% midpoint) is gone. The
+installer's own spec is explicit that the goal is "SMALLEST PRACTICAL ARRAY," not a percentage
+target — "the goal is NOT 'always even' and NOT 'always use the maximum number of panels.'" The
+function now returns the smallest electrically valid array across every catalog wattage, preferring
+one that also clears the preferred 15% MPPT voltage margin (A62) — full stop. No headroom band, no
+evenness bonus. The search window widened from 6 to 21 counts per wattage (pure arithmetic, still
+cheap) since "smallest valid" sometimes needs to look further than a fixed 6-count window used to
+guarantee. `PanelChoice` gained `withinPreferredVoltageMargin` alongside A62's `stringCounts`, so a
+caller can see that signal without re-deriving it.
+
+**`SystemCalculator`**: that smallest-valid array is not, on its own, "the answer" for a hybrid
+system with a battery to charge — it says nothing about whether that array can actually recharge
+the battery on time. New: `recheckPanelCountForRecharge`, called right after
+`EquipmentSelectionEngine.selectBestPanelConfiguration` returns, for `HYBRID` mode only, when there's
+a battery. It runs the baseline count through `RechargeFeasibility.evaluate` (the same real
+day-simulation A54 already built — PV curve, load profile, battery efficiency, charge power limit,
+all real, not assumed) and, only if the baseline doesn't reach a usable SOC by ~2 PM, tries +1 then
++2 panels (same wattage, re-validated electrically at the larger count via
+`checkPanelInverterCompatibility` — more panels can still overvolt a string) until one does. If none
+of the three reach the target, whichever gets closest is kept — bounded at baseline + 2, never
+searching indefinitely, matching the installer's own explicit "Do NOT add panels indefinitely" /
+"Do NOT automatically choose +2" instructions. If the baseline already meets the target, it's
+returned completely untouched — no wasted simulations, no unnecessary oversizing, matching "does not
+unnecessarily oversize the PV array" from the installer's own list of goals.
+
+A small refactor rides along: the battery's real matched charge/discharge power
+(`batteryMaxChargeKw`/`batteryMaxDischargeKw`) used to be computed once, inline, right before
+`QuoteResult` construction. It's now `resolvedBatteryPowerKw`, a shared helper, since the new
+recharge check needs those same figures *earlier* (before the final panel count is even settled) —
+one function, read twice, rather than the same ~8 lines duplicated with the risk of the two
+computations drifting apart.
+
+**Deliberately narrow.** Never called for MANUAL mode (an installer's own equipment choice is used
+exactly as selected, unchanged principle from A49). Never called for off-grid (its own fixed,
+capped-at-4-panels sizing path) or grid-tie (no battery to charge). Only the panel *count* is
+refined — wattage and MPPT topology stay whatever `EquipmentSelectionEngine` already picked; adding
+panels of a second wattage mid-array isn't something any part of this app does.
+
+**Tests.** `EquipmentSelectionEngineTest.kt`: two of A50's own headroom-band tests no longer test
+anything real (their premise — a preferred percentage band — is gone) and were replaced with tests
+of the actual new behavior: the smallest valid array wins outright (700W×10 lands exactly on a
+7.0kW requirement at 0% oversize, beating every other wattage's own higher-kW minimum), and a
+margin-compliant-but-larger array beats a smaller one that violates the preferred 15% margin
+(4 panels at 219.9V, outside a 212.5V preferred ceiling, loses to 6 panels at 164.9V, inside it —
+hand-traced, including the reason a 2-panel *increase* actually *lowers* string voltage here: at 6
+panels the array can finally split across both MPPT trackers instead of consolidating onto one).
+`SystemCalculatorRechargeAwareSizingTest.kt` (new): reuses — rather than re-traces —
+`RechargeFeasibilityTest`'s own already-verified day-simulation numbers for the exact same real
+hardware (6×615W/10.24kWh reaches 90% SOC by 12:40pm; the same array under a 150kWh/day load never
+reaches it, 40.7% at 2pm), confirmed field-for-field identical to `recheckPanelCountForRecharge`'s
+own constructed `SimSystemConfig` so the reuse is exact, not approximate. Covers: an
+already-adequate baseline returned completely untouched (strong, exact assertion, since the
+short-circuit fires before any of the uncertain +1/+2 arithmetic runs); a baseline that misses the
+target never regresses and never searches past baseline+2 (deliberately the *only* claim made for
+that scenario — this round didn't re-trace exactly how much 1-2 extra panels move the needle against
+a 150kWh/day load, so the test asserts the invariants the function guarantees structurally, not a
+specific resulting count it can't independently verify without running the real Kotlin engine); no
+battery and zero baseline panel count both short-circuit to the untouched baseline.
+
+**Honest limitation on the "meaningful improvement" wording.** The installer's spec says "choose the
+smallest candidate that provides a *meaningful* engineering improvement" without a numeric
+threshold. This round's interpretation: if a candidate actually reaches the 90%-by-2PM target, that
+*is* the meaningful improvement (the target either matters or it doesn't); if none of the three
+reach it, the closest one is kept without a separate "is this improvement big enough" gate. A
+threshold-based version (e.g. "only bump up if SOC-by-2PM improves by at least N points") would need
+a concrete number this round didn't have license to invent.

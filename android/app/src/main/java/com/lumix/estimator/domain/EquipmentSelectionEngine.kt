@@ -1,17 +1,22 @@
 package com.lumix.estimator.domain
 
-import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
 
 /**
- * A49/A50: the equipment-selection logic that makes LOAD-BASED (and GUIDED, which shares it — see
- * [SystemCalculator]) an actual design engine — not "smallest that exceeds the requirement," and
- * not "round up to the next product." Given a calculated engineering requirement, these functions
- * search the real catalog this app actually sells and prices ([Catalog]), reject anything that
- * fails electrical validity, and score what's left toward a practical ~10-20% headroom target,
- * an even panel count, and a single appropriately-sized unit over several small ones — explaining
- * the pick in plain language a reviewer can read back.
+ * A49/A50/A63: the equipment-selection logic that makes LOAD-BASED (and GUIDED, which shares it —
+ * see [SystemCalculator]) an actual design engine — not "smallest that exceeds the requirement,"
+ * and not "round up to the next product." Given a calculated engineering requirement, these
+ * functions search the real catalog this app actually sells and prices ([Catalog]), reject
+ * anything that fails electrical validity, and return the smallest array that's still
+ * electrically sound (A63 — no headroom-percentage target, no evenness bonus; see
+ * [selectBestPanelConfigurationForLimits]'s own doc), and a single appropriately-sized inverter
+ * over several small ones — explaining the pick in plain language a reviewer can read back.
+ *
+ * This object's own search is deliberately just the ELECTRICAL/catalog minimum for panels — it has
+ * no simulation dependency and can't tell whether that minimum actually recharges a battery on
+ * time. [SystemCalculator]'s own A63 recharge-aware refinement handles that on top, for hybrid
+ * systems with a battery to charge.
  *
  * MANUAL mode never calls this object — an installer's explicit equipment choice in Manual mode is
  * used exactly as selected (see [SystemCalculator]'s manual branch and its `manualInverterWarning`/
@@ -82,7 +87,9 @@ object EquipmentSelectionEngine {
         val electricallyValid: Boolean,
         val reason: String,
         /** A62: panel counts per string, longest-first, as actually chosen — see [MpptStringPlanner]. Empty when [panelCount] is 0. */
-        val stringCounts: List<Int> = emptyList()
+        val stringCounts: List<Int> = emptyList(),
+        /** A62/A63: whether the chosen array's longest string clears the preferred 15% MPPT voltage design margin, not just the hard ceiling — see [PanelCompatibilityResult.withinPreferredVoltageMargin]. */
+        val withinPreferredVoltageMargin: Boolean = true
     )
 
     private data class PanelCandidate(
@@ -234,10 +241,10 @@ object EquipmentSelectionEngine {
      * (500-600V in this library) can't fit an entire double-digit panel count in one string.
      * Rejects any candidate whose worst (longest) tracker string's cold-corrected Voc or Isc, or
      * the array's total power, exceeds the inverter's matched real limits (or a conservative
-     * fallback where no exact spec match exists), then scores what's left toward: within the
-     * preferred 10-20% headroom band, inside the preferred 15% MPPT voltage design margin, even
-     * panel count, closest to a 15% midpoint target, and least total oversizing — never the
-     * largest or smallest available option "because it's available." Electrical validity always
+     * fallback where no exact spec match exists), then returns the smallest array that's still
+     * electrically sound — preferring one that also clears the preferred 15% MPPT voltage design
+     * margin (A62) — never the largest or smallest available option "because it's available," and
+     * (A63) no longer scored toward any headroom-percentage target. Electrical validity always
      * outranks every scoring preference.
      */
     fun selectBestPanelConfiguration(
@@ -253,12 +260,30 @@ object EquipmentSelectionEngine {
         return selectBestPanelConfigurationForLimits(requiredPvKw, maxPvW, maxPvV, mpptTrackers, wattages)
     }
 
+    /** How many counts past the theoretical minimum to search per wattage before giving up and
+     * surfacing the least-bad (still-invalid) candidate — generous, since this is pure arithmetic,
+     * not a simulation; real catalog wattages validate within a handful of counts in practice. */
+    private const val MAX_SEARCH_STEPS_PAST_MINIMUM = 20
+
     /**
      * The actual candidate-evaluation/scoring core, taking explicit electrical limits rather than
      * resolving them from a catalog inverter kW — `internal` so this module's own JVM unit tests
      * (`EquipmentSelectionEngineTest`) can exercise precise, deterministic Voc/Vmp/Isc/power
      * scenarios without depending on which real datasheets happen to be in [EquipmentSpecs] today.
      * [selectBestPanelConfiguration] is the real entry point every caller outside tests should use.
+     *
+     * A63 (spec §24-28's own ranking — "Do NOT rank simply by lowest panel count," but also
+     * explicitly "SMALLEST PRACTICAL ARRAY," not a headroom target): this used to score toward a
+     * preferred 10-20% headroom band with an even-panel-count tiebreak — a heuristic from before
+     * this spec existed. That's gone. This now returns the smallest electrically-valid array
+     * (preferring one that also clears the preferred 15% MPPT voltage margin, per priority 2 in the
+     * spec's own ranking) — literally "smallest practical array," not a target percentage. It is
+     * deliberately still just the ELECTRICAL minimum: the caller ([SystemCalculator]) is
+     * responsible for the spec's remaining ranking criteria this function has no context for —
+     * whether that minimum can actually recharge the battery to target SOC and support daytime
+     * load, which needs a real day simulation this pure catalog/electrical search doesn't run (see
+     * [SystemCalculator]'s own A63 recharge-aware refinement, which may add 1-2 panels on top of
+     * whatever this function returns).
      */
     internal fun selectBestPanelConfigurationForLimits(
         requiredPvKw: Double,
@@ -282,7 +307,7 @@ object EquipmentSelectionEngine {
 
         val allCandidates = wattages.flatMap { w ->
             val baseCount = max(1, ceil((requiredPvKw * 1000.0) / w).toInt())
-            (baseCount..(baseCount + 5)).map { n -> evaluate(w, n) }
+            (baseCount..(baseCount + MAX_SEARCH_STEPS_PAST_MINIMUM)).map { n -> evaluate(w, n) }
         }
 
         val valid = allCandidates.filter { it.valid }
@@ -290,31 +315,20 @@ object EquipmentSelectionEngine {
         // the least-bad candidate flagged invalid rather than silently returning zero panels.
         val pool = valid.ifEmpty { allCandidates }
 
-        // A half-point epsilon on both ends so a candidate landing at exactly 10% or 20% doesn't
-        // get bumped out of the preferred band by ordinary floating-point rounding.
-        fun inHeadroomBand(oversize: Double) = oversize >= 9.95 && oversize <= 20.05
-
         val best = pool.sortedWith(
             compareBy(
-                // 1. In-band always beats out-of-band.
-                { if (inHeadroomBand(it.oversizePercent)) 0 else 1 },
-                // 2. A62 (spec §24-28 ranking: "ELECTRICALLY VALID" then "SAFE MPPT VOLTAGE
-                //    MARGIN" before anything else) — among otherwise-equal in-band/out-of-band
-                //    candidates, one whose longest string stays inside the preferred 15% design
+                // 1. A62/A63 (spec §24-28 ranking, priorities 1-2): electrical validity is already
+                //    guaranteed by the pool filter above whenever any valid candidate exists; among
+                //    those, one whose longest string clears the preferred 15% MPPT voltage design
                 //    margin (not just the hard ceiling) is preferred.
                 { if (it.withinPreferredMargin) 0 else 1 },
-                // 3. Even-count preference only ever decides between two in-band candidates — spec
-                //    §3 explicitly forbids letting it force large deliberate oversizing, so an
-                //    out-of-band candidate never gets an evenness bonus here (that would let a much
-                //    worse oversize like 12x700W@86.7% beat a 3x700W@40% just for being even).
-                { if (inHeadroomBand(it.oversizePercent) && it.count % 2 != 0) 1 else 0 },
-                // 4. Otherwise minimize distance from the 15% band midpoint — this is what actually
-                //    stops the "13 is odd, therefore 14" failure mode out-of-band: a genuinely
-                //    closer odd candidate always beats a farther even one.
-                { abs(it.oversizePercent - 15.0) },
-                // 5. Last-resort tiebreak among near-identical distances, even out-of-band.
-                { if (it.count % 2 == 0) 0 else 1 },
+                // 2. A63 (spec priority 9, "MINIMAL OVERSIZING" — and the message's own explicit
+                //    "SMALLEST PRACTICAL ARRAY... NOT always use the maximum number of panels"):
+                //    smallest resulting array wins. Replaces the old 10-20% headroom-band target
+                //    and even-panel-count preference entirely — this function no longer aims for a
+                //    percentage, it aims for the minimum that's still electrically sound.
                 { it.totalKw },
+                // 3. Deterministic tiebreak for the (rare) case two wattages land on the same kW.
                 { it.count }
             )
         ).first()
@@ -324,11 +338,7 @@ object EquipmentSelectionEngine {
         } else {
             "NOT electrically valid: " + best.notes.joinToString("; ") + " — needs manual review."
         }
-        val rangeNote = when {
-            !best.valid -> ""
-            inHeadroomBand(best.oversizePercent) -> " %.1f%% headroom, within the preferred 10-20%% range.".format(best.oversizePercent)
-            else -> " %.1f%% headroom — outside the preferred 10-20%% range; no closer electrically-valid/even configuration was available.".format(best.oversizePercent)
-        }
+        val oversizeNote = if (best.valid) " %.1f%% over the calculated requirement.".format(best.oversizePercent) else ""
         val estimateNote = if (best.estimated) " (${best.watts}W panel electrical figures estimated — no exact datasheet match in the equipment library)" else ""
         val marginNote = if (best.valid && !best.withinPreferredMargin) " Longest string is inside the inverter's hard voltage limit but outside the preferred 15% design margin." else ""
         val stringNote = if (best.stringCounts.size > 1) {
@@ -336,10 +346,10 @@ object EquipmentSelectionEngine {
         } else if (best.stringCounts.size == 1) {
             " Single MPPT string (${best.stringCounts[0]} panels)."
         } else ""
-        val reason = "%.2f kW required — %d × %dW panels = %.2f kW.%s %s%s%s%s"
-            .format(requiredPvKw, best.count, best.watts, best.totalKw, rangeNote, checklist, marginNote, stringNote, estimateNote)
+        val reason = "%.2f kW required — smallest electrically valid array: %d × %dW panels = %.2f kW.%s %s%s%s%s"
+            .format(requiredPvKw, best.count, best.watts, best.totalKw, oversizeNote, checklist, marginNote, stringNote, estimateNote)
 
-        return PanelChoice(best.watts, best.count, best.totalKw, best.oversizePercent, best.valid, reason, best.stringCounts)
+        return PanelChoice(best.watts, best.count, best.totalKw, best.oversizePercent, best.valid, reason, best.stringCounts, best.withinPreferredMargin)
     }
 
     data class InverterChoice(val option: InverterOption, val headroomPercent: Double, val reason: String)

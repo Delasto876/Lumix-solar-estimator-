@@ -16,47 +16,69 @@ import org.junit.Test
  */
 class EquipmentSelectionEngineTest {
 
-    // ---- 1. Odd panel count is evaluated but even is preferred when a comparable option exists ----
+    // ---- 1. A63: smallest electrically valid array wins — no headroom-band target, no evenness bonus ----
+    // A50 originally scored toward a preferred 10-20% headroom band with an even-panel-count
+    // tiebreak. A63 (spec §24-28's "SMALLEST PRACTICAL ARRAY... NOT always use the maximum number
+    // of panels") replaced that scoring entirely — the search now returns the smallest
+    // electrically valid array across every catalog wattage, full stop, deferring the "does it
+    // actually recharge the battery on time" question to SystemCalculator's own follow-up
+    // simulation (A63's other half — see SystemCalculatorRechargeAwareSizingTest.kt).
     @Test
-    fun `even panel count preferred over an odd one at similar headroom`() {
-        // Generous electrical ceiling (nothing here should bind) so only the headroom/parity
-        // scoring is under test.
+    fun `the smallest electrically valid array wins across every wattage, not a percentage headroom target`() {
+        // Among the default catalog's 5 wattages, 700W x 10 lands exactly on the 7.0kW requirement
+        // (0% oversize, hand-traced: MpptStringPlanner falls back from 4 to 3 trackers here, since
+        // a full 4-way split would undervolt two of the four strings — [4, 3, 3], shortest string
+        // 3 x 40.42V = 121.3V, clears the 90V floor). Every other wattage's own smallest valid
+        // count starts at a higher kW (595W: 7.14kW, 615W: 7.38kW, 620W: 7.44kW, 720W: 7.20kW), so
+        // 700W x 10 is the global minimum regardless of panel-count parity.
         val result = EquipmentSelectionEngine.selectBestPanelConfigurationForLimits(
             requiredPvKw = 7.0, maxPvW = 50_000.0, maxPvV = 500.0, mpptTrackers = 4
         )
-        assertTrue("expected an electrically valid pick", result.electricallyValid)
-        assertEquals("expected an even panel count", 0, result.panelCount % 2)
+        assertTrue("expected an electrically valid pick: ${result.reason}", result.electricallyValid)
+        assertEquals(700, result.panelWatts)
+        assertEquals(10, result.panelCount)
+        assertEquals(listOf(4, 3, 3), result.stringCounts)
+        assertEquals(0.0, result.oversizePercent, 0.5)
     }
 
-    // ---- 2. A real 10-20% headroom decision ----
+    // ---- 2. A63: the preferred 15% voltage margin outranks "smallest array" when they disagree ----
     @Test
-    fun `panel selection lands within the preferred 10-20 percent headroom band when achievable`() {
+    fun `a margin-compliant but larger array beats a smaller array that violates the preferred voltage margin`() {
+        // 595W panel (Vmp 44.6V, Voc 52.6V), 2 MPPT trackers, 90V floor, 250V hard ceiling.
+        // Hand-traced per count (Python port of MpptStringPlanner + the Voc check):
+        //   4 panels -> [4] (2+2 would undervolt at 89.2V) -> Voc 219.9V: hard-valid, OUTSIDE the
+        //     212.5V (85%) preferred margin — the smaller array (2.38kW) but the worse one.
+        //   5 panels -> [5] -> Voc 274.8V: exceeds the 250V hard ceiling entirely — invalid.
+        //   6 panels -> [3, 3] (now a 2-way split clears 90V: 3 x 44.6 = 133.8V) -> Voc 164.9V:
+        //     hard-valid AND inside the 212.5V margin — a bigger array (3.57kW) but the safer one.
+        // If "smallest array" were still the only criterion, 4 panels would win. It doesn't.
         val result = EquipmentSelectionEngine.selectBestPanelConfigurationForLimits(
-            requiredPvKw = 7.0, maxPvW = 50_000.0, maxPvV = 500.0, mpptTrackers = 4
+            requiredPvKw = 2.0, maxPvW = 50_000.0, maxPvV = 250.0, mpptTrackers = 2,
+            wattages = listOf(595)
         )
-        assertTrue(
-            "expected 10-20%% headroom, got %.1f%%".format(result.oversizePercent),
-            result.oversizePercent in 9.9..20.1
-        )
+        assertTrue("expected an electrically valid pick: ${result.reason}", result.electricallyValid)
+        assertEquals(6, result.panelCount)
+        assertEquals(listOf(3, 3), result.stringCounts)
+        assertTrue("expected the winning candidate to be within the preferred margin", result.withinPreferredVoltageMargin)
     }
 
-    // ---- 3. A case requiring more than 20% because of electrical constraints ----
+    // ---- 3. A case requiring significant oversizing because of electrical constraints ----
     @Test
-    fun `panel selection exceeds 20 percent headroom when the only available wattage is too coarse`() {
+    fun `panel selection still returns the smallest valid array when that means significant oversizing`() {
         // Only one wattage available and the requirement doesn't divide into it cleanly — 3 panels
-        // is the smallest count that meets 1.5kW, and that alone is already 40% over. This also
-        // guards the real bug this round caught: the engine must NOT jump to 4 panels (even, but
-        // 86.7% over) just to get an even count — spec §3 explicitly forbids that trade.
+        // is the smallest count that meets 1.5kW, and that alone is already 40% over. The engine
+        // must NOT jump to a larger count for any reason (evenness no longer even applies) when
+        // the smaller, valid count is available.
         val result = EquipmentSelectionEngine.selectBestPanelConfigurationForLimits(
             requiredPvKw = 1.5, maxPvW = 50_000.0, maxPvV = 500.0, mpptTrackers = 1,
             wattages = listOf(700)
         )
         assertTrue("expected an electrically valid pick", result.electricallyValid)
         assertTrue(
-            "expected oversizing beyond the 10-20%% band, got %.1f%%".format(result.oversizePercent),
+            "expected oversizing beyond 20%%, got %.1f%%".format(result.oversizePercent),
             result.oversizePercent > 20.05
         )
-        assertEquals("expected the closer 3-panel fit, not a farther even one", 3, result.panelCount)
+        assertEquals("expected the smallest valid count, not a larger one", 3, result.panelCount)
     }
 
     // ---- 4. A single larger inverter is preferred over multiple smaller ones ----

@@ -4,6 +4,7 @@ import com.lumix.estimator.domain.simulation.BackupEstimator
 import com.lumix.estimator.domain.simulation.RechargeFeasibility
 import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.SimSystemConfig
+import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.domain.simulation.defaultDailyEnergyKwh
 import com.lumix.estimator.domain.simulation.defaultEffectiveDailyHours
 import kotlin.math.ceil
@@ -146,6 +147,114 @@ object SystemCalculator {
     }
 
     /**
+     * A63: the real per-model charge/discharge power a matched battery datasheet supports, capped
+     * at the inverter's own ceiling — shared by [calculate]'s final [QuoteResult] fields and its
+     * own A63 recharge-aware panel-count refinement below, so both read the exact same figures
+     * (resolved once, from the equipment library, rather than computed twice and risking drift).
+     */
+    private fun resolvedBatteryPowerKw(chosenBattery: BatteryOption?, totalBatteryKwh: Double, inverterKw: Double): Pair<Double?, Double?> {
+        val matchedBattery = EquipmentSpecs.batterySpecFor(chosenBattery?.name)
+        if (matchedBattery == null || totalBatteryKwh <= 0) return null to null
+        val units = (totalBatteryKwh / matchedBattery.ratedEnergyKwh).roundToInt().coerceAtLeast(1)
+        val inverterCeilingKw = inverterKw.coerceAtLeast(0.1)
+        val chargeKw = (matchedBattery.maxChargeA * matchedBattery.voltageV / 1000.0 * units).coerceAtMost(inverterCeilingKw)
+        val dischargeKw = (matchedBattery.maxDischargeA * matchedBattery.voltageV / 1000.0 * units).coerceAtMost(inverterCeilingKw)
+        return chargeKw to dischargeKw
+    }
+
+    /**
+     * A63 (spec §24-28's "ADD ONE OR TWO PANELS" rule): [baseline] is [EquipmentSelectionEngine]'s
+     * own smallest-electrically-valid pick for a hybrid array with a battery to charge. This checks
+     * whether that array can actually recharge the battery to a usable SOC by early afternoon —
+     * not assumed, a real simulated day via [RechargeFeasibility] (the same engine everything else
+     * in this app runs) — and, only if it can't, tries +1 then +2 panels (same wattage,
+     * re-validated for electrical compatibility at the larger count) until one does. If none of
+     * the three reach the target, the one that gets closest is kept rather than adding panels
+     * indefinitely for no proven benefit; if the baseline already meets the target, it's returned
+     * completely unchanged (no wasted simulations, no unnecessary oversizing).
+     *
+     * Deliberately narrow: this is the panel-COUNT refinement only, one wattage (whatever
+     * [EquipmentSelectionEngine] already picked), never called for MANUAL mode (an installer's own
+     * equipment choice is used exactly as selected — see this file's MANUAL branch) or when there's
+     * no battery to charge (off-grid's own fixed sizing path, grid-tie).
+     */
+    internal fun recheckPanelCountForRecharge(
+        baseline: EquipmentSelectionEngine.PanelChoice,
+        inverter: InverterOption,
+        chosenBattery: BatteryOption?,
+        totalBatteryKwh: Double,
+        batteryMaxChargeKw: Double?,
+        batteryMaxDischargeKw: Double?,
+        peakWatts: Double,
+        designDailyKwh: Double,
+        input: QuoteInputs
+    ): EquipmentSelectionEngine.PanelChoice {
+        if (baseline.panelCount <= 0 || totalBatteryKwh <= 0.0) return baseline
+
+        fun trial(count: Int): Pair<EquipmentSelectionEngine.PanelCompatibilityResult, RechargeFeasibility.RechargeResult>? {
+            if (count <= 0) return null
+            val compat = EquipmentSelectionEngine.checkPanelInverterCompatibility(
+                baseline.panelWatts, count, inverter.kw, inverterNameHint = inverter.name
+            )
+            if (!compat.valid) return null
+            val fallbackKw = min(totalBatteryKwh * 0.5, inverter.kw.coerceAtLeast(0.1))
+            val config = SimSystemConfig(
+                pvCapacityKw = count * baseline.panelWatts / 1000.0,
+                panelCount = count, panelWatts = baseline.panelWatts,
+                inverterKw = inverter.kw, inverterName = inverter.name,
+                batteryCapacityKwh = totalBatteryKwh, batteryName = chosenBattery?.name, hasBattery = true,
+                gridConnectable = true, avgDailyLoadKwh = designDailyKwh,
+                peakLoadKw = (peakWatts / 1000.0).coerceAtLeast(designDailyKwh / 10.0),
+                batteryMaxChargeKw = batteryMaxChargeKw ?: fallbackKw,
+                batteryMaxDischargeKw = batteryMaxDischargeKw ?: fallbackKw,
+                batteryChargeEfficiency = 0.95,
+                batteryDepthOfDischargeFraction = SimulationEngine.BATTERY_MIN_SOC_FRACTION
+            )
+            val result = RechargeFeasibility.evaluate(config, input) ?: return null
+            return compat to result
+        }
+
+        // oversizePercent is intentionally left as baseline's own figure (this function has no
+        // access to the original requiredPvKw to recompute it against) — harmless, since nothing
+        // downstream of PanelChoice reads oversizePercent; only panelWatts/panelCount/reason do.
+        fun choose(count: Int, compat: EquipmentSelectionEngine.PanelCompatibilityResult, note: String): EquipmentSelectionEngine.PanelChoice {
+            return baseline.copy(
+                panelCount = count,
+                totalPvKw = count * baseline.panelWatts / 1000.0,
+                stringCounts = compat.stringCounts,
+                withinPreferredVoltageMargin = compat.withinPreferredVoltageMargin,
+                reason = "${baseline.reason} Adjusted from ${baseline.panelCount} to $count panels — $note"
+            )
+        }
+
+        val base = trial(baseline.panelCount) ?: return baseline
+        if (base.second.targetMet) return baseline
+
+        val plusOne = trial(baseline.panelCount + 1)
+        if (plusOne != null && plusOne.second.targetMet) {
+            return choose(baseline.panelCount + 1, plusOne.first, "reaches a usable SOC by ~2 PM in a simulated day; the smaller array did not.")
+        }
+
+        val plusTwo = trial(baseline.panelCount + 2)
+        if (plusTwo != null && plusTwo.second.targetMet) {
+            return choose(baseline.panelCount + 2, plusTwo.first, "reaches a usable SOC by ~2 PM in a simulated day, where +1 panel alone still did not.")
+        }
+
+        val candidates = listOfNotNull(
+            Triple(baseline.panelCount, base.first, base.second),
+            plusOne?.let { Triple(baseline.panelCount + 1, it.first, it.second) },
+            plusTwo?.let { Triple(baseline.panelCount + 2, it.first, it.second) }
+        )
+        val best = candidates.maxBy { it.third.socAtTargetHourPercent }
+        return if (best.first == baseline.panelCount) baseline
+        else choose(
+            best.first, best.second,
+            "reaches a higher simulated SOC by ~2 PM (%.0f%%) than the smaller array, though neither fully reaches the 90%% recharge target."
+                .format(best.third.socAtTargetHourPercent)
+        )
+    }
+
+    /**
      * A57 (spec §11 — "remove the separate 'use discounted price' option... do not maintain two
      * competing price systems"): ONE price list. What used to be a second, fully separate
      * "discount price list" the installer could swap the whole quote onto is gone; a discount is
@@ -267,9 +376,29 @@ object SystemCalculator {
                 panelSelectionReason = "%.2f kW required — %d × %dW panels (off-grid arrays capped at 4)."
                     .format(pvKw, panelCount, panelW)
             } else {
-                val panelChoice = EquipmentSelectionEngine.selectBestPanelConfiguration(
+                var panelChoice = EquipmentSelectionEngine.selectBestPanelConfiguration(
                     pvKw, selectedInverter.kw, inverterNameHint = selectedInverter.name
                 )
+                // A63 (spec §24-28's "ADD ONE OR TWO PANELS" rule): EquipmentSelectionEngine only
+                // just found the smallest electrically valid array — for a hybrid system with a
+                // battery to charge, that's not the whole answer yet. Check whether it can actually
+                // recharge the battery to a usable SOC by early afternoon via a real simulated day,
+                // and only then, if it can't, grow it by 1 or 2 panels until it does (or until +2
+                // stops helping) — never for MANUAL mode, never when there's no battery.
+                if (input.systemMode == SystemMode.HYBRID && totalBatteryKwh > 0) {
+                    val (earlyChargeKw, earlyDischargeKw) = resolvedBatteryPowerKw(chosenBattery, totalBatteryKwh, selectedInverter.kw)
+                    panelChoice = recheckPanelCountForRecharge(
+                        baseline = panelChoice,
+                        inverter = selectedInverter,
+                        chosenBattery = chosenBattery,
+                        totalBatteryKwh = totalBatteryKwh,
+                        batteryMaxChargeKw = earlyChargeKw,
+                        batteryMaxDischargeKw = earlyDischargeKw,
+                        peakWatts = peakWatts,
+                        designDailyKwh = designDailyKwh,
+                        input = input
+                    )
+                }
                 panelW = panelChoice.panelWatts
                 panelCount = panelChoice.panelCount
                 panelSelectionReason = panelChoice.reason
@@ -622,18 +751,7 @@ object SystemCalculator {
         // Resolved once, here, at calculation time — never re-matched against a possibly-newer
         // equipment catalog when a saved quote's simulation is opened later. See
         // QuoteResult.batteryMaxChargeKw's own doc for why this matters for reproducibility.
-        val matchedBattery = EquipmentSpecs.batterySpecFor(chosenBattery?.name)
-        val batteryMaxChargeKw: Double?
-        val batteryMaxDischargeKw: Double?
-        if (matchedBattery != null && totalBatteryKwh > 0) {
-            val units = (totalBatteryKwh / matchedBattery.ratedEnergyKwh).roundToInt().coerceAtLeast(1)
-            val inverterCeilingKw = inverter.kw.coerceAtLeast(0.1)
-            batteryMaxChargeKw = (matchedBattery.maxChargeA * matchedBattery.voltageV / 1000.0 * units).coerceAtMost(inverterCeilingKw)
-            batteryMaxDischargeKw = (matchedBattery.maxDischargeA * matchedBattery.voltageV / 1000.0 * units).coerceAtMost(inverterCeilingKw)
-        } else {
-            batteryMaxChargeKw = null
-            batteryMaxDischargeKw = null
-        }
+        val (batteryMaxChargeKw, batteryMaxDischargeKw) = resolvedBatteryPowerKw(chosenBattery, totalBatteryKwh, inverter.kw)
 
         val result = QuoteResult(
             effectiveSystemMode = effectiveSystemMode,
