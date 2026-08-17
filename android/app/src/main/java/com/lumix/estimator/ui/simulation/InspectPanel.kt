@@ -157,7 +157,13 @@ private fun detailLines(
                 spec?.mpptCount?.let { "MPPT inputs" to it.toString() },
                 spec?.maxPvW?.let { "Max PV input" to "$it W" },
                 spec?.batteryVoltageRange?.let { "Battery voltage range" to it },
-                spec?.efficiencyPercent?.let { "Rated efficiency" to "%.1f%%".format(it) }
+                spec?.efficiencyPercent?.let { "Rated efficiency" to "%.1f%%".format(it) },
+                // A77 (spec Phase 14): surface the real surge rating where the source datasheet
+                // actually gave one — see EquipmentSpecs.InverterSpec.surgePowerRatio's own doc.
+                if (spec?.surgePowerRatio != null && spec.surgeDurationSeconds != null) {
+                    val durationText = if (spec.surgeDurationSeconds < 1.0) "%.1fs".format(spec.surgeDurationSeconds) else "%.0fs".format(spec.surgeDurationSeconds)
+                    "Surge rating" to "%.0fx rated for $durationText".format(spec.surgePowerRatio)
+                } else null
             ),
             note = listOfNotNull(overLimitNote, frequencyNote).takeIf { it.isNotEmpty() }?.joinToString(" ")
         )
@@ -185,7 +191,12 @@ private fun detailLines(
                 "Reserve cutoff" to "${(cutoffFraction * 100).toInt()}%",
                 spec?.let { "Chemistry" to it.chemistry },
                 spec?.let { "Max charge / discharge" to "${it.maxChargeA}A / ${it.maxDischargeA}A per unit" },
-                spec?.let { "Rated cycle life" to "${it.cycleLife} cycles" }
+                spec?.let { "Rated cycle life" to "${it.cycleLife} cycles" },
+                // A77 (spec Phase 14 — "improve equipment database... BMS... parallel compatibility"):
+                // both already existed on BatterySpecSheet but were never actually shown anywhere —
+                // real data sitting unused, the same pattern A71/A72 found for other spec fields.
+                spec?.let { "BMS communication" to it.bmsCommunication },
+                spec?.takeIf { it.parallelSupported }?.let { "Parallel-capable" to "up to ${it.maxParallelUnits} units" }
             )
         )
     }

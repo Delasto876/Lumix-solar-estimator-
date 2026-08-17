@@ -89,6 +89,18 @@ data class InverterSpec(
     val maxDischargePowerKw: Double?,
     val acOutputA: Int?,
     val efficiencyPercent: Double?,
+    /**
+     * A77 (spec Phase 14 — "improve equipment database"): the spec's own required-fields list for
+     * this database includes "surge power," previously only ever present as freeform prose inside
+     * [engineeringNote] for the one or two entries that happened to mention it — not a queryable
+     * field, and easy to miss reading the raw list. [surgePowerRatio] is the multiple of
+     * [ratedOutputW] the unit can briefly deliver (e.g. `2.0` = 2x rated), [surgeDurationSeconds]
+     * how long. Both null wherever the source datasheet excerpt on file for that model never gave a
+     * surge figure — left unset rather than assumed identical to a same-brand sibling, since surge
+     * rating is not guaranteed consistent across a family's capacity tiers.
+     */
+    val surgePowerRatio: Double?,
+    val surgeDurationSeconds: Double?,
     val type: String,
     val verificationStatus: VerificationStatus,
     val dataQualityNote: String,
@@ -216,6 +228,7 @@ object EquipmentSpecs {
             mpptCount = 2, stringsPerMppt = 2, maxInputCurrentPerMpptA = 26.0, maxShortCircuitCurrentPerMpptA = 31.0,
             batteryVoltageRange = "40-60 V", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
             maxBatteryA = null, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = null,
+            surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
             dataQualityNote = "PV/MPPT specs from LuxPower's own GEN-LB-US 5-13K manual/catalogue (sourceUrl). Battery charge/discharge current is model-dependent and not given per-model — do not inherit the 13K's battery-current figure for this unit.",
             engineeringNote = "4 PV inputs total (2 MPPT x 2 strings each).",
@@ -229,6 +242,7 @@ object EquipmentSpecs {
             mpptCount = 2, stringsPerMppt = 2, maxInputCurrentPerMpptA = 26.0, maxShortCircuitCurrentPerMpptA = 31.0,
             batteryVoltageRange = "40-60 V", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
             maxBatteryA = 167, maxChargePowerKw = 8.0, maxDischargePowerKw = 8.0, acOutputA = null, efficiencyPercent = null,
+            surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
             dataQualityNote = "PV/MPPT/battery specs from LuxPower's own US-series inverter catalogue (sourceUrl).",
             engineeringNote = "",
@@ -242,6 +256,7 @@ object EquipmentSpecs {
             mpptCount = 2, stringsPerMppt = 2, maxInputCurrentPerMpptA = 26.0, maxShortCircuitCurrentPerMpptA = 31.0,
             batteryVoltageRange = "40-60 V", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
             maxBatteryA = 208, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = null,
+            surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
             dataQualityNote = "PV/MPPT specs from LuxPower's own GEN-LB-US 5-13K manual (sourceUrl). Battery current is an approximate family-configuration figure — use the exact 10K model datasheet for final battery current/power limits.",
             engineeringNote = "",
@@ -255,6 +270,9 @@ object EquipmentSpecs {
             mpptCount = 2, stringsPerMppt = 2, maxInputCurrentPerMpptA = 26.0, maxShortCircuitCurrentPerMpptA = 31.0,
             batteryVoltageRange = "40-60 V (48/51.2 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
             maxBatteryA = 208, maxChargePowerKw = 10.0, maxDischargePowerKw = 10.0, acOutputA = 54, efficiencyPercent = 97.5,
+            // A77 (spec Phase 14): the only two entries in this catalog whose source datasheet
+            // excerpt actually stated a surge figure — see this class's own surgePowerRatio doc.
+            surgePowerRatio = 2.0, surgeDurationSeconds = 0.5,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
             dataQualityNote = USER_PROVIDED,
             engineeringNote = "13kW at 240V AC / 11.2kW at 208V AC — max PV array power (21kW) exceeds max PV input power (18kW); 18kW is the binding limit used for compatibility checks. UPS (backup) output is only 10kW even though AC output is 13kW — backup-coverage sizing should use 10kW, not 13kW. Max continuous AC passthrough 90A; surge 2x rated power for 0.5s; 20ms switching; 99.9% MPPT efficiency, 94% battery efficiency; IP66/NEMA 4X.",
@@ -268,6 +286,7 @@ object EquipmentSpecs {
             mpptCount = 3, stringsPerMppt = 2, maxInputCurrentPerMpptA = 25.0, maxShortCircuitCurrentPerMpptA = 31.0,
             batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
             maxBatteryA = 250, maxChargePowerKw = 12.0, maxDischargePowerKw = 12.0, acOutputA = null, efficiencyPercent = 97.5,
+            surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
             dataQualityNote = "$USER_PROVIDED A distinct family from GEN-LB-US 13K — do not conflate the two.",
             engineeringNote = "3 independent MPPT inputs, 2:1:1 configuration (corrected from an earlier 2:2:1 transcription error); per-MPPT max current 25/15/15A, max short-circuit 31/19/19A; full-power MPPT range 230-500V (120-500V overall); 20ms switching; 99.9% MPPT efficiency, 94% battery charge/discharge efficiency; IP65/NEMA 4X.",
@@ -282,6 +301,7 @@ object EquipmentSpecs {
             mpptCount = 2, stringsPerMppt = 1, maxInputCurrentPerMpptA = 26.0, maxShortCircuitCurrentPerMpptA = 44.0,
             batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
             maxBatteryA = 135, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = 25, efficiencyPercent = null,
+            surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
             dataQualityNote = USER_PROVIDED,
             engineeringNote = "MPPT1/MPPT2 current ratings differ (26A + 13A operating, 44A + 22A short-circuit) — the second MPPT is a smaller tracker on this model. Max apparent power 6.6kVA; max AC current approx 27.5A.",
@@ -295,6 +315,7 @@ object EquipmentSpecs {
             mpptCount = 2, stringsPerMppt = 1, maxInputCurrentPerMpptA = 26.0, maxShortCircuitCurrentPerMpptA = 44.0,
             batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
             maxBatteryA = 190, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = 33, efficiencyPercent = null,
+            surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
             dataQualityNote = USER_PROVIDED,
             engineeringNote = "Both MPPTs equal on this model: 26A + 26A operating, 44A + 44A short-circuit. Max apparent power 8.8kVA; max AC current 36.7A.",
@@ -313,6 +334,9 @@ object EquipmentSpecs {
             mpptCount = 2, stringsPerMppt = null, maxInputCurrentPerMpptA = null, maxShortCircuitCurrentPerMpptA = null,
             batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
             maxBatteryA = 140, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = null,
+            // A77 (spec Phase 14): the only two entries in this catalog whose source datasheet
+            // excerpt actually stated a surge figure — see this class's own surgePowerRatio doc.
+            surgePowerRatio = 2.0, surgeDurationSeconds = 10.0,
             type = "Hybrid", verificationStatus = VerificationStatus.PARTIALLY_VERIFIED,
             dataQualityNote = "A52 upgrade: exact model (HESP4860U140-HUS, corrected from the earlier approximate \"HESP 4-6.5K-HUS\" family label), max PV voltage, and MPPT range now confirmed from SRNE's own product page. Max PV input power/current still not published per-model (\"PV input shared across the two MPPTs\", no wattage figure given) — still excluded from automatic Load-Based selection until that figure is confirmed.",
             engineeringNote = "Max grid/hybrid charge current 140A. Peak power 2x rated for 10s; 150% single-phase unbalanced-load support.",
@@ -326,6 +350,7 @@ object EquipmentSpecs {
             mpptCount = 2, stringsPerMppt = null, maxInputCurrentPerMpptA = null, maxShortCircuitCurrentPerMpptA = null,
             batteryVoltageRange = "48 V class", batteryVoltageMinV = null, batteryVoltageMaxV = null,
             maxBatteryA = null, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = null,
+            surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.PARTIALLY_VERIFIED,
             dataQualityNote = "A52 upgrade: max PV voltage/MPPT range now confirmed for the whole 8-12K-US family (600V-class, ~80-500V newer-family MPPT range). Per-model max PV input power/current for 8K specifically still not published — still excluded from automatic Load-Based selection until confirmed.",
             engineeringNote = "High-current PV inputs; generator input; AC coupling support (family-level features).",
@@ -339,6 +364,7 @@ object EquipmentSpecs {
             mpptCount = 2, stringsPerMppt = null, maxInputCurrentPerMpptA = null, maxShortCircuitCurrentPerMpptA = null,
             batteryVoltageRange = "48 V class", batteryVoltageMinV = null, batteryVoltageMaxV = null,
             maxBatteryA = null, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = null,
+            surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.PARTIALLY_VERIFIED,
             dataQualityNote = "A52 upgrade: max PV voltage/MPPT range now confirmed for the whole 8-12K-US family. Per-model max PV input power/current for 10K specifically still not published — still excluded from automatic Load-Based selection until confirmed.",
             engineeringNote = "High-current PV inputs; generator input; AC coupling support (family-level features).",
@@ -352,6 +378,7 @@ object EquipmentSpecs {
             mpptCount = 2, stringsPerMppt = null, maxInputCurrentPerMpptA = null, maxShortCircuitCurrentPerMpptA = null,
             batteryVoltageRange = "48 V class", batteryVoltageMinV = null, batteryVoltageMaxV = null,
             maxBatteryA = null, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = null,
+            surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.PARTIALLY_VERIFIED,
             dataQualityNote = "A52 upgrade: max PV voltage/MPPT range now confirmed for the whole 8-12K-US family. Per-model max PV input power/current for 12K specifically still not published — still excluded from automatic Load-Based selection until confirmed.",
             engineeringNote = "High-current PV inputs; generator input; AC coupling support (family-level features); parallel-capable architecture depending on configuration.",
@@ -369,6 +396,7 @@ object EquipmentSpecs {
             mpptCount = 3, stringsPerMppt = 2, maxInputCurrentPerMpptA = 22.0, maxShortCircuitCurrentPerMpptA = 27.0,
             batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
             maxBatteryA = 190, maxChargePowerKw = 8.0, maxDischargePowerKw = 8.0, acOutputA = 40, efficiencyPercent = 97.5,
+            surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
             dataQualityNote = "A52 upgrade: Growatt's own US product/datasheet page now confirms full PV/MPPT/battery specs for this exact model (previously excluded pending confirmation). Not added to Catalog's auto-selectable Load-Based pool, though — that stays on the single already-established Deye SUN-8K entry for the 8kW tier rather than introducing a multiple-verified-brands-per-tier selection feature this round; still available in MANUAL mode's own picker.",
             engineeringNote = "Max recommended PV is a family-level datasheet figure (15kW), not certified per-serial-number. Max grid passthrough 62.5A; generator input supported; ~10ms UPS switching.",
@@ -382,6 +410,7 @@ object EquipmentSpecs {
             mpptCount = 3, stringsPerMppt = 2, maxInputCurrentPerMpptA = 22.0, maxShortCircuitCurrentPerMpptA = 27.0,
             batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
             maxBatteryA = 200, maxChargePowerKw = 10.0, maxDischargePowerKw = 10.0, acOutputA = 50, efficiencyPercent = null,
+            surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
             dataQualityNote = USER_PROVIDED,
             engineeringNote = "3 MPPT trackers, 2 PV strings per MPPT.",

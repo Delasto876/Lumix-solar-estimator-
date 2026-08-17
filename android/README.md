@@ -4468,3 +4468,71 @@ path (`ResultsScreen` → `loadForEdit` → step 12 → Back through every earli
 `calculateAndSave`'s existing-id branch → `SystemResultScreen` → back-stack correctly unwound via
 the existing `onBackToHome`/`onQuoteSaved` popUpTo logic) against the actual navigation graph, not
 assumed.
+
+## A77 — Phase 14: improve equipment database
+
+The 67-order's Phase 14 maps to the original spec's separately-numbered "INVERTER DATABASE"/"BATTERY
+DATABASE" sections: maintain the approved LuxPower/Deye/SRNE/Growatt families at 6/8/10/12/13kW
+where a real verified model exists, don't invent models or specs, store a defined list of fields per
+inverter/battery, and never let a multi-unit battery bank mix capacities without being explicitly
+allowed to.
+
+**Inspected**: `EquipmentSpecs.kt` (the 13-inverter/3-battery verified database itself, built up
+across A41/A51/A52) against the spec's own required-field checklist and approved-family/capacity
+list; `EquipmentSelectionEngine.selectBestHybridBattery` and `SystemCalculator`'s two battery-sizing
+paths (the legacy GUIDED tier-escalation branch and A64's simulate-and-escalate loop) for whether
+either can ever produce a mismatched bank; `InspectPanel.kt` (the installer-facing spec-detail sheet)
+against what `EquipmentSpecs` actually stores, to check for real data that exists but was never shown.
+
+**Confirmed already correct, no fix needed**:
+- **Approved families/capacities already match the "do not invent" constraint exactly.** LuxPower
+  covers all five target capacities (6/8/10/12/13kW); Deye/SRNE/Growatt are deliberately missing the
+  specific capacities their source datasheets never confirmed a real US split-phase model for (Deye
+  10K/12K, SRNE 13K, Growatt 12K/13K) — each gap has its own comment explaining exactly why, not a
+  silent omission.
+- **No code path can ever produce a mismatched battery bank.** Both `SystemCalculator`'s legacy
+  GUIDED-mode tier-escalation (`SystemCalculator.kt:635-641`) and A64's `sizeHybridBatteryForBackup`
+  simulate-and-escalate loop call `EquipmentSelectionEngine.selectBestHybridBattery` exactly once per
+  attempt, which always resolves to one tier × N identical modules
+  (`candidates.minWith(compareBy({ it.usableTotal }, { it.modules }))` — never a combination across
+  tiers). Already covered by an existing test, `battery bank never mixes capacities across a range of
+  requirements` (`EquipmentSelectionEngineTest.kt`).
+
+**Found and fixed — real data existing but never shown to the installer.** `BatterySpecSheet`
+already stores `bmsCommunication`, `parallelSupported`, and `maxParallelUnits` (the spec's own
+"communication... parallel compatibility" required fields), but `InspectPanel.kt`'s battery detail
+sheet — the one place an installer actually sees a battery's spec during a simulation — never
+displayed them. The same "real data sat unused" pattern A71/A72 found for other spec fields. Now
+shown as "BMS communication" and "Parallel-capable" rows.
+
+**Found and fixed — a required field genuinely missing from the schema.** The spec's inverter
+database checklist explicitly lists "surge power" as a required field; this database had no
+structured field for it at all — the one or two entries that happened to mention a surge figure did
+so only inside freeform `engineeringNote` prose, unqueryable and inconsistent with every other
+entry. Added `InverterSpec.surgePowerRatio`/`surgeDurationSeconds` (e.g. `2.0`/`0.5` = "2x rated
+power for 0.5s"). Populated for exactly the two entries whose source datasheet excerpt on file
+actually gave a real surge figure — LuxPower GEN-LB-US 13K (2x rated, 0.5s) and SRNE
+HESP4860U140-HUS (2x rated, 10s) — left `null` for the other 11, rather than assumed identical to a
+same-brand/same-family sibling (surge rating isn't guaranteed consistent across a family's capacity
+tiers, and the source material never said it was). Wired into `InspectPanel.kt`'s inverter detail
+sheet as a "Surge rating" row, shown only where the real figure exists.
+
+**Deliberately not added — no real data exists for it in this catalog.** The spec's checklist also
+lists "communication" (RS485/WiFi/CAN) and "operating modes" (SOL/SBU/UTI) as required inverter
+fields. Checked every one of the 13 entries' `engineeringNote`/`dataQualityNote` text for a real,
+sourced communication protocol — none of the 13 ever states one. Adding a `communication: String?`
+field that would be `null` for every single current entry has no informational payoff this round —
+it's schema growth with nothing behind it, the opposite of this phase's own "verified equipment
+only" discipline. Flagged here rather than silently padded; a real value can be added the moment a
+sourced datasheet actually states one. "Operating modes" (SOL/SBU/UTI) is deliberately NOT a
+per-model spec field at all — it's already correctly modeled as a universal, installer-selectable
+simulation setting (`SimSystemConfig`/`SimulationEngine`, since A15 fix Phase 3), not a property that
+varies by which specific inverter model is installed.
+
+**Files changed**: `EquipmentSpecs.kt` (`InverterSpec.surgePowerRatio`/`surgeDurationSeconds` fields,
+populated for 2 of 13 entries), `InspectPanel.kt` (surge rating row for inverters; BMS
+communication/parallel-capability rows for batteries).
+
+**Tests**: new `EquipmentSpecsTest.kt` — asserts exactly the two real entries have a surge figure set
+(with the correct real values), every other entry has neither field set (no invented data crept in),
+and every battery still carries a non-blank `bmsCommunication` note.
