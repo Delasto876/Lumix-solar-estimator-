@@ -3613,3 +3613,60 @@ margin outcomes confirmed for every candidate count in the search window).
 electrical-code lookup, CRM/projects/installations/monitoring/inventory (none of which exist in any
 form today), AI/MCP layer. The full audit findings and file-by-file breakdown were delivered in
 chat for the installer to review and re-scope from before any of that begins.
+
+## A66 — Phase 2: architecture/state/data flow ("Lumix Solar Pro" spec, phase 67's own order)
+
+Per the installer's explicit "follow your own 67 order, start phase 2" — the 67-order's Phase 2 is
+"Fix architecture/state/data flow" (distinct from the earlier, differently-numbered Phase 2
+"Application Workflow" section elsewhere in the same message, which A56 already substantially
+covers — see A65's audit).
+
+**Inspected**: traced the actual data flow end to end rather than assuming the A65 audit's
+high-level read was sufficient. `WizardViewModel`'s `_savedQuoteId`/`_inputs` state, `QuoteRepository`'s
+persistence (full `QuoteInputs`/`QuoteResult` JSON blobs are the real source of truth; the few
+denormalized `QuoteEntity` columns are write-once History-list convenience fields, never read back
+as authoritative), `SystemResultScreen`/`ResultsScreen`/`SimulationViewModel.load` (all three
+independently re-fetch the same saved row by `quoteId` — no screen holds its own diverging copy),
+and the nav graph's `WizardViewModel` scoping (one shared instance per nav-host lifetime, with
+`reset()` called at every genuine "new quote" entry point, confirmed at all 5 call sites). **Found
+sound**: no duplicate calculation engines, no state duplication, no risk of one screen showing a
+different system than another for the same `quoteId`.
+
+**Found a real bug while tracing appliance data specifically** (Phase 27/56's explicit "there must
+never be two separate appliance lists... avoid duplicated information"): the wizard's `ApplianceType`
+(simple picker: label/watts/category) and the simulation's `SimApplianceType` (richer: duty cycle,
+startup surge, electrical tier) are deliberately two different Kotlin types for two different UI
+roles — not itself a violation — bridged by `SystemCalculator.simTypeFor`. But their `watts` fields
+are independently-declared literals, and three had drifted apart: FREEZER (200 vs. the real 180),
+WASHER (600 vs. 500), and DRYER — the serious one — 1500W in the wizard's own catalog vs.
+CLOTHES_DRYER's real 5000W in the simulation's.
+
+That DRYER drift was safety-relevant, not cosmetic: `SystemCalculator.loadsKwhAndPeak` computes
+`peakWatts` from `ApplianceType.watts` but `dailyKwh` (the auto-schedule path, the default) from
+`SimApplianceType.watts` via `defaultDailyEnergyKwh(simTypeFor(type), ...)` — two different
+wattage assumptions for the identical selected appliance, inside the SAME function. A selected
+dryer's contribution to `requiredInverterKw` was silently undercounted by 3.5kW per unit relative
+to what its own energy figure already assumed it draws. The stale 1500W also displayed directly to
+the installer in `StepHouseholdAppliances.kt`'s "N W estimated" label.
+
+**Fixed**: corrected all three literals in `ApplianceType` (`QuoteInputs.kt`) to match
+`SimApplianceType`'s own, more carefully documented figures. `SystemCalculator.simTypeFor` changed
+from `private` to `internal` so a test can walk it. New `ApplianceTypeConsistencyTest.kt` asserts,
+for every one of the 45 mapped appliance pairs, that `ApplianceType.watts == SimApplianceType.watts`
+— so this exact class of silent drift fails a build immediately instead of shipping again next time
+either catalog grows independently (which is exactly how this one happened — `SimApplianceType`'s
+catalog was expanded and refined across several prior rounds without a corresponding audit against
+the wizard's own numbers).
+
+**Deliberately not done this round**: no restructuring of the two-enum split itself (e.g. deriving
+`ApplianceType.watts` from `SimApplianceType` directly) — that would mean `domain.QuoteInputs.kt`
+importing from `domain.simulation`, a package-dependency reversal (today `domain.simulation`
+depends on `domain`, not the other way), which is a bigger structural change than a proportionate
+Phase 2 pass warrants when a literal-value fix plus a regression-test guardrail closes the actual
+bug just as completely. Worth reconsidering if a similar drift is found again.
+
+**Files changed**: `domain/QuoteInputs.kt` (3 wattage literals + doc comment), `domain/SystemCalculator.kt`
+(`simTypeFor` visibility), new `domain/ApplianceTypeConsistencyTest.kt`. No database schema change,
+no UI layout change (the display fix is a side effect of the corrected literal, not a new UI
+change), no calculation-logic change (the formula was already correct — only its input data was
+wrong).

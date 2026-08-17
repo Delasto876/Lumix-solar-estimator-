@@ -58,10 +58,27 @@ enum class DiscountType { NONE, PERCENT, FIXED }
  * [com.lumix.estimator.domain.simulation.SimApplianceType]'s category naming exactly.
  */
 @Serializable
+/**
+ * A66 (spec Phase 27/56 — "there must never be two separate appliance lists... avoid duplicated
+ * information"): [watts] here must always equal the [watts][com.lumix.estimator.domain.simulation.SimApplianceType.watts]
+ * of whichever [com.lumix.estimator.domain.simulation.SimApplianceType] [com.lumix.estimator.domain.SystemCalculator]'s
+ * own `simTypeFor` maps this entry to — this is the WIZARD's simpler selection-oriented catalog
+ * (checkbox + quantity, no duty-cycle/schedule fields), [SimApplianceType] is the SIMULATION's
+ * richer runtime catalog (duty cycle, startup surge, electrical tier); they're deliberately two
+ * different Kotlin types for two different roles, not an accidental duplicate, but the underlying
+ * WATTAGE FACT about e.g. "a clothes dryer" is one real number and must never be declared twice
+ * with two different values. `ApplianceTypeConsistencyTest` asserts this holds for every entry.
+ * (Found drifted during the A66 audit: FREEZER was 200 here vs. CHEST_FREEZER's real 180, WASHER
+ * was 600 vs. WASHING_MACHINE's 500, and DRYER was a badly stale 1500 vs. CLOTHES_DRYER's real
+ * 5000 — meaning a selected dryer's contribution to `SystemCalculator.loadsKwhAndPeak`'s PEAK watts
+ * used to undercount by 3.5kW per unit relative to what its own auto-schedule DAILY ENERGY
+ * calculation already assumed, understating `requiredInverterKw` for any quote that included one.
+ * All three corrected here to match [SimApplianceType]'s own, more carefully documented figures.)
+ */
 enum class ApplianceType(val label: String, val watts: Int, val category: String) {
     // Kitchen
     FRIDGE("Refrigerators", 150, "Kitchen"),
-    FREEZER("Deep Freezers", 200, "Kitchen"),
+    FREEZER("Deep Freezers", 180, "Kitchen"),
     ELECTRIC_KETTLE("Electric Kettle", 1500, "Kitchen"),
     MICROWAVE("Microwaves", 1200, "Kitchen"),
     TOASTER("Toaster", 1200, "Kitchen"),
@@ -107,8 +124,8 @@ enum class ApplianceType(val label: String, val watts: Int, val category: String
     CURLING_IRON("Curling/Flat Iron", 60, "Personal Care"),
 
     // Laundry
-    WASHER("Washers", 600, "Laundry"),
-    DRYER("Dryers", 1500, "Laundry"),
+    WASHER("Washers", 500, "Laundry"),
+    DRYER("Dryers", 5000, "Laundry"),
     IRON("Irons", 1200, "Laundry"),
 
     // Cleaning & Misc

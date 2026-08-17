@@ -19,8 +19,11 @@ object SystemCalculator {
      * The one mapping from the wizard's basic appliance picker to the simulation's real, richer
      * catalog — kept in sync with [com.lumix.estimator.domain.simulation.defaultApplianceStates]'s
      * own `stateFromWizard` pairings, since both exist to connect the exact same two enums.
+     * `internal` (not `private`) so `ApplianceTypeConsistencyTest` can walk every mapped pair and
+     * assert their wattages never drift apart again — see [ApplianceType]'s own doc for the A66
+     * bug this guards against.
      */
-    private fun simTypeFor(type: ApplianceType): SimApplianceType = when (type) {
+    internal fun simTypeFor(type: ApplianceType): SimApplianceType = when (type) {
         ApplianceType.FAN -> SimApplianceType.CEILING_FAN
         ApplianceType.FRIDGE -> SimApplianceType.REFRIGERATOR
         ApplianceType.FREEZER -> SimApplianceType.CHEST_FREEZER
