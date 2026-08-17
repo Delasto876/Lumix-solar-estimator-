@@ -4704,3 +4704,142 @@ two new fields are correctly grouped/suffixed, getter/setter round-trip) and new
 (`QuotePdfGenerator`/`QuoteHtmlGenerator`/`QuoteCsvGenerator`) remain untested at the unit level,
 consistent with this project's existing pattern — they need an Android `Context`, which this
 project's test suite doesn't instrument for any file.
+
+## A80 — Phase 17: realistic Jamaica weather/solar simulation
+
+The 67-order's Phase 17 is the installer's own large "REALISTIC JAMAICA WEATHER/SOLAR SIMULATION"
+spec, delivered with an explicit constraint up front: treat this as an *upgrade* to the existing
+calculation/simulation engines, preserve every completed phase's equipment databases, sizing
+modes, quote workflow, MPPT/battery logic, and reuse the existing PV/PSH/battery/load-profile/
+simulation-time/sizing components rather than duplicating them.
+
+**Inspected first, per the spec's own instruction**: `SimulationEngine.buildDayTimeline` (the one
+function every sizing/backup/recharge/live-simulation call site already shares), `WeatherState`
+(the flat "70%/100% SUN" button enum being replaced), `SolarResource.kt` (A60's existing per-parish
+PSH estimate — reused, not duplicated), and every call site of `buildDayTimeline`/
+`RechargeFeasibility.evaluate`/`BackupEstimator.estimate` across `SystemCalculator.kt` and the
+Simulation screen, to find exactly where a new month/weather-curve parameter needed to thread
+through without breaking any of the 7+ existing test files that hand-trace exact numeric PV/battery
+values through this engine.
+
+**Built — a real solar-position/climatology/stochastic-weather stack, additive end to end.**
+- **`SolarPosition.kt`** (new): standard published solar-declination/hour-angle geometry (Cooper
+  1969 approximation) — real sunrise/sunset/day-length per calendar month at Jamaica's latitude, not
+  a fixed annual assumption. This is legitimate physics, not fabricated location data; solar
+  elevation/azimuth are deliberately NOT computed since nothing in the engine (no shading model
+  exists) would consume them.
+- **`JamaicaClimatology.kt`** (new): monthly `solarResourceFactor`/`cloudinessBaseline`/
+  `variabilityFactor`/`tropicalStormRisk` tendencies, built directly from the seasonal pattern the
+  installer's own spec message described (Dec–Mar drier, May a secondary rainfall peak, Oct the
+  primary rainfall peak, Jul relatively dry, rising tropical-storm risk Aug–Oct) — explicitly
+  disclosed via `SOURCE_NOTE` as a modeled directional tendency, not measured Meteorological
+  Service of Jamaica or Global Solar Atlas data (neither was available to source from; inventing
+  numbers and attributing them to either would have violated the spec's own "do not invent
+  location-specific solar data").
+- **`WeatherCurve.kt`/`WeatherEngine`** (new): replaces `WeatherState`'s flat day-long multiplier.
+  `WeatherScenario` (TYPICAL/CLEARER/CLOUDIER/RAINY/CUSTOM) plus a continuous "Solar Conditions"
+  deviation feed `WeatherEngine.generate(scenario, month, deviation, seed)`, which combines the
+  month's climatology with the scenario's own cloud/variability/depth bias into a `WeatherCurve`:
+  a per-timestep availability curve (baseline + several raised-cosine cloud events, smooth by
+  construction — never an abrupt 0→100→0 step) rather than one number for the whole day. Seeded via
+  `kotlin.random.Random` with a deterministic default (hash of scenario/month/deviation), so the
+  same inputs always regenerate the identical curve — the spec's own "same scenario should produce
+  the same result when reopened."
+- **Engine wiring, entirely additive**: `SimulationEngine.buildDayTimeline` gained trailing-optional
+  `installMonth`/`weatherCurve` params (default `null`, reproducing the exact prior fixed-annual-
+  average behavior byte-for-byte for every existing caller/test); `irradianceFactor` gained optional
+  `sunriseHour`/`sunsetHour` params for the same reason. `REFERENCE_CURVE_PSH_HOURS`'s curve-
+  amplitude-scaling invariant (`simulated daily PV energy ≈ pvKw × pshHours`) is now generalized via
+  `CURVE_SHAPE_INTEGRAL` to a variable, month-dependent day length instead of always assuming the
+  fixed 12h reference window. `QuoteInputs.installMonth`/`QuoteResult.designInstallMonth` (both
+  `Int?`, 1–12) carry the installer's chosen month from the wizard through to the frozen quote,
+  following this codebase's established reproducibility pattern (a reopened saved quote's
+  simulation must never silently change) — `SimSystemConfig.installMonth` reads
+  `QuoteResult.designInstallMonth` the same way `pshHours` already reads `designPeakSunHours`.
+- **`RechargeFeasibility.evaluate`/`BackupEstimator.estimate`** both gained an optional `scenario`
+  parameter (default `TYPICAL`) and generate a real month-specific `WeatherCurve` whenever
+  `config.installMonth` is set (null continues to mean the flat clear-sky assumption every existing
+  caller already used). `RechargeFeasibility` now also reports the spec's own multi-checkpoint
+  battery-recharge test — SOC at Sunrise/10 AM/Noon/2 PM/4 PM/Sunset/Midnight/6 AM — read directly
+  off the one simulated timeline it already builds (extended to 30h so "Midnight"/"6 AM" are real
+  continuously-simulated frames, not `frameAt`'s own `.mod(24.0)` wrapping hour 30 back into the
+  same first day, which would have silently mislabeled pre-sunrise hours as "the following
+  morning").
+- **`SystemCalculator.calculate()`**: threads `installMonth` into both recharge-feasibility trial
+  configs (the panel +1/+2 recheck and the hybrid-battery backup sizing loop) and freezes
+  `designInstallMonth` into the result. New `QuoteResult.estimatedTypicalDailyPvKwh`/
+  `estimatedConservativeDailyPvKwh` (both `Double?`, null unless a month was picked) — the spec's own
+  "evaluate at minimum Typical Case and Conservative Case, report estimated typical/conservative
+  daily solar production" — computed by integrating `SimSystemConfig`'s own PV output (which doesn't
+  depend on battery SOC or appliance load) over one full month-specific day under TYPICAL and
+  CLOUDIER weather.
+- **Wizard UI**: `StepPropertySystem.kt`'s "Site location" card gained an optional "Installation
+  month" dropdown (spec's own "ask: which month is this system being designed/installed for?"),
+  with inline text disclosing that this affects simulation/evaluation only, never equipment sizing.
+  Leaving it unset (the default) reproduces every prior quote's behavior exactly.
+- **Simulation screen**: `WeatherSelector` now renders `WeatherScenario` chips instead of
+  `WeatherState`'s flat-percentage buttons; a new `SolarConditionsSlider` (labeled "Solar
+  Conditions," never "Sun %" per the spec's explicit instruction) feeds `solarConditionsDeviation`
+  into `WeatherEngine.generate` as a single scalar shift over the whole generated curve — it
+  preserves sunrise/sunset/cloud-event shape/day length/PSH relationship rather than acting as a
+  second independent per-timestep multiplier. The cloud/sun visual overlays now read the real
+  per-instant `WeatherCurve.factorAt(frame.hour)` instead of a flat multiplier, so passing clouds
+  are visible in the animation, not just in the numbers. The existing "Cloud Event" quick action now
+  temporarily switches to the RAINY scenario (a real generated curve) instead of flipping a flat
+  `WeatherState.STORM` multiplier.
+- **`SystemResultScreen.kt`**: a new "Solar Resource Assumption" section (shown only when an install
+  month is set) — month, typical PSH, Typical/Conservative estimated daily PV, and an explicit
+  "Modeled from Jamaica seasonal climatological tendencies... do not promise this exact production
+  every day" disclosure, per the spec's own §"SIZING REPORT" and §"WEATHER DATA TRANSPARENCY".
+
+**Deliberate scope decision, reasoned from the spec's own words**: month affects *simulation and
+evaluation* (recharge-feasibility checkpoints, backup-hours estimate, live Simulation screen) but
+deliberately does **not** change equipment sizing (panel/inverter/battery selection) — reasoned
+directly from the spec's own explicit "DO NOT OVERSIZE THE SYSTEM simply because the model contains
+occasional cloudy days... avoid both under-sizing and extreme over-sizing." A heavier winter/summer
+design margin is exactly the kind of blanket oversizing rule that instruction rules out; the panel
++1/+2 recharge-feasibility recheck already existed for genuine shortfalls and now correctly
+evaluates against the selected month's real weather instead of a flat annual assumption.
+
+**Audited and deliberately NOT attempted, disclosed rather than silently skipped**:
+- **Global Solar Atlas / World Bank / Meteorological Service of Jamaica dataset integration.** The
+  spec explicitly prefers these as sources and explicitly forbids inventing location-specific solar
+  data in their place. No such dataset was available to import in this sandbox (no network access to
+  fetch and verify a real licensed dataset), so `JamaicaClimatology`'s table stays exactly what its
+  own `SOURCE_NOTE` says it is — a modeled directional tendency built from the spec's own described
+  pattern — not attributed to a source it didn't come from. The architecture (`WeatherEngine`,
+  `SolarPosition`, per-parish `SolarResource`) is already shaped so a future real dataset could
+  replace `JamaicaClimatology`'s table without touching any consumer.
+- **Solar elevation/azimuth and a shading model.** `SolarPosition` computes real sunrise/sunset/day
+  length (what the engine actually consumes) but not elevation/azimuth angles, since nothing
+  downstream — there is no roof-geometry/shading model in this app (Solar Site was removed at A20)
+  — would use them. Computing unused angles would be scope for its own sake.
+- **Historical weather years / TMY datasets / real weather APIs.** Explicitly deferred by the spec
+  itself ("prepare the architecture... do not build this dependency into the first implementation if
+  the data source is not yet available"). `WeatherScenario.CUSTOM` and the seeded, parameterized
+  `WeatherEngine.generate` signature leave room for a future historical-replay mode without a
+  redesign.
+- **PDF/HTML/CSV export "Solar Resource Assumption" section.** `SystemResultScreen.kt` gained this
+  disclosure; `QuotePdfGenerator.kt`/`QuoteHtmlGenerator.kt`/`QuoteCsvGenerator.kt` were not
+  extended with the same section in this round — a straightforward follow-up, not attempted here to
+  keep this already-large round's diff reviewable.
+
+**Files changed**: new `domain/simulation/SolarPosition.kt`, `domain/simulation/
+JamaicaClimatology.kt`, `domain/simulation/WeatherCurve.kt` (replaces deleted `WeatherState.kt`);
+`domain/simulation/SimulationEngine.kt`, `domain/simulation/SimSystemConfig.kt`, `domain/
+simulation/RechargeFeasibility.kt`, `domain/simulation/BackupEstimator.kt`, `domain/QuoteInputs.kt`,
+`domain/QuoteResult.kt`, `domain/SystemCalculator.kt`, `domain/Formatting.kt` (new `MONTH_NAMES`/
+`monthName`); `ui/simulation/WeatherSelector.kt` (rewritten), `ui/simulation/
+SimulationViewModel.kt`, `ui/simulation/SimulationScreen.kt`, `ui/wizard/steps/
+StepPropertySystem.kt`, `ui/results/SystemResultScreen.kt`.
+
+**Tests**: new `SolarPositionTest.kt` (seasonal day-length ordering/range/symmetry, unmapped-month
+fallback), `JamaicaClimatologyTest.kt` (every month has a profile, values stay in their documented
+ranges, October is cloudier/less sunny than January, tropical-storm risk near zero outside
+hurricane season), `WeatherEngineTest.kt` (same-inputs reproducibility, different scenarios/seeds
+actually differ, `factorAt` always in `[0.02, 1.0]` across a 48h span, `WeatherCurve.CLEAR` stays
+flat 1.0). Extended `RechargeFeasibilityTest.kt` (checkpoints always present/ordered even without a
+month, existing hand-traced numbers unchanged by the `durationHours=30` extension, a month-aware
+config generates a real reproducible curve with correct sunrise/sunset checkpoints) and
+`BackupEstimatorTest.kt` (scenario has no effect without a month, a cloudier scenario never
+outlasts typical for the same month-aware system).

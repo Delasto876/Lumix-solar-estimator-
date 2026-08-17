@@ -39,6 +39,15 @@ object SimulationEngine {
      * reading this round's install-time decision ruled out.
      */
     const val REFERENCE_CURVE_PSH_HOURS = 7.2085
+    /**
+     * A80 (spec Phase 17): the dimensionless piece of [REFERENCE_CURVE_PSH_HOURS]'s own derivation
+     * — `integral(sin(pi*x)^1.2, 0, 1)` — factored out so the curve's implied "effective sun-hours"
+     * can be recomputed for a real, month-varying daylight window (`SolarPosition.sunTimesForMonth`)
+     * instead of always assuming the fixed 12.0h window [SUNRISE_HOUR]/[SUNSET_HOUR] represent.
+     * [REFERENCE_CURVE_PSH_HOURS] itself is unchanged (`12.0 * CURVE_SHAPE_INTEGRAL`) and remains
+     * the exact value every caller that doesn't opt into month-aware sunrise/sunset already uses.
+     */
+    private const val CURVE_SHAPE_INTEGRAL = REFERENCE_CURVE_PSH_HOURS / 12.0
     // SOL/SBU reserve the battery down to this floor before ever importing from JPS —
     // a 20% DOD cutoff, per the real hybrid-inverter behavior this models. Public so the UI
     // (battery runtime estimates, cutoff display) stays in sync with the engine's own value.
@@ -78,11 +87,17 @@ object SimulationEngine {
     private fun loadShapeFor(dayType: DayType) = if (dayType == DayType.WEEKDAY) weekdayLoadShape else weekendLoadShape
     private fun loadShapeMeanFor(dayType: DayType) = if (dayType == DayType.WEEKDAY) weekdayLoadShapeMean else weekendLoadShapeMean
 
-    fun irradianceFactor(hour: Double): Double {
+    /**
+     * A80 (spec Phase 17): [sunriseHour]/[sunsetHour] default to the fixed annual-average window
+     * every existing caller already relies on — passing real, month-specific values (from
+     * [SolarPosition]) is additive, opt-in, and never changes this function's behavior for a
+     * caller that doesn't ask for it.
+     */
+    fun irradianceFactor(hour: Double, sunriseHour: Double = SUNRISE_HOUR, sunsetHour: Double = SUNSET_HOUR): Double {
         val h = hour.mod(24.0)
-        if (h <= SUNRISE_HOUR || h >= SUNSET_HOUR) return 0.0
-        val span = SUNSET_HOUR - SUNRISE_HOUR
-        val x = (h - SUNRISE_HOUR) / span
+        if (h <= sunriseHour || h >= sunsetHour) return 0.0
+        val span = sunsetHour - sunriseHour
+        val x = (h - sunriseHour) / span
         return sin(PI * x).pow(1.2)
     }
 
@@ -130,7 +145,21 @@ object SimulationEngine {
          * represents "Critical Loads" / "Most Load" / a custom backup-coverage fraction without a
          * second load model: the same blanket fraction [SystemCalculator]'s own sizing already
          * applies to `criticalDailyKwh`, now shared by the simulation-driven estimate too. */
-        loadMultiplier: Double = 1.0
+        loadMultiplier: Double = 1.0,
+        /**
+         * A80 (spec Phase 17): the installer's selected install month (1-12), or null for the
+         * fixed annual-average sunrise/sunset/day-length every existing caller already used —
+         * see [SolarPosition]/[irradianceFactor]'s own docs. Purely additive: null reproduces the
+         * exact prior [SUNRISE_HOUR]/[SUNSET_HOUR] behavior byte-for-byte.
+         */
+        installMonth: Int? = null,
+        /**
+         * A80 (spec Phase 17): a real per-timestep weather curve (see [WeatherCurve]/[WeatherEngine])
+         * replacing the flat [cloudMultiplier] scalar for callers that opt in. Null (the default)
+         * preserves [cloudMultiplier]'s exact prior behavior — every existing caller/test that
+         * doesn't pass this parameter is completely unaffected.
+         */
+        weatherCurve: WeatherCurve? = null
     ): List<SimFrame> {
         val maxSocKwh = config.batteryCapacityKwh * BATTERY_MAX_SOC_FRACTION
         val minSocKwh = config.batteryCapacityKwh * config.batteryDepthOfDischargeFraction
@@ -143,10 +172,18 @@ object SimulationEngine {
         // appliance's own scheduled run windows on top, hour by hour, for real precision.
         val backgroundPerHourKw = (config.avgDailyLoadKwh / 24.0 * BACKGROUND_LOAD_FRACTION).coerceAtLeast(BACKGROUND_LOAD_FLOOR_KW)
         val dt = resolutionMinutes / 60.0
+        // A80: real month-specific sunrise/sunset when installMonth is set; the exact fixed
+        // SUNRISE_HOUR/SUNSET_HOUR pair (and therefore the exact prior pshScale below) otherwise.
+        val sunTimes = installMonth?.let { SolarPosition.sunTimesForMonth(it) }
+        val sunriseHour = sunTimes?.sunriseHour ?: SUNRISE_HOUR
+        val sunsetHour = sunTimes?.sunsetHour ?: SUNSET_HOUR
         // A70: see REFERENCE_CURVE_PSH_HOURS's own doc — scales the curve's amplitude so this
         // site's simulated daily yield tracks its own entered PSH, not the same fixed ~7.2h/day
-        // every site got before this round.
-        val pshScale = config.pshHours / REFERENCE_CURVE_PSH_HOURS
+        // every site got before this round. A80: generalized to the real daylight window's own
+        // implied sun-hours when installMonth is set, instead of always assuming the fixed 12.0h
+        // reference window — see CURVE_SHAPE_INTEGRAL's own doc.
+        val effectiveCurveSunHours = if (sunTimes != null) sunTimes.dayLengthHours * CURVE_SHAPE_INTEGRAL else REFERENCE_CURVE_PSH_HOURS
+        val pshScale = config.pshHours / effectiveCurveSunHours
 
         val steps = ((durationHours * 60) / resolutionMinutes).toInt()
         val frames = ArrayList<SimFrame>(steps + 1)
@@ -154,7 +191,10 @@ object SimulationEngine {
         for (i in 0..steps) {
             val hour = startHour + (i * resolutionMinutes) / 60.0
 
-            val irradianceFraction = irradianceFactor(hour) * cloudMultiplier * pshScale
+            // A80: weatherCurve (per-timestep, opt-in) replaces the flat cloudMultiplier when
+            // supplied — see its own parameter doc for the exact backward-compat guarantee.
+            val cloudFactor = weatherCurve?.factorAt(hour) ?: cloudMultiplier
+            val irradianceFraction = irradianceFactor(hour, sunriseHour, sunsetHour) * cloudFactor * pshScale
             // A69: capped at the inverter's real PV DC input ceiling (config.maxPvInputKw), NOT
             // its AC output rating (config.inverterKw) — a real hybrid inverter's DC/MPPT stage
             // typically accepts meaningfully more than its own AC rating (see

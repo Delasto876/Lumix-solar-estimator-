@@ -39,6 +39,7 @@ import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SavedQuote
 import com.lumix.estimator.domain.DiagnosticCheck
 import com.lumix.estimator.domain.QuoteResult
+import com.lumix.estimator.domain.monthName
 import com.lumix.estimator.domain.SavingsCalculator
 import com.lumix.estimator.domain.SystemDiagnostics
 import com.lumix.estimator.ui.components.LumixPrimaryButton
@@ -157,6 +158,42 @@ fun SystemResultScreen(
                     }
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.Center) {
                         RingGauge(percent = projection.coveragePercent, diameter = 88.dp, strokeWidth = 8.dp, label = "coverage")
+                    }
+                }
+            }
+
+            // A80 (spec Phase 17 §"SIZING REPORT" — "Solar resource assumption: Location, Month,
+            // Typical PSH, Modeled weather, Estimated daily PV, Conservative estimate"): only
+            // shown when an install month was actually picked (see
+            // QuoteResult.estimatedTypicalDailyPvKwh's own doc) — nothing month-specific to report
+            // otherwise, and this section exists specifically to disclose that assumption, not to
+            // invent one.
+            if (result.designInstallMonth != null) {
+                item {
+                    SectionCard(title = "Solar Resource Assumption") {
+                        Text(
+                            "Month: ${monthName(result.designInstallMonth) ?: ""} · Typical PSH: %.1f h".format(result.designPeakSunHours ?: inputs.peakSunHours),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = palette.textPrimary
+                        )
+                        Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            ResultStat(
+                                "TYPICAL DAILY PV",
+                                result.estimatedTypicalDailyPvKwh?.let { "%.1f kWh".format(it) } ?: "—",
+                                Modifier.weight(1f)
+                            )
+                            ResultStat(
+                                "CONSERVATIVE ESTIMATE",
+                                result.estimatedConservativeDailyPvKwh?.let { "%.1f kWh".format(it) } ?: "—",
+                                Modifier.weight(1f)
+                            )
+                        }
+                        Text(
+                            "Modeled from Jamaica seasonal climatological tendencies (not measured historical weather) — Typical vs. Cloudier-than-normal scenarios. Do not promise this exact production every day.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.textSecondary,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
                     }
                 }
             }

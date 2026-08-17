@@ -109,6 +109,15 @@ data class QuoteResult(
      * (unscaled) reference amplitude rather than guessing a PSH that was never recorded.
      */
     val designPeakSunHours: Double? = null,
+    /**
+     * A80 (spec Phase 17): [QuoteInputs.installMonth] at calculation time, frozen here for the
+     * same reproducibility reason as [designPeakSunHours] — a saved quote's simulation must always
+     * evaluate against the month it was actually designed for, not whatever the wizard's current
+     * default might be if this quote is reopened later. Null for quotes saved before this field
+     * existed, or for a quote where the installer never picked a month — both fall back to the
+     * annual-average weather/day-length assumption everywhere this is read.
+     */
+    val designInstallMonth: Int? = null,
 
     /**
      * A49: the engineering requirement GUIDED/LOAD's [EquipmentSelectionEngine] sized equipment
@@ -164,7 +173,21 @@ data class QuoteResult(
     /** Battery SOC% at the 2 PM check hour — see [batteryRechargeTargetMet]. */
     val batteryRechargeSocAt2pmPercent: Float? = null,
     /** The hour SOC actually reached the recharge target, or null if it never did within the simulated day — see [batteryRechargeTargetMet]. */
-    val batteryRechargeHour: Double? = null
+    val batteryRechargeHour: Double? = null,
+
+    /**
+     * A80 (spec Phase 17 §"SIZING MUST USE WEATHER LOGIC" — "evaluate the selected system against
+     * ... at minimum Typical Case and Conservative Case ... report: Estimated typical daily solar
+     * production, Estimated conservative daily solar production"): the selected array's simulated
+     * daily PV yield (kWh) integrated over one full [designInstallMonth]-aware day, under
+     * [com.lumix.estimator.domain.simulation.WeatherScenario.TYPICAL] and
+     * [com.lumix.estimator.domain.simulation.WeatherScenario.CLOUDIER] respectively — the same
+     * weather model the recharge/backup checks above already ran against, not a separate estimate.
+     * Null when [designInstallMonth] was never set (no month-specific day to integrate) or for
+     * quotes saved before this field existed.
+     */
+    val estimatedTypicalDailyPvKwh: Double? = null,
+    val estimatedConservativeDailyPvKwh: Double? = null
 ) {
     val pvKw: Double get() = panelCount * panelWatts / 1000.0
 }

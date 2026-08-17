@@ -53,7 +53,15 @@ data class SimSystemConfig(
      * quotes' frozen `QuoteResult`, or a caller that hand-constructs a config) keeps the curve at
      * its native, unscaled amplitude rather than silently changing behavior underneath it.
      */
-    val pshHours: Double = SimulationEngine.REFERENCE_CURVE_PSH_HOURS
+    val pshHours: Double = SimulationEngine.REFERENCE_CURVE_PSH_HOURS,
+    /**
+     * A80 (spec Phase 17): 1-12, or null for the fixed annual-average sunrise/sunset/weather
+     * assumption every config built before this field existed already uses. See
+     * [SimulationEngine.buildDayTimeline]'s own `installMonth` parameter doc, and
+     * [com.lumix.estimator.domain.simulation.RechargeFeasibility]/[BackupEstimator], which read
+     * this field directly to decide whether to generate a real month-specific weather curve.
+     */
+    val installMonth: Int? = null
 ) {
     companion object {
         fun from(result: QuoteResult): SimSystemConfig {
@@ -97,7 +105,8 @@ data class SimSystemConfig(
                 batteryChargeEfficiency = 0.95,
                 batteryDepthOfDischargeFraction = SimulationEngine.BATTERY_MIN_SOC_FRACTION,
                 maxPvInputKw = maxPvInputKw,
-                pshHours = pshHours
+                pshHours = pshHours,
+                installMonth = result.designInstallMonth
             )
         }
     }

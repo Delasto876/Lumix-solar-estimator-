@@ -48,7 +48,15 @@ object BackupEstimator {
     fun estimate(
         config: SimSystemConfig,
         inputs: QuoteInputs,
-        dayType: DayType = DayType.WEEKDAY
+        dayType: DayType = DayType.WEEKDAY,
+        /**
+         * A80 (spec Phase 17 §"REAL-WORLD SIMULATION MODES"): TYPICAL by default — the search
+         * window spans multiple day/night cycles, so which weather scenario governs the
+         * intervening days' recharge genuinely changes how long backup lasts once the first
+         * night's charge is used up. Null [SimSystemConfig.installMonth] (every caller before
+         * this parameter existed) keeps the flat clear-sky assumption regardless of [scenario].
+         */
+        scenario: WeatherScenario = WeatherScenario.TYPICAL
     ): BackupEstimate {
         if (!config.hasBattery || config.batteryCapacityKwh <= 0.0) {
             return BackupEstimate(0.0, false, "No battery in this system — nothing to estimate backup runtime from.")
@@ -56,6 +64,10 @@ object BackupEstimator {
 
         val fraction = coverageFraction(inputs.backupCoverage, inputs.customBackupCoverageFraction)
         val appliances = defaultApplianceStates(inputs)
+        // A80: month-aware weather only when the config actually carries a month — see
+        // RechargeFeasibility.evaluate's identical pattern/doc for why null preserves the exact
+        // prior flat-clear-sky behavior.
+        val weatherCurve = config.installMonth?.let { WeatherEngine.generate(scenario, it) }
         val timeline = SimulationEngine.buildDayTimeline(
             config = config,
             gridConnected = false,
@@ -65,7 +77,9 @@ object BackupEstimator {
             startHour = SimulationEngine.SUNSET_HOUR,
             durationHours = MAX_HOURS_SEARCHED,
             loadMultiplier = fraction,
-            resolutionMinutes = 5
+            resolutionMinutes = 5,
+            installMonth = config.installMonth,
+            weatherCurve = weatherCurve
         )
 
         val firstShortfallIndex = timeline.indexOfFirst { it.unmetLoadKw > UNMET_EPSILON }

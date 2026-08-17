@@ -13,7 +13,9 @@ import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.SimFrame
 import com.lumix.estimator.domain.simulation.SimSystemConfig
 import com.lumix.estimator.domain.simulation.SimulationEngine
-import com.lumix.estimator.domain.simulation.WeatherState
+import com.lumix.estimator.domain.simulation.WeatherCurve
+import com.lumix.estimator.domain.simulation.WeatherEngine
+import com.lumix.estimator.domain.simulation.WeatherScenario
 import com.lumix.estimator.domain.simulation.defaultApplianceStates
 import com.lumix.estimator.domain.simulation.totalApplianceLoadKwAt
 import kotlinx.coroutines.Job
@@ -44,7 +46,17 @@ data class SimulationUiState(
     val inverterMode: InverterMode = InverterMode.SBU,
     val gridChargeEnabled: Boolean = true,
     val gridServiceAmps: Double = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS,
-    val weather: WeatherState = WeatherState.CLEAR,
+    /**
+     * A80 (spec Phase 17 §"WEATHER SCENARIO SELECTION"): replaces the removed `WeatherState`
+     * flat-percentage buttons — a climatological framing fed into [WeatherEngine.generate]
+     * alongside [solarConditionsDeviation] and the quote's own install month to produce
+     * [weatherCurve], the real per-timestep curve [rebuildTimeline] actually simulates against.
+     */
+    val weatherScenario: WeatherScenario = WeatherScenario.TYPICAL,
+    /** A80: the "SOLAR CONDITIONS" slider — see [WeatherEngine.generate]'s own `solarConditionsDeviation` doc. */
+    val solarConditionsDeviation: Double = 0.0,
+    /** A80: the generated curve currently driving [timeline] — exposed so the UI's cloud/sun overlays can read the real per-instant availability instead of a flat multiplier. */
+    val weatherCurve: WeatherCurve = WeatherCurve.CLEAR,
     val startSocFraction: Double = 0.6,
     val cloudEventActive: Boolean = false,
     val batteryFullHour: Double? = null,
@@ -93,12 +105,16 @@ class SimulationViewModel(
             // No inverterMode/gridChargeEnabled/dayType/startSocFraction passed here — the clean
             // SimulationUiState() set above and buildDayTimeline's own defaults already agree
             // (SBU / true / WEEKDAY / 0.6), so this quote starts from the same known-clean state
-            // every time, never a leftover from whatever quote was viewed previously.
+            // every time, never a leftover from whatever quote was viewed previously. Same for
+            // weatherScenario/solarConditionsDeviation — TYPICAL / 0.0, the clean default.
+            val weatherCurve = WeatherEngine.generate(WeatherScenario.TYPICAL, config.installMonth)
             val timeline = SimulationEngine.buildDayTimeline(
                 config,
                 gridConnected = gridConnected,
                 applianceStates = appliances,
-                gridServiceAmps = gridServiceAmps
+                gridServiceAmps = gridServiceAmps,
+                installMonth = config.installMonth,
+                weatherCurve = weatherCurve
             )
             val label = saved.inputs.customerName.takeIf { it.isNotBlank() } ?: "Your Solar System"
             _state.update {
@@ -110,6 +126,7 @@ class SimulationViewModel(
                     appliances = appliances,
                     gridConnected = gridConnected,
                     gridServiceAmps = gridServiceAmps,
+                    weatherCurve = weatherCurve,
                     technicalMode = technicalMode,
                     timeline = timeline,
                     currentFrame = SimulationEngine.frameAt(timeline, it.currentHour),
@@ -145,8 +162,14 @@ class SimulationViewModel(
         rebuildTimeline(gridServiceAmps = amps)
     }
 
-    fun setWeather(weather: WeatherState) {
-        rebuildTimeline(weather = weather)
+    /** A80: picks which climatological scenario [WeatherEngine.generate] builds the day's curve from — see [WeatherScenario]'s own doc. */
+    fun setWeatherScenario(scenario: WeatherScenario) {
+        rebuildTimeline(weatherScenario = scenario)
+    }
+
+    /** A80: the "SOLAR CONDITIONS" slider, [-0.2, 0.2] — see [WeatherEngine.generate]'s own `solarConditionsDeviation` doc. */
+    fun setSolarConditionsDeviation(deviation: Double) {
+        rebuildTimeline(solarConditionsDeviation = deviation.coerceIn(-0.2, 0.2))
     }
 
     fun setStartSocFraction(fraction: Double) {
@@ -161,15 +184,20 @@ class SimulationViewModel(
         rebuildTimeline(dayType = dayType)
     }
 
-    /** A brief, self-reverting dip in weather — clouds roll in, production drops, then clears. */
+    /**
+     * A80: a brief, self-reverting demonstration dip — temporarily switches to the RAINY
+     * scenario (a real, cloudier generated curve, not an instant flat drop) then reverts to
+     * whatever scenario/deviation was active before. Replaces the old `WeatherState.STORM` flip.
+     */
     fun triggerCloudEvent() {
         if (cloudEventJob?.isActive == true) return
-        val previousWeather = _state.value.weather
+        val previousScenario = _state.value.weatherScenario
+        val previousDeviation = _state.value.solarConditionsDeviation
         cloudEventJob = viewModelScope.launch {
             _state.update { it.copy(cloudEventActive = true) }
-            setWeather(WeatherState.STORM)
+            setWeatherScenario(WeatherScenario.RAINY)
             delay(3500)
-            setWeather(previousWeather)
+            rebuildTimeline(weatherScenario = previousScenario, solarConditionsDeviation = previousDeviation)
             _state.update { it.copy(cloudEventActive = false) }
         }
     }
@@ -180,22 +208,25 @@ class SimulationViewModel(
         inverterMode: InverterMode = _state.value.inverterMode,
         gridChargeEnabled: Boolean = _state.value.gridChargeEnabled,
         gridServiceAmps: Double = _state.value.gridServiceAmps,
-        weather: WeatherState = _state.value.weather,
+        weatherScenario: WeatherScenario = _state.value.weatherScenario,
+        solarConditionsDeviation: Double = _state.value.solarConditionsDeviation,
         startSocFraction: Double = _state.value.startSocFraction,
         dayType: DayType = _state.value.dayType
     ) {
         val config = _state.value.config ?: return
         val effectiveGridConnected = gridConnected && config.gridConnectable
+        val weatherCurve = WeatherEngine.generate(weatherScenario, config.installMonth, solarConditionsDeviation)
         val timeline = SimulationEngine.buildDayTimeline(
             config,
-            cloudMultiplier = weather.multiplier,
             gridConnected = effectiveGridConnected,
             startSocFraction = startSocFraction,
             applianceStates = appliances,
             inverterMode = inverterMode,
             gridChargeEnabled = gridChargeEnabled,
             gridServiceAmps = gridServiceAmps,
-            dayType = dayType
+            dayType = dayType,
+            installMonth = config.installMonth,
+            weatherCurve = weatherCurve
         )
         _state.update {
             it.copy(
@@ -204,7 +235,9 @@ class SimulationViewModel(
                 inverterMode = inverterMode,
                 gridChargeEnabled = gridChargeEnabled,
                 gridServiceAmps = gridServiceAmps,
-                weather = weather,
+                weatherScenario = weatherScenario,
+                solarConditionsDeviation = solarConditionsDeviation,
+                weatherCurve = weatherCurve,
                 startSocFraction = startSocFraction,
                 dayType = dayType,
                 timeline = timeline,

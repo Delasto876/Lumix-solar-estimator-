@@ -25,3 +25,12 @@ const val DEFAULT_QUOTE_VALIDITY_DAYS = 30
 /** Quote validity end date, formatted for display — [issuedAtMillis] + [DEFAULT_QUOTE_VALIDITY_DAYS]. */
 fun quoteValidUntil(issuedAtMillis: Long): java.util.Date =
     java.util.Date(issuedAtMillis + DEFAULT_QUOTE_VALIDITY_DAYS.toLong() * 24 * 60 * 60 * 1000)
+
+/** A80 (spec Phase 17 §"INSTALLATION MONTH"): shared 1-12 -> full month name lookup — [QuoteInputs.installMonth]/[QuoteResult.designInstallMonth]'s own indexing convention (1 = January). */
+val MONTH_NAMES = listOf(
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+)
+
+/** [month] is 1-12; returns null for null/out-of-range input rather than throwing. */
+fun monthName(month: Int?): String? = month?.let { MONTH_NAMES.getOrNull(it - 1) }

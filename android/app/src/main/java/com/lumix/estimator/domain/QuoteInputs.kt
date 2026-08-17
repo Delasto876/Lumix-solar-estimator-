@@ -203,6 +203,19 @@ data class QuoteInputs(
     val peakSunHours: Double = 5.5,
     /** A60: true once the installer has directly edited [peakSunHours] — stops a later [parish] change from silently overwriting a figure they deliberately chose. */
     val peakSunHoursManuallySet: Boolean = false,
+    /**
+     * A80 (spec Phase 17 — "REALISTIC JAMAICA WEATHER/SOLAR SIMULATION", §"INSTALLATION MONTH" —
+     * "ask: which month is this system being designed/installed for?"): 1-12, or null when the
+     * installer hasn't picked one yet. Deliberately does NOT change equipment sizing (panel count/
+     * inverter/battery) — the spec's own explicit "do not oversize the system simply because the
+     * model contains occasional cloudy days" — it instead makes the *simulation/evaluation* of the
+     * already-sized system (recharge feasibility, backup estimate, the live Simulation screen)
+     * reflect that month's real day length and climatological weather tendency instead of the
+     * fixed annual-average assumption every quote used before this field existed. See
+     * [com.lumix.estimator.domain.simulation.SolarPosition]/[com.lumix.estimator.domain.simulation
+     * .JamaicaClimatology]'s own docs for what "that month's real conditions" actually means here.
+     */
+    val installMonth: Int? = null,
 
     val backupHoursPreset: Int? = 12,
     val backupHoursCustom: Double = 6.0,

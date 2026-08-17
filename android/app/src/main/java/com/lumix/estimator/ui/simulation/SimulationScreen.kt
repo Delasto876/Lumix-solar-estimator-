@@ -59,7 +59,6 @@ import com.lumix.estimator.domain.simulation.SimulationWarnings
 import com.lumix.estimator.domain.simulation.SystemStatus
 import com.lumix.estimator.domain.simulation.WarningLevel
 import com.lumix.estimator.domain.simulation.TechnicalModel
-import com.lumix.estimator.domain.simulation.WeatherState
 import com.lumix.estimator.domain.simulation.applianceDailyEnergyByCategoryKwh
 import com.lumix.estimator.ui.components.AnimatedCounterText
 import com.lumix.estimator.ui.components.RecommendationCard
@@ -134,12 +133,16 @@ fun SimulationScreen(
         val frame = state.currentFrame!!
         val flows = remember(frame) { EnergyFlowResolver.resolve(frame) }
         val sunProgress = remember(frame.hour) { SimulationEngine.daylightProgress(frame.hour) }
-        val sunIntensity = remember(frame.hour, state.weather) {
-            (SimulationEngine.irradianceFactor(frame.hour) * state.weather.multiplier).toFloat()
+        // A80: reads the real per-instant availability off the generated WeatherCurve (baseline +
+        // cloud events for this hour) instead of a single flat WeatherState.multiplier applied to
+        // the whole day — see SimulationUiState.weatherCurve's own doc.
+        val weatherFactor = remember(frame.hour, state.weatherCurve) { state.weatherCurve.factorAt(frame.hour).toFloat() }
+        val sunIntensity = remember(frame.hour, weatherFactor) {
+            (SimulationEngine.irradianceFactor(frame.hour).toFloat() * weatherFactor)
         }
-        val cloudCoverage = remember(state.weather) { (1.0 - state.weather.multiplier).toFloat() }
+        val cloudCoverage = remember(weatherFactor) { 1f - weatherFactor }
         val daylightFactor = remember(frame.hour) { SimulationEngine.irradianceFactor(frame.hour).toFloat() }
-        val isStorm = state.weather == WeatherState.STORM
+        val isStorm = state.cloudEventActive || cloudCoverage > 0.6f
         val batterySocFraction = if (config.hasBattery) frame.batterySocPercent / 100f else null
 
         LazyColumn(
@@ -323,7 +326,12 @@ fun SimulationScreen(
 
             item {
                 SectionCard(title = "Weather") {
-                    WeatherSelector(selected = state.weather, onSelect = viewModel::setWeather)
+                    WeatherSelector(selected = state.weatherScenario, onSelect = viewModel::setWeatherScenario)
+                    SolarConditionsSlider(
+                        deviation = state.solarConditionsDeviation.toFloat(),
+                        onDeviationChange = { viewModel.setSolarConditionsDeviation(it.toDouble()) },
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
                     WhatIfRow(
                         actions = buildList {
                             add(

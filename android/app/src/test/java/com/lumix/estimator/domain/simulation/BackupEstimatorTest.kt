@@ -143,4 +143,35 @@ class BackupEstimatorTest {
         )
         assertEquals(fullLoad[10].houseLoadKw / 2.0, shifted[10].houseLoadKw, 0.001)
     }
+
+    /**
+     * A80: a config with no [SimSystemConfig.installMonth] must estimate identically regardless
+     * of [BackupEstimator.estimate]'s new `scenario` parameter — null month means [weatherCurve]
+     * stays null inside `estimate`, which preserves the exact prior flat-clear-sky behavior no
+     * matter which scenario is passed.
+     */
+    @Test
+    fun `scenario has no effect without an install month`() {
+        val config = configFor(5.0)
+        val inputs = noApplianceInputs(BackupCoverage.MOST_LOAD)
+        val typical = BackupEstimator.estimate(config, inputs, scenario = WeatherScenario.TYPICAL)
+        val rainy = BackupEstimator.estimate(config, inputs, scenario = WeatherScenario.RAINY)
+        assertEquals(typical.hours, rainy.hours, 0.0)
+        assertEquals(typical.sufficientForFullWindow, rainy.sufficientForFullWindow)
+    }
+
+    /**
+     * A80 (spec Phase 17 §"SIZING MUST USE WEATHER LOGIC" — "evaluate ... at minimum Typical Case
+     * and Conservative Case"): with a real install month, a RAINY-scenario estimate must never
+     * outperform a TYPICAL one for the same system — less available solar across the multi-day
+     * search window can only hold the battery up as long or shorter, never longer.
+     */
+    @Test
+    fun `a cloudier scenario never outlasts typical for the same month-aware system`() {
+        val config = configFor(30.0).copy(installMonth = 10) // October, a heavier daytime load
+        val inputs = noApplianceInputs(BackupCoverage.MOST_LOAD)
+        val typical = BackupEstimator.estimate(config, inputs, scenario = WeatherScenario.TYPICAL)
+        val rainy = BackupEstimator.estimate(config, inputs, scenario = WeatherScenario.RAINY)
+        assertTrue("rainy (${rainy.hours}h) should not outlast typical (${typical.hours}h)", rainy.hours <= typical.hours + 0.01)
+    }
 }

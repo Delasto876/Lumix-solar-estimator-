@@ -9,6 +9,8 @@ import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.domain.simulation.defaultApplianceStates
 import com.lumix.estimator.domain.simulation.defaultDailyEnergyKwh
 import com.lumix.estimator.domain.simulation.defaultEffectiveDailyHours
+import com.lumix.estimator.domain.simulation.WeatherEngine
+import com.lumix.estimator.domain.simulation.WeatherScenario
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -354,7 +356,11 @@ object SystemCalculator {
                 // trial's recharge-feasibility check would simulate against the curve's unscaled
                 // reference amplitude, silently over-crediting recharge capability at any site
                 // with a below-reference PSH (which is most of them — see REFERENCE_CURVE_PSH_HOURS).
-                pshHours = input.peakSunHours.coerceAtLeast(MIN_PSH)
+                pshHours = input.peakSunHours.coerceAtLeast(MIN_PSH),
+                // A80: month-aware recharge check — an October-designed system's +1/+2 panel
+                // decision should be tested against October's own weather model, not the flat
+                // annual-average curve, when the installer provided an install month.
+                installMonth = input.installMonth
             )
             val result = RechargeFeasibility.evaluate(config, input) ?: return null
             return compat to result
@@ -964,6 +970,7 @@ object SystemCalculator {
             batteryMaxDischargeKw = batteryMaxDischargeKw,
             inverterMaxPvKw = inverterMaxPvKw,
             designPeakSunHours = psh,
+            designInstallMonth = input.installMonth,
             requiredPvKw = requiredPvKw,
             requiredInverterKw = requiredInverterKw,
             requiredBatteryUsableKwh = requiredBatteryUsableKwh,
@@ -980,6 +987,26 @@ object SystemCalculator {
         val simConfig = SimSystemConfig.from(result)
         val backupEstimate = BackupEstimator.estimate(simConfig, input)
         val rechargeCheck = RechargeFeasibility.evaluate(simConfig, input)
+        // A80 (spec Phase 17 §"SIZING MUST USE WEATHER LOGIC" — "report: Estimated typical daily
+        // solar production, Estimated conservative daily solar production"): only computed when an
+        // install month was actually picked — without one, there's no month-specific day to
+        // integrate and the field stays null (see QuoteResult.estimatedTypicalDailyPvKwh's own
+        // doc). PV output doesn't depend on battery SOC/appliance load (see buildDayTimeline's own
+        // `pv` derivation), so a single full-day timeline per scenario is enough to sum.
+        val dailyProductionEstimate = input.installMonth?.let { month ->
+            val dt = 5.0 / 60.0
+            fun dailyPvKwh(scenario: WeatherScenario): Double {
+                val curve = WeatherEngine.generate(scenario, month)
+                val timeline = SimulationEngine.buildDayTimeline(
+                    config = simConfig,
+                    resolutionMinutes = 5,
+                    installMonth = month,
+                    weatherCurve = curve
+                )
+                return timeline.sumOf { it.pvKw * dt }
+            }
+            dailyPvKwh(WeatherScenario.TYPICAL) to dailyPvKwh(WeatherScenario.CLOUDIER)
+        }
         // A64 (spec §8/§25 — "Do not display '12-hour backup'... display the real simulated hours
         // and BACKUP TARGET NOT MET"): distinct from estimatedBackupSufficient, which only means
         // "survived the whole multi-day stress window tested" — this compares against what the
@@ -993,7 +1020,9 @@ object SystemCalculator {
             batteryBackupTargetMet = backupTargetMet,
             batteryRechargeTargetMet = rechargeCheck?.targetMet,
             batteryRechargeSocAt2pmPercent = rechargeCheck?.socAtTargetHourPercent,
-            batteryRechargeHour = rechargeCheck?.hourReachedTarget
+            batteryRechargeHour = rechargeCheck?.hourReachedTarget,
+            estimatedTypicalDailyPvKwh = dailyProductionEstimate?.first,
+            estimatedConservativeDailyPvKwh = dailyProductionEstimate?.second
         )
     }
 

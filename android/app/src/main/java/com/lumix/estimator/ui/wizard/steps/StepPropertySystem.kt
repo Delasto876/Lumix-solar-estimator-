@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.domain.Catalog
 import com.lumix.estimator.domain.JpsRate
+import com.lumix.estimator.domain.MONTH_NAMES
 import com.lumix.estimator.domain.PropertyType
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteMode
@@ -72,6 +73,26 @@ fun StepPropertySystem(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInp
                 },
                 modifier = Modifier.padding(top = 4.dp)
             )
+            // A80 (spec Phase 17 §"INSTALLATION MONTH" — "ask: which month is this system being
+            // designed/installed for?"): optional, same as the rest of this step — leaving it
+            // unset simply keeps the fixed annual-average day-length/weather assumption every
+            // quote used before this field existed (see QuoteInputs.installMonth's own doc).
+            // Deliberately does NOT affect equipment sizing, only simulation/evaluation — the
+            // NumberField above is still what actually sizes the array.
+            LabeledDropdown(
+                label = "Installation month (optional)",
+                options = listOf(0) + (1..12).toList(),
+                selected = inputs.installMonth ?: 0,
+                optionLabel = { monthIndex -> if (monthIndex == 0) "Not specified" else MONTH_NAMES[monthIndex - 1] },
+                onSelected = { v -> onUpdate { it.copy(installMonth = v.takeIf { m -> m != 0 }) } }
+            )
+            if (inputs.installMonth != null) {
+                Text(
+                    "Simulation and recharge/backup checks will use ${MONTH_NAMES[inputs.installMonth!! - 1]}'s modeled Jamaica seasonal weather tendency instead of a flat annual average. This does not change panel/inverter/battery sizing.",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
 
         SectionCard(title = "Property") {

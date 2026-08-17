@@ -81,4 +81,49 @@ class RechargeFeasibilityTest {
         assertNull("the target was never reached at all, not just late", result.hourReachedTarget)
         assertEquals(40.7f, result.socAtTargetHourPercent, 0.5f)
     }
+
+    /**
+     * A80 (spec Phase 17 §"BATTERY RECHARGE TEST" — "Track SOC at sunrise, 10 AM, noon, 2 PM,
+     * 4 PM, sunset, midnight, 6 AM"): a config with no [SimSystemConfig.installMonth] still gets
+     * the 8-checkpoint list (annual-average sunrise/sunset), and `hourReachedTarget`/
+     * `socAtTargetHourPercent` are completely unaffected by this round's changes — same numbers as
+     * the pre-A80 hand trace above, confirming durationHours=30's extra frames and the
+     * `it.hour <= 24.0` guard on hourReached didn't silently change existing behavior.
+     */
+    @Test
+    fun `checkpoints are always present, in order, even without an install month`() {
+        val result = RechargeFeasibility.evaluate(configFor(60.0), noApplianceInputs())!!
+        assertEquals(
+            listOf("Sunrise", "10 AM", "Noon", "2 PM", "4 PM", "Sunset", "Midnight", "6 AM"),
+            result.checkpoints.map { it.label }
+        )
+        assertEquals(SimulationEngine.SUNRISE_HOUR, result.checkpoints.first().hour, 0.01)
+        assertEquals(SimulationEngine.SUNSET_HOUR, result.checkpoints[5].hour, 0.01)
+        assertEquals(24.0, result.checkpoints[6].hour, 0.0)
+        assertEquals(30.0, result.checkpoints[7].hour, 0.0)
+        // Unchanged from the pre-A80 hand trace: reaches 90% at hour 12.67, 100% by 2pm.
+        assertTrue(result.targetMet)
+        assertEquals(12.67, result.hourReachedTarget!!, 0.05)
+    }
+
+    /**
+     * A80: an installMonth-bearing config generates a real month-specific weather curve (see
+     * RechargeFeasibility.evaluate's own `weatherCurve` doc) — checkpoints still come back in the
+     * same order/count, sunrise/sunset checkpoints now reflect that month's real day length
+     * (SolarPosition), and the same config always simulates identically (spec's own "same
+     * scenario should produce the same result when reopened").
+     */
+    @Test
+    fun `an install month generates a real month-specific curve, reproducibly`() {
+        val config = configFor(60.0).copy(installMonth = 10) // October
+        val first = RechargeFeasibility.evaluate(config, noApplianceInputs())!!
+        val second = RechargeFeasibility.evaluate(config, noApplianceInputs())!!
+        assertEquals(first.targetMet, second.targetMet)
+        assertEquals(first.hourReachedTarget, second.hourReachedTarget)
+        assertEquals(first.socAtTargetHourPercent, second.socAtTargetHourPercent, 0.0f)
+        assertEquals(8, first.checkpoints.size)
+        val octoberSunTimes = SolarPosition.sunTimesForMonth(10)
+        assertEquals(octoberSunTimes.sunriseHour, first.checkpoints.first().hour, 0.01)
+        assertEquals(octoberSunTimes.sunsetHour, first.checkpoints[5].hour, 0.01)
+    }
 }
