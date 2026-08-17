@@ -4952,3 +4952,79 @@ no dual-provider toggle was built, since the installer's choice was Google Maps 
 concerns living in the same simulation engine (aliased, not merged) — a future round could
 consider whether Solar Site's per-parish `latitude`/`longitude` should also inform A80's monthly
 climatology model, but that's a genuinely separate design question from restoring what existed.
+
+## A82 — Phase 19: electrical-code lookup architecture
+
+The 67-order's Phase 19 maps to the original spec's §37 ("ELECTRICAL CODE / NEC / JS 316" —
+"create an electrical-code lookup architecture... do not invent code requirements... do not state
+the application is code-compliant simply because a calculation passes... if the required
+standards are not present, say 'Source document required for verification'... allow the
+administrator to upload/update applicable standards later").
+
+**Inspected**: confirmed nothing code-related existed anywhere in the codebase yet (no "NEC",
+"JS 316", or compliance-framing text of any kind), and identified `SystemDiagnostics.checksFor` —
+the ONE existing engineering-check panel (A58, shared by `StepSystemReview.kt` and
+`SystemResultScreen.kt`) — as the natural, already-existing surface for citations to attach to,
+rather than inventing a separate parallel "compliance checklist."
+
+**Built — architecture only, since no real standard document was ever provided to build against.**
+Per the spec's own explicit prohibition on inventing code content, and this codebase's established
+"don't fabricate business/regulatory content" discipline (same reasoning as A78/A79's `BusinessInfo`
+and A81's Solar Site source attestation):
+- **`domain/CodeStandard.kt`** (new): `CodeStandard` (name, edition, source attestation — an
+  administrator's own claim about where a real document lives, never verified/parsed by the app)
+  and `CodeRequirementReference` (one citation: a standard's section/article tied to exactly one
+  of `SystemDiagnostics.ALL_CHECK_LABELS`, a real existing engineering check — never a
+  free-floating claim). `CodeReferenceLookup.referenceFor` is pure lookup logic: a check either
+  resolves to an administrator-entered `Found(standard, reference)` or the spec's own required
+  `SourceRequired` — nothing is ever inferred, generated, or defaulted to "probably compliant."
+- **`data/CodeStandardRepository.kt`** (new): DataStore-JSON-backed (same pattern
+  `SettingsRepository` already uses for scalars, extended to two growing lists) —
+  add/delete standard, add/delete citation. Starts completely empty; deleting a standard also
+  removes its own citations rather than leaving them silently orphaned.
+- **`SystemDiagnostics.kt`**: the 13 check labels `checksFor` already produces are now named
+  constants (`LABEL_VOC`, `LABEL_BATTERY_RECHARGE`, etc.) plus `ALL_CHECK_LABELS`, so the
+  Settings citation picker and the actual Diagnostics panel can never drift apart — a citation
+  entered against a label that stops existing simply stops resolving, rather than silently
+  pointing at nothing.
+- **Settings → "Electrical Code Standards"** (new section): add a standard (name, edition,
+  source attestation), cite it against a check (pick standard + pick check + section/article +
+  why it applies), delete either. Empty by default, with the exact "no standards on file" state
+  spelled out up front — never a hint that content is missing/needs filling in the fabrication
+  sense, just a clear empty state.
+- **`SystemResultScreen.kt`**'s Diagnostics panel: each check shows its own `📖 Standard ed.
+  §Section — relevance` line only when a real citation exists; the section footer always states
+  "X of Y checks cite a standard on file — [the rest:] `CodeReferenceLookup.SOURCE_REQUIRED_MESSAGE`"
+  — the exact required wording, never softened into an implied compliance claim. A check passing
+  its own engineering validation and a check having a code citation are always shown as two
+  completely separate facts, never merged into one "compliant" badge.
+
+**Audited and deliberately NOT attempted, disclosed rather than silently skipped**:
+- **Real document ingestion/upload/OCR.** The spec's own "allow the administrator to upload"
+  language could mean actual file attachment and parsing — this sandbox has no way to verify a
+  real NEC/JS 316 PDF's authenticity or extract citable text from one, and building a real
+  document-storage/OCR pipeline is a substantially larger, separate feature. What's built instead
+  is the administrator's own typed attestation (name/edition/source description) — real
+  architecture for "what standard is on file and what does it say applies here," not a file
+  upload widget.
+- **`StepSystemReview.kt`** (the wizard's pre-Calculate review step) reuses the same
+  `SystemDiagnostics.checksFor` list but wasn't wired to show citations this round —
+  `SystemResultScreen.kt` is the canonical "why was this system selected" panel per A58's own
+  doc; threading `CodeStandardRepository` into the wizard step too is a straightforward, small
+  follow-up, not attempted here to keep this round's diff focused.
+- **No actual NEC/JS 316 content was entered anywhere** — by design. This round builds the
+  architecture; populating it with real, verified citations is the administrator's own job once
+  they have real documents on hand, exactly as the spec asks for.
+
+**Files changed**: new `domain/CodeStandard.kt`, `data/CodeStandardRepository.kt`;
+`domain/SystemDiagnostics.kt` (named check-label constants, `ALL_CHECK_LABELS`), `LumixApp.kt`
+(`codeStandardRepository`), `ui/settings/SettingsScreen.kt` (new "Electrical Code Standards"
+section), `ui/results/SystemResultScreen.kt` (per-check citation line + section-level disclosure),
+`ui/nav/LumixNavHost.kt` (repository wiring to both screens).
+
+**Tests**: new `CodeReferenceLookupTest.kt` — no standards on file / an unmatched check label / a
+citation whose standard was deleted all correctly resolve to `SourceRequired`, a real citation
+against an existing standard resolves to `Found` with both objects attached, and a guard test
+asserting `SystemDiagnostics.ALL_CHECK_LABELS` exactly matches (same values, same order) what
+`checksFor` actually emits — so the citation-picker's fixed option list can never silently drift
+from the real Diagnostics panel it's meant to describe.

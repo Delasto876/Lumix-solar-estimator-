@@ -20,11 +20,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -46,16 +49,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.lumix.estimator.data.CodeStandardRepository
 import com.lumix.estimator.data.PriceRepository
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.data.ThemeMode
+import com.lumix.estimator.domain.CodeRequirementReference
+import com.lumix.estimator.domain.CodeStandard
 import com.lumix.estimator.domain.PriceFields
 import com.lumix.estimator.domain.PriceList
 import com.lumix.estimator.domain.SavingsCalculator
+import com.lumix.estimator.domain.SystemDiagnostics
 import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.ui.components.CollapsibleGroup
 import com.lumix.estimator.ui.components.CollapsibleSectionCard
+import com.lumix.estimator.ui.components.LabeledDropdown
 import com.lumix.estimator.ui.components.LargeTitleTopBar
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.components.NumberField
@@ -81,7 +89,8 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     priceRepository: PriceRepository,
     settingsRepository: SettingsRepository,
-    quoteRepository: QuoteRepository
+    quoteRepository: QuoteRepository,
+    codeStandardRepository: CodeStandardRepository
 ) {
     val palette = LocalLumixPalette.current
     val scope = rememberCoroutineScope()
@@ -102,6 +111,9 @@ fun SettingsScreen(
     val companyEmail by settingsRepository.companyEmail.collectAsState(initial = "")
     val defaultWarranty by settingsRepository.defaultWarranty.collectAsState(initial = "")
     val paymentTerms by settingsRepository.paymentTerms.collectAsState(initial = "")
+
+    val codeStandards by codeStandardRepository.standards.collectAsState(initial = emptyList())
+    val codeReferences by codeStandardRepository.references.collectAsState(initial = emptyList())
 
     var showClearHistoryConfirm by remember { mutableStateOf(false) }
 
@@ -283,6 +295,32 @@ fun SettingsScreen(
             }
 
             item {
+                // A82 (spec Phase 19 — "electrical-code lookup architecture"): every standard and
+                // citation here is exactly what the administrator types in — this app never
+                // fetches, generates, or pre-fills any electrical-code content. See
+                // CodeStandard.kt's own doc for the full "do not invent code requirements"
+                // reasoning; this UI is the "allow the administrator to upload/update applicable
+                // standards later" half of that same spec section.
+                CollapsibleSectionCard(
+                    title = "Electrical Code Standards",
+                    subtitle = if (codeStandards.isEmpty()) "None on file yet" else "${codeStandards.size} standard(s), ${codeReferences.size} citation(s)"
+                ) {
+                    CodeStandardsSection(
+                        standards = codeStandards,
+                        references = codeReferences,
+                        onAddStandard = { name, edition, source ->
+                            scope.launch { codeStandardRepository.addStandard(name, edition, source) }
+                        },
+                        onDeleteStandard = { id -> scope.launch { codeStandardRepository.deleteStandard(id) } },
+                        onAddReference = { standardId, checkLabel, section, relevance ->
+                            scope.launch { codeStandardRepository.addReference(standardId, checkLabel, section, relevance) }
+                        },
+                        onDeleteReference = { id -> scope.launch { codeStandardRepository.deleteReference(id) } }
+                    )
+                }
+            }
+
+            item {
                 CollapsibleSectionCard(title = "Data") {
                     SettingsRow(
                         icon = Icons.Default.DeleteSweep,
@@ -325,6 +363,182 @@ fun SettingsScreen(
                 TextButton(onClick = { showClearHistoryConfirm = false }) { Text("Cancel") }
             }
         )
+    }
+}
+
+/**
+ * A82 (spec Phase 19 — "electrical-code lookup architecture"): the administrator-facing half of
+ * this feature — add/remove a [CodeStandard] the administrator attests is on file, then cite it
+ * against one of [SystemDiagnostics.ALL_CHECK_LABELS] (a real engineering check this app already
+ * computes, never a free-floating claim). Nothing here is pre-filled or suggested; every field
+ * starts blank, matching this codebase's "don't invent business/regulatory content" discipline.
+ */
+@Composable
+private fun CodeStandardsSection(
+    standards: List<CodeStandard>,
+    references: List<CodeRequirementReference>,
+    onAddStandard: (name: String, edition: String, source: String) -> Unit,
+    onDeleteStandard: (id: String) -> Unit,
+    onAddReference: (standardId: String, checkLabel: String, section: String, relevance: String) -> Unit,
+    onDeleteReference: (id: String) -> Unit
+) {
+    val palette = LocalLumixPalette.current
+
+    Text(
+        "Standards on file here are exactly what you enter — this app never fetches or invents electrical-code content. A citation only records that you've linked a check to a specific section of a standard you have; it is never a claim that this system is code-compliant.",
+        style = MaterialTheme.typography.labelSmall,
+        color = palette.textSecondary,
+        modifier = Modifier.padding(bottom = 12.dp)
+    )
+
+    if (standards.isEmpty()) {
+        Text(
+            NO_STANDARDS_ON_FILE_MESSAGE,
+            style = MaterialTheme.typography.bodyMedium,
+            color = palette.textPrimary,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+    } else {
+        standards.forEach { standard ->
+            CodeStandardRow(
+                standard = standard,
+                references = references.filter { it.standardId == standard.id },
+                onDelete = { onDeleteStandard(standard.id) },
+                onDeleteReference = onDeleteReference
+            )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+        }
+    }
+
+    CollapsibleGroup(title = "Add a standard") {
+        var name by remember { mutableStateOf("") }
+        var edition by remember { mutableStateOf("") }
+        var source by remember { mutableStateOf("") }
+        OutlinedTextField(
+            value = name, onValueChange = { name = it },
+            label = { Text("Standard name (e.g. NEC, JS 316)") }, singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+        )
+        OutlinedTextField(
+            value = edition, onValueChange = { edition = it },
+            label = { Text("Edition/year (e.g. 2023)") }, singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+        )
+        OutlinedTextField(
+            value = source, onValueChange = { source = it },
+            label = { Text("Source / where this document is on file") },
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+        )
+        LumixSecondaryButton(
+            text = "Add standard",
+            onClick = {
+                if (name.isNotBlank() && edition.isNotBlank()) {
+                    onAddStandard(name.trim(), edition.trim(), source.trim())
+                    name = ""; edition = ""; source = ""
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+
+    if (standards.isNotEmpty()) {
+        CollapsibleGroup(title = "Cite a standard against a check") {
+            var selectedStandard by remember(standards) { mutableStateOf(standards.first()) }
+            var selectedCheckLabel by remember { mutableStateOf(SystemDiagnostics.ALL_CHECK_LABELS.first()) }
+            var section by remember { mutableStateOf("") }
+            var relevance by remember { mutableStateOf("") }
+
+            LabeledDropdown(
+                label = "Standard",
+                options = standards,
+                selected = selectedStandard,
+                optionLabel = { "${it.name} ${it.edition}" },
+                onSelected = { selectedStandard = it }
+            )
+            LabeledDropdown(
+                label = "Check this citation applies to",
+                options = SystemDiagnostics.ALL_CHECK_LABELS,
+                selected = selectedCheckLabel,
+                optionLabel = { it },
+                onSelected = { selectedCheckLabel = it },
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            OutlinedTextField(
+                value = section, onValueChange = { section = it },
+                label = { Text("Section / article") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)
+            )
+            OutlinedTextField(
+                value = relevance, onValueChange = { relevance = it },
+                label = { Text("Why this section applies here") },
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            )
+            LumixSecondaryButton(
+                text = "Add citation",
+                onClick = {
+                    if (section.isNotBlank()) {
+                        onAddReference(selectedStandard.id, selectedCheckLabel, section.trim(), relevance.trim())
+                        section = ""; relevance = ""
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+private const val NO_STANDARDS_ON_FILE_MESSAGE =
+    "No standards on file. Every check on the System Result screen will show \"Source document required for verification.\" until you add one below."
+
+@Composable
+private fun CodeStandardRow(
+    standard: CodeStandard,
+    references: List<CodeRequirementReference>,
+    onDelete: () -> Unit,
+    onDeleteReference: (id: String) -> Unit
+) {
+    val palette = LocalLumixPalette.current
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Default.Description, contentDescription = null, tint = palette.solarYellowText)
+                Column {
+                    Text("${standard.name} ${standard.edition}", style = MaterialTheme.typography.bodyLarge, color = palette.textPrimary)
+                    if (standard.sourceNote.isNotBlank()) {
+                        Text(standard.sourceNote, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+                    }
+                }
+            }
+            IconButton(onClick = onDelete) { Text("✕", color = palette.warningRedText) }
+        }
+        if (references.isEmpty()) {
+            Text(
+                "No citations linked to this standard yet.",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary,
+                modifier = Modifier.padding(start = 34.dp, top = 4.dp)
+            )
+        } else {
+            references.forEach { ref ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 34.dp, top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("§${ref.sectionArticle} — ${ref.checkLabel}", style = MaterialTheme.typography.labelSmall, color = palette.textPrimary)
+                        if (ref.relevanceNote.isNotBlank()) {
+                            Text(ref.relevanceNote, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+                        }
+                    }
+                    IconButton(onClick = { onDeleteReference(ref.id) }) { Text("✕", color = palette.warningRedText) }
+                }
+            }
+        }
     }
 }
 

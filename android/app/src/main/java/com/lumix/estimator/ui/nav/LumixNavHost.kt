@@ -226,6 +226,7 @@ fun LumixNavHost(app: LumixApp) {
                 SystemResultScreen(
                     quoteId = quoteId,
                     quoteRepository = app.quoteRepository,
+                    codeStandardRepository = app.codeStandardRepository,
                     onSimulate = { id -> navController.navigate("simulation/$id") },
                     onEditSystem = { navController.popBackStack() },
                     onCreateQuote = {
@@ -302,7 +303,8 @@ fun LumixNavHost(app: LumixApp) {
                 SettingsScreen(
                     priceRepository = app.priceRepository,
                     settingsRepository = app.settingsRepository,
-                    quoteRepository = app.quoteRepository
+                    quoteRepository = app.quoteRepository,
+                    codeStandardRepository = app.codeStandardRepository
                 )
             }
         }

@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,8 +36,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.lumix.estimator.data.CodeStandardRepository
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SavedQuote
+import com.lumix.estimator.domain.CodeReferenceLookup
+import com.lumix.estimator.domain.CodeReferenceResult
+import com.lumix.estimator.domain.CodeRequirementReference
+import com.lumix.estimator.domain.CodeStandard
 import com.lumix.estimator.domain.DiagnosticCheck
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.monthName
@@ -61,6 +67,7 @@ import com.lumix.estimator.ui.theme.LocalLumixPalette
 fun SystemResultScreen(
     quoteId: Long,
     quoteRepository: QuoteRepository,
+    codeStandardRepository: CodeStandardRepository,
     onSimulate: (Long) -> Unit,
     onEditSystem: () -> Unit,
     onCreateQuote: () -> Unit,
@@ -68,6 +75,8 @@ fun SystemResultScreen(
 ) {
     var saved by remember(quoteId) { mutableStateOf<SavedQuote?>(null) }
     val palette = LocalLumixPalette.current
+    val codeStandards by codeStandardRepository.standards.collectAsState(initial = emptyList())
+    val codeReferences by codeStandardRepository.references.collectAsState(initial = emptyList())
 
     LaunchedEffect(quoteId) {
         saved = quoteRepository.getSavedQuote(quoteId)
@@ -230,14 +239,19 @@ fun SystemResultScreen(
                 // A58 (spec §37–38): the diagnostics panel — every engineering check that went
                 // into (or would have blocked) this exact system, plus the plain-language reasons
                 // GUIDED/LOAD's EquipmentSelectionEngine picked each component, all in one place.
-                DiagnosticsSection(result, inputs.backupHours)
+                DiagnosticsSection(result, inputs.backupHours, codeStandards, codeReferences)
             }
         }
     }
 }
 
 @Composable
-private fun DiagnosticsSection(result: QuoteResult, targetBackupHours: Double) {
+private fun DiagnosticsSection(
+    result: QuoteResult,
+    targetBackupHours: Double,
+    codeStandards: List<CodeStandard>,
+    codeReferences: List<CodeRequirementReference>
+) {
     val palette = LocalLumixPalette.current
     var open by remember(result) { mutableStateOf(false) }
     val checks = remember(result, targetBackupHours) { SystemDiagnostics.checksFor(result, targetBackupHours) }
@@ -247,6 +261,11 @@ private fun DiagnosticsSection(result: QuoteResult, targetBackupHours: Double) {
         result.inverterSelectionReason?.let { "Inverter" to it },
         result.batterySelectionReason?.let { "Battery" to it }
     )
+    // A82 (spec Phase 19): how many of the checks above actually have an administrator-entered
+    // code citation on file — never a compliance count, just a "how much of this is cited" tally.
+    val citedCount = remember(checks, codeStandards, codeReferences) {
+        checks.count { CodeReferenceLookup.referenceFor(it.label, codeStandards, codeReferences) is CodeReferenceResult.Found }
+    }
 
     SectionCard(title = "") {
         Row(
@@ -277,14 +296,27 @@ private fun DiagnosticsSection(result: QuoteResult, targetBackupHours: Double) {
                     }
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 }
-                checks.forEach { check -> DiagnosticRow(check) }
+                checks.forEach { check -> DiagnosticRow(check, CodeReferenceLookup.referenceFor(check.label, codeStandards, codeReferences)) }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                // A82 (spec Phase 19 §"WEATHER DATA TRANSPARENCY"-style disclosure, applied here
+                // to code citations): never claims compliance — only how many checks have a real,
+                // administrator-entered citation on file vs. CodeReferenceLookup.SOURCE_REQUIRED_MESSAGE.
+                Text(
+                    if (citedCount == 0) {
+                        "Electrical code references: none on file. ${CodeReferenceLookup.SOURCE_REQUIRED_MESSAGE} Add standards in Settings."
+                    } else {
+                        "Electrical code references: $citedCount of ${checks.size} checks cite a standard on file. The rest: ${CodeReferenceLookup.SOURCE_REQUIRED_MESSAGE}"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary
+                )
             }
         }
     }
 }
 
 @Composable
-private fun DiagnosticRow(check: DiagnosticCheck) {
+private fun DiagnosticRow(check: DiagnosticCheck, codeReference: CodeReferenceResult) {
     val palette = LocalLumixPalette.current
     Column(modifier = Modifier.padding(vertical = 3.dp)) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -301,6 +333,18 @@ private fun DiagnosticRow(check: DiagnosticCheck) {
                 check.detail,
                 style = MaterialTheme.typography.labelSmall,
                 color = palette.solarAmberText,
+                modifier = Modifier.padding(start = 48.dp, top = 2.dp)
+            )
+        }
+        // A82: only ever a citation to what the administrator entered in Settings — never a
+        // compliance verdict. Absent entirely (not "Source document required" per row) when no
+        // citation exists, since that disclosure is already covered once at the section level.
+        if (codeReference is CodeReferenceResult.Found) {
+            Text(
+                "📖 ${codeReference.standard.name} ${codeReference.standard.edition} §${codeReference.reference.sectionArticle}" +
+                    if (codeReference.reference.relevanceNote.isNotBlank()) " — ${codeReference.reference.relevanceNote}" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary,
                 modifier = Modifier.padding(start = 48.dp, top = 2.dp)
             )
         }

@@ -17,6 +17,33 @@ data class DiagnosticCheck(val label: String, val pass: Boolean, val detail: Str
  */
 object SystemDiagnostics {
 
+    // A82 (spec Phase 19 — "electrical-code lookup architecture"): named once here instead of as
+    // inline literals in checksFor's DiagnosticCheck(label = ...) calls below, so
+    // CodeReferenceLookup (which keys a code-standard citation off a check's exact label) and any
+    // installer-facing "pick which check this citation applies to" UI can never drift from the
+    // labels actually shown on this same panel.
+    const val LABEL_INVERTER_PEAK_LOAD = "INVERTER — suitable for peak load"
+    const val LABEL_INVERTER_BACKUP_CAPACITY = "INVERTER — suitable for backup coverage"
+    const val LABEL_BATTERY_ENERGY = "BATTERY ENERGY — suitable for backup target"
+    const val LABEL_BATTERY_BACKUP_DURATION = "BATTERY BACKUP DURATION — meets requested backup time (simulated)"
+    const val LABEL_BATTERY_POWER = "BATTERY POWER — suitable for peak load"
+    const val LABEL_BATTERY_VOLTAGE = "BATTERY — voltage compatible with inverter's battery port"
+    const val LABEL_PV_MAX_INPUT = "PV — within inverter's max PV input power"
+    const val LABEL_VOC = "VOC — series string within inverter's max PV voltage"
+    const val LABEL_VMP_FLOOR = "VMP — series string within MPPT operating range"
+    const val LABEL_VMP_CEILING = "VMP — series string within MPPT tracking-range ceiling"
+    const val LABEL_MPPT_ISC = "MPPT — short-circuit current within limits"
+    const val LABEL_MPPT_IMP = "MPPT — continuous operating current within limits"
+    const val LABEL_BATTERY_RECHARGE = "BATTERY RECHARGE — reaches a usable SOC by ~2 PM"
+
+    /** Every label [checksFor] can produce, in the same order — the fixed set an installer picks from when citing a code standard against one of these checks. */
+    val ALL_CHECK_LABELS = listOf(
+        LABEL_INVERTER_PEAK_LOAD, LABEL_INVERTER_BACKUP_CAPACITY, LABEL_BATTERY_ENERGY,
+        LABEL_BATTERY_BACKUP_DURATION, LABEL_BATTERY_POWER, LABEL_BATTERY_VOLTAGE,
+        LABEL_PV_MAX_INPUT, LABEL_VOC, LABEL_VMP_FLOOR, LABEL_VMP_CEILING,
+        LABEL_MPPT_ISC, LABEL_MPPT_IMP, LABEL_BATTERY_RECHARGE
+    )
+
     fun checksFor(result: QuoteResult, targetBackupHours: Double): List<DiagnosticCheck> {
         val requiredInverterKw = result.peakWatts * 1.25 / 1000.0
         val peakLoadKw = result.peakWatts / 1000.0
@@ -41,7 +68,7 @@ object SystemDiagnostics {
 
         return listOf(
             DiagnosticCheck(
-                label = "INVERTER — suitable for peak load",
+                label = LABEL_INVERTER_PEAK_LOAD,
                 pass = result.inverterKw >= requiredInverterKw - 0.05,
                 detail = if (result.inverterKw < requiredInverterKw - 0.05) {
                     "Selected inverter (%s, %.1f kW) is below the calculated peak-load requirement (%.2f kW)."
@@ -49,7 +76,7 @@ object SystemDiagnostics {
                 } else null
             ),
             DiagnosticCheck(
-                label = "INVERTER — suitable for backup coverage",
+                label = LABEL_INVERTER_BACKUP_CAPACITY,
                 pass = result.backupCapacityWarningKw == null,
                 detail = result.backupCapacityWarningKw?.let {
                     "Requested backup coverage implies about %.1f kW — above what the %s (%.1f kW) can deliver."
@@ -57,7 +84,7 @@ object SystemDiagnostics {
                 }
             ),
             DiagnosticCheck(
-                label = "BATTERY ENERGY — suitable for backup target",
+                label = LABEL_BATTERY_ENERGY,
                 pass = result.totalBatteryKwh >= result.batteryRequiredKwh - 0.05,
                 detail = if (result.totalBatteryKwh < result.batteryRequiredKwh - 0.05) {
                     "About %.1f kWh is needed for the requested backup; %.1f kWh is selected."
@@ -70,7 +97,7 @@ object SystemDiagnostics {
             // the wizard step had already flagged a real simulated-backup-duration shortfall.
             // Ported over unchanged so both screens agree on the same real simulated figure.
             DiagnosticCheck(
-                label = "BATTERY BACKUP DURATION — meets requested backup time (simulated)",
+                label = LABEL_BATTERY_BACKUP_DURATION,
                 pass = result.batteryBackupTargetMet != false,
                 detail = if (result.batteryBackupTargetMet == false) {
                     "Simulated backup: %.1f h — %.0f h requested. %s"
@@ -78,7 +105,7 @@ object SystemDiagnostics {
                 } else null
             ),
             DiagnosticCheck(
-                label = "BATTERY POWER — suitable for peak load",
+                label = LABEL_BATTERY_POWER,
                 pass = result.totalBatteryKwh <= 0.0 || batteryMaxDischargeKw >= peakLoadKw - 0.05,
                 detail = if (result.totalBatteryKwh > 0.0 && batteryMaxDischargeKw < peakLoadKw - 0.05) {
                     "Peak load (%.1f kW) may exceed the battery's typical continuous discharge rate (%.1f kW)."
@@ -91,7 +118,7 @@ object SystemDiagnostics {
             // real combination happens to be compatible) but protects against the next equipment
             // addition that isn't.
             DiagnosticCheck(
-                label = "BATTERY — voltage compatible with inverter's battery port",
+                label = LABEL_BATTERY_VOLTAGE,
                 pass = result.totalBatteryKwh <= 0.0 || batteryVoltageCompat.ok,
                 detail = if (result.totalBatteryKwh > 0.0 && !batteryVoltageCompat.ok) {
                     "Battery voltage window (%.1f-%.1fV) falls outside the inverter's accepted battery-port range (%.1f-%.1fV)."
@@ -99,7 +126,7 @@ object SystemDiagnostics {
                 } else null
             ),
             DiagnosticCheck(
-                label = "PV — within inverter's max PV input power",
+                label = LABEL_PV_MAX_INPUT,
                 pass = pvCompat.powerOk,
                 detail = if (!pvCompat.powerOk) {
                     "%.2f kWp of panels exceeds the inverter's real maximum PV input, %.2f kW."
@@ -107,7 +134,7 @@ object SystemDiagnostics {
                 } else "%.2f kWp of %.2f kW max PV input.".format(pvCompat.arrayKw, pvCompat.requiredMaxPvKw)
             ),
             DiagnosticCheck(
-                label = "VOC — series string within inverter's max PV voltage",
+                label = LABEL_VOC,
                 pass = pvCompat.vocOk,
                 detail = if (!pvCompat.vocOk) {
                     "Cold-corrected series Voc %.0fV exceeds the inverter's maximum PV voltage %.0fV."
@@ -115,7 +142,7 @@ object SystemDiagnostics {
                 } else null
             ),
             DiagnosticCheck(
-                label = "VMP — series string within MPPT operating range",
+                label = LABEL_VMP_FLOOR,
                 pass = pvCompat.vmpOk,
                 detail = if (!pvCompat.vmpOk) {
                     "Series Vmp %.0fV is below the inverter's minimum MPPT operating voltage.".format(pvCompat.stringVmpV)
@@ -128,14 +155,14 @@ object SystemDiagnostics {
             // check passing while pvCompat.valid (and SystemCalculator's own validity gate) was
             // actually false — a misleading "all green" diagnostics panel.
             DiagnosticCheck(
-                label = "VMP — series string within MPPT tracking-range ceiling",
+                label = LABEL_VMP_CEILING,
                 pass = pvCompat.vmpUpperOk,
                 detail = if (!pvCompat.vmpUpperOk) {
                     "Series Vmp %.0fV exceeds the inverter's real MPPT tracking-range ceiling.".format(pvCompat.stringVmpV)
                 } else null
             ),
             DiagnosticCheck(
-                label = "MPPT — short-circuit current within limits",
+                label = LABEL_MPPT_ISC,
                 pass = pvCompat.iscOk,
                 detail = if (!pvCompat.iscOk) {
                     "Series Isc %.1fA exceeds the inverter's implied max PV current — this is the panel's own current (voltage adds in series, current does not multiply by panel count)."
@@ -147,7 +174,7 @@ object SystemDiagnostics {
             // a different (and typically lower) datasheet figure — see PanelCompatibilityResult
             // .impOk's own doc.
             DiagnosticCheck(
-                label = "MPPT — continuous operating current within limits",
+                label = LABEL_MPPT_IMP,
                 pass = pvCompat.impOk,
                 detail = if (!pvCompat.impOk) {
                     "Series Imp %.1fA exceeds the inverter's real continuous max PV input current per tracker."
@@ -155,7 +182,7 @@ object SystemDiagnostics {
                 } else null
             ),
             DiagnosticCheck(
-                label = "BATTERY RECHARGE — reaches a usable SOC by ~2 PM",
+                label = LABEL_BATTERY_RECHARGE,
                 pass = result.batteryRechargeTargetMet != false,
                 detail = if (result.batteryRechargeTargetMet == false) {
                     val socText = "%.0f%%".format(result.batteryRechargeSocAt2pmPercent ?: 0f)
