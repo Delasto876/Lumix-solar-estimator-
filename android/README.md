@@ -3874,3 +3874,64 @@ adjustable via the existing cloud/weather control) for visualization, while PSH'
 sizing-time capacity planning, a different concern by design. Flagged for the installer to decide
 before any implementation — this would touch every simulated number for every quote, not a narrow
 fix like the one above.
+
+**Resolved in A70, immediately below — the installer chose reading (1).**
+
+## A70 — scale the simulation's PV curve to the site's entered PSH (installer's decision on A69's open question)
+
+The installer was asked directly (not silently picked): should the simulation's PV curve scale
+with the entered site-specific PSH, or stay a fixed representative clear-sky day? Answer: **scale
+to entered PSH**.
+
+**Implemented**: `SimulationEngine.REFERENCE_CURVE_PSH_HOURS = 7.2085` — the curve's own native
+daily-energy integral at its unscaled amplitude (`(SUNSET_HOUR - SUNRISE_HOUR) *
+integral(sin(pi*x)^1.2, 0, 1)`, hand-integrated numerically). `buildDayTimeline` now computes
+`pshScale = config.pshHours / REFERENCE_CURVE_PSH_HOURS` once per timeline and multiplies the
+curve's amplitude by it (`irradianceFraction = irradianceFactor(hour) * cloudMultiplier *
+pshScale`), so a site with a below-reference PSH (every current parish default — the table runs
+5.0–5.8h against a 7.2085h reference) now simulates visibly less production, not just a bigger
+array sized to compensate. `SUNRISE_HOUR`/`SUNSET_HOUR` (the daylight window itself) are
+deliberately untouched — this scales the curve's amplitude, not day length, since claiming
+low-PSH parishes have shorter days would be its own, separate inaccuracy.
+
+New `SimSystemConfig.pshHours` (default `REFERENCE_CURVE_PSH_HOURS`, i.e. unscaled — so any config
+built without setting this explicitly, including every hand-constructed test config and any quote
+saved before this field existed, keeps today's behavior rather than silently changing) and new
+`QuoteResult.designPeakSunHours` (the real `QuoteInputs.peakSunHours` at calculation time, frozen
+in — same reproducibility pattern as `batteryMaxChargeKw`/`inverterMaxPvKw`: a saved quote must
+always simulate against the PSH it was actually designed with, not whatever the parish table says
+if it's edited later). `SimSystemConfig.from()` resolves `pshHours = result.designPeakSunHours ?:
+REFERENCE_CURVE_PSH_HOURS`. Also threaded into the one other place that builds a real-PV
+`SimSystemConfig` mid-calculation — `recheckPanelCountForRecharge`'s recharge-feasibility trial —
+so the escalation loop that decides whether to add panels checks recharge capability against the
+same PSH the final design will simulate with, not the unscaled reference curve.
+
+**A pleasant, non-coincidental consequence, verified by test**: since `SystemCalculator` sizes
+panels as `pvKw = designDailyKwh / psh`, and the scaled curve's own daily-energy integral is now
+exactly `pvKw * psh` (by construction — the scale factor is defined precisely to make this true),
+the simulation's daily PV yield (before temperature/system-loss derates) now works out to
+approximately `designDailyKwh` — the exact figure the array was sized to cover — instead of an
+unrelated fixed ~7.2 kWh/kW/day regardless of site. This is the direct fix for the inconsistency
+A69 flagged: the simulated system's own energy balance now actually reflects the PSH it claims to
+be designed against.
+
+**Files changed**: `SimulationEngine.kt` (`REFERENCE_CURVE_PSH_HOURS` constant, `pshScale`
+applied to `irradianceFraction`), `SimSystemConfig.kt` (`pshHours` field + `.from()` wiring),
+`QuoteResult.kt` (`designPeakSunHours` field), `SystemCalculator.kt` (threads `psh` into the new
+`QuoteResult` field and into `recheckPanelCountForRecharge`'s trial config).
+
+**Tests**: new `PshScalingTest.kt` — a config at the reference PSH produces the curve's native
+unscaled amplitude (a direct regression guard: every existing hand-constructed `SimSystemConfig`
+in other test files omits `pshHours`, so this confirms they're all unaffected); a below-reference
+PSH (5.5h, the national default) scales potential PV down proportionally at solar noon, hand-traced
+against the exact `pshScale` factor; and the scaled curve's own discretized daily-energy integral
+(the full timeline, 5-minute resolution, same as production) now equals `pvCapacityKw * pshHours`
+to within simulation-resolution rounding — the property motivating this whole change, verified
+directly rather than assumed.
+
+**What this deliberately doesn't touch**: `SimulationWarnings`' "LOW PV OUTPUT" shoulder-period
+check and `SimulationScreen`'s sun/cloud visual overlay both call `SimulationEngine.irradianceFactor`
+directly (the unscaled curve) rather than through `buildDayTimeline`'s `pshScale` — the warning is
+about *when* in the day production is ramping (a time-of-day shape question, not an amplitude
+question), and the overlay is cosmetic sun/cloud rendering, not an engineering figure. Neither
+needed to change for this fix, and scaling them would have been out of scope for what was asked.

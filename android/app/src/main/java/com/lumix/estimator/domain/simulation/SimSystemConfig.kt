@@ -44,7 +44,16 @@ data class SimSystemConfig(
      * back to when no confirmed spec match exists) so every existing caller that doesn't set this
      * explicitly keeps a sensible, inverter-relative ceiling rather than an unconstrained one.
      */
-    val maxPvInputKw: Double = inverterKw * 1.3
+    val maxPvInputKw: Double = inverterKw * 1.3,
+    /**
+     * A70: the site-specific PSH (peak sun hours) this system was actually sized against —
+     * [SimulationEngine.buildDayTimeline] scales its irradiance curve's amplitude to this value
+     * (see [SimulationEngine.REFERENCE_CURVE_PSH_HOURS]'s own doc for why and how). Defaults to
+     * that same reference value, so any config built without setting this explicitly (older saved
+     * quotes' frozen `QuoteResult`, or a caller that hand-constructs a config) keeps the curve at
+     * its native, unscaled amplitude rather than silently changing behavior underneath it.
+     */
+    val pshHours: Double = SimulationEngine.REFERENCE_CURVE_PSH_HOURS
 ) {
     companion object {
         fun from(result: QuoteResult): SimSystemConfig {
@@ -66,6 +75,11 @@ data class SimSystemConfig(
             // A69: same reproducibility rationale as batteryMaxChargeKw above — see
             // QuoteResult.inverterMaxPvKw's own doc.
             val maxPvInputKw = result.inverterMaxPvKw ?: (inverterCeilingKw * 1.3)
+            // A70: same reproducibility rationale again — the PSH actually used to size this
+            // system, frozen at calculation time rather than re-read from whatever the parish
+            // table says now. Falls back to the curve's own native reference value (an unscaled
+            // curve) for any quote saved before this field existed.
+            val pshHours = result.designPeakSunHours ?: SimulationEngine.REFERENCE_CURVE_PSH_HOURS
             return SimSystemConfig(
                 pvCapacityKw = result.pvKw,
                 panelCount = result.panelCount,
@@ -82,7 +96,8 @@ data class SimSystemConfig(
                 batteryMaxDischargeKw = batteryMaxDischargeKw,
                 batteryChargeEfficiency = 0.95,
                 batteryDepthOfDischargeFraction = SimulationEngine.BATTERY_MIN_SOC_FRACTION,
-                maxPvInputKw = maxPvInputKw
+                maxPvInputKw = maxPvInputKw,
+                pshHours = pshHours
             )
         }
     }

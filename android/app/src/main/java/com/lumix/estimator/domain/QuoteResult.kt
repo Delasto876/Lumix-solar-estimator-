@@ -79,6 +79,18 @@ data class QuoteResult(
     val inverterMaxPvKw: Double? = null,
 
     /**
+     * A70: the site-specific PSH (peak sun hours) this system was actually sized against —
+     * `QuoteInputs.peakSunHours` at calculation time, frozen here for the same reproducibility
+     * reason as [inverterMaxPvKw] (a saved quote's simulation must always scale its production
+     * curve to the PSH it was actually designed against, not whatever the parish table says if it
+     * changes later). Drives [com.lumix.estimator.domain.simulation.SimSystemConfig.pshHours],
+     * which scales the simulation's irradiance curve amplitude — see that field's own doc. Null
+     * for quotes saved before this field existed, which falls back to the curve's native
+     * (unscaled) reference amplitude rather than guessing a PSH that was never recorded.
+     */
+    val designPeakSunHours: Double? = null,
+
+    /**
      * A49: the engineering requirement GUIDED/LOAD's [EquipmentSelectionEngine] sized equipment
      * against (and MANUAL's warnings are checked against) — independent of what was actually
      * chosen, so the UI can show "required" next to "recommended"/"selected". Default 0.0 for

@@ -321,7 +321,12 @@ object SystemCalculator {
                 batteryMaxChargeKw = batteryMaxChargeKw ?: fallbackKw,
                 batteryMaxDischargeKw = batteryMaxDischargeKw ?: fallbackKw,
                 batteryChargeEfficiency = 0.95,
-                batteryDepthOfDischargeFraction = SimulationEngine.BATTERY_MIN_SOC_FRACTION
+                batteryDepthOfDischargeFraction = SimulationEngine.BATTERY_MIN_SOC_FRACTION,
+                // A70: same site-specific PSH the final config will use — without this, this
+                // trial's recharge-feasibility check would simulate against the curve's unscaled
+                // reference amplitude, silently over-crediting recharge capability at any site
+                // with a below-reference PSH (which is most of them — see REFERENCE_CURVE_PSH_HOURS).
+                pshHours = input.peakSunHours.coerceAtLeast(MIN_PSH)
             )
             val result = RechargeFeasibility.evaluate(config, input) ?: return null
             return compat to result
@@ -921,6 +926,7 @@ object SystemCalculator {
             batteryMaxChargeKw = batteryMaxChargeKw,
             batteryMaxDischargeKw = batteryMaxDischargeKw,
             inverterMaxPvKw = inverterMaxPvKw,
+            designPeakSunHours = psh,
             requiredPvKw = requiredPvKw,
             requiredInverterKw = requiredInverterKw,
             requiredBatteryUsableKwh = requiredBatteryUsableKwh,

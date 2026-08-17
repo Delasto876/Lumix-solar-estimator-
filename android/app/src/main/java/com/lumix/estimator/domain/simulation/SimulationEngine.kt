@@ -14,11 +14,31 @@ object SimulationEngine {
     // A representative Jamaica daylight window, not a date/location-specific astronomical
     // calculation — sunrise ~5:30-6:00am, sunset ~5:30-6:00pm, so the midpoint of each
     // (5:45am/5:45pm) gives a clean ~12h day, matching Jamaica's real near-equatorial average.
-    // This is the solar *curve's* window (irradianceFactor's own shape) — separate from
-    // SystemCalculator.PSH (5.5h), which is the energy-equivalent figure used for panel sizing,
-    // not the number of hours the sun is actually up.
+    // This is the solar *curve's* window (irradianceFactor's own shape) — kept fixed regardless
+    // of site-specific PSH (A70 doesn't widen/narrow daylight hours, only the curve's amplitude —
+    // see REFERENCE_CURVE_PSH_HOURS below).
     const val SUNRISE_HOUR = 5.75
     const val SUNSET_HOUR = 17.75
+    /**
+     * A70 (spec §13/§66 — the simulation's daily energy yield must actually vary with the
+     * installer's entered site-specific PSH, not just the resulting array size): the curve's own
+     * implied "effective full-sun hours" at its native amplitude (peak = 1.0 at solar noon) —
+     * hand-integrated numerically as `(SUNSET_HOUR - SUNRISE_HOUR) * integral(sin(pi*x)^1.2, 0, 1)`
+     * = 12.0 * 0.600708 = 7.2085. Before this round, the curve always produced this many effective
+     * sun-hours' worth of energy regardless of what PSH the installer entered or which parish was
+     * selected — decoupled from [SystemCalculator]'s own sizing formula (`pvKw = dailyKwh / psh`),
+     * which DOES vary by entered PSH. [SimSystemConfig.pshHours] now scales the curve's amplitude
+     * by `pshHours / REFERENCE_CURVE_PSH_HOURS`, so a design sized against a weaker PSH (a bigger
+     * array, to compensate for a worse solar resource) now also *simulates* weaker per-panel
+     * output, matching how it was actually sized — and, as a direct consequence, the simulated
+     * daily PV energy (before temperature/system-loss derates) now works out to approximately
+     * `pvKw * pshHours` = the exact `designDailyKwh` the array was sized to cover, instead of an
+     * unrelated fixed ~7.2h/day regardless of site. This deliberately scales curve *amplitude*,
+     * not [SUNRISE_HOUR]/[SUNSET_HOUR] (a real longer/shorter day) — a simplification, not a claim
+     * that low-PSH parishes have shorter days; see the A69 README section for the alternative
+     * reading this round's install-time decision ruled out.
+     */
+    const val REFERENCE_CURVE_PSH_HOURS = 7.2085
     // SOL/SBU reserve the battery down to this floor before ever importing from JPS —
     // a 20% DOD cutoff, per the real hybrid-inverter behavior this models. Public so the UI
     // (battery runtime estimates, cutoff display) stays in sync with the engine's own value.
@@ -123,6 +143,10 @@ object SimulationEngine {
         // appliance's own scheduled run windows on top, hour by hour, for real precision.
         val backgroundPerHourKw = (config.avgDailyLoadKwh / 24.0 * BACKGROUND_LOAD_FRACTION).coerceAtLeast(BACKGROUND_LOAD_FLOOR_KW)
         val dt = resolutionMinutes / 60.0
+        // A70: see REFERENCE_CURVE_PSH_HOURS's own doc — scales the curve's amplitude so this
+        // site's simulated daily yield tracks its own entered PSH, not the same fixed ~7.2h/day
+        // every site got before this round.
+        val pshScale = config.pshHours / REFERENCE_CURVE_PSH_HOURS
 
         val steps = ((durationHours * 60) / resolutionMinutes).toInt()
         val frames = ArrayList<SimFrame>(steps + 1)
@@ -130,7 +154,7 @@ object SimulationEngine {
         for (i in 0..steps) {
             val hour = startHour + (i * resolutionMinutes) / 60.0
 
-            val irradianceFraction = irradianceFactor(hour) * cloudMultiplier
+            val irradianceFraction = irradianceFactor(hour) * cloudMultiplier * pshScale
             // A69: capped at the inverter's real PV DC input ceiling (config.maxPvInputKw), NOT
             // its AC output rating (config.inverterKw) — a real hybrid inverter's DC/MPPT stage
             // typically accepts meaningfully more than its own AC rating (see
