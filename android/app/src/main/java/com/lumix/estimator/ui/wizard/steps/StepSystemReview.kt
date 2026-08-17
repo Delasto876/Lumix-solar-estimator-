@@ -33,23 +33,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.BackupCoverage
-import com.lumix.estimator.domain.EquipmentSelectionEngine
 import com.lumix.estimator.domain.PriceList
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteMode
 import com.lumix.estimator.domain.SystemCalculator
+import com.lumix.estimator.domain.SystemDiagnostics
 import com.lumix.estimator.domain.UsageMode
 import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.ui.components.LumixPrimaryButton
-import com.lumix.estimator.ui.simulation.formatSimTime
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import kotlin.math.min
 import kotlinx.coroutines.launch
-
-private data class EngineeringCheck(val label: String, val pass: Boolean, val detail: String?)
 
 /**
  * A29/A43: redesigned from seven always-expanded cards stacked one after another (the "jumbled"
@@ -72,9 +69,10 @@ fun StepSystemReview(
     val requiredInverterKw = remember(preview) { preview.peakWatts * 1.25 / 1000.0 }
     // A72 (spec Phase 7): reads the real per-model figure SystemCalculator.calculate() already
     // resolved (preview.batteryMaxDischargeKw) instead of independently recomputing a generic 0.5C
-    // estimate here — see SystemDiagnostics.checksFor's identical fix for the full rationale (this
-    // screen has its own separately-maintained duplicate of the same checks, not consolidated this
-    // round). Falls back to the same 0.5C estimate only when no confirmed match exists.
+    // estimate here — used below for the "Maximum discharge power" row in VIEW CALCULATIONS
+    // (SystemDiagnostics.checksFor, called below for the checks themselves, computes its own
+    // identical figure internally). Falls back to the same 0.5C estimate only when no confirmed
+    // match exists.
     val batteryMaxDischargeKw = remember(preview) {
         if (preview.totalBatteryKwh > 0) {
             preview.batteryMaxDischargeKw ?: min(preview.totalBatteryKwh * 0.5, preview.inverterKw.coerceAtLeast(0.1))
@@ -85,162 +83,13 @@ fun StepSystemReview(
     // exact system (BackupEstimator, run once inside SystemCalculator.calculate) — not a separate
     // ratio computed here, so this can never disagree with what the Simulation screen would show.
 
-    // A52: real series-topology electrical validation for the EXACT selected panel/inverter pair —
-    // the same rules EquipmentSelectionEngine's own search applies (voltage adds across a series
-    // string, current does NOT multiply by panel count), checked against the inverter's real max
-    // PV input power/voltage/MPPT range rather than a proxy like "AC rating x 1.3" (which had been
-    // silently conflating the inverter's AC output rating with its actual PV input limit — a
-    // different field entirely, and the exact class of bug flagged 2026-08-13).
-    val pvCompat = remember(preview) {
-        EquipmentSelectionEngine.checkPanelInverterCompatibility(
-            preview.panelWatts, preview.panelCount, preview.inverterKw, preview.inverterName
-        )
-    }
-
-    // A72 (spec Phase 7): real per-model battery voltage window vs. the inverter's real accepted
-    // battery-port voltage window — see EquipmentSelectionEngine.checkBatteryVoltageCompatibility's
-    // own doc.
-    val batteryVoltageCompat = remember(preview) {
-        EquipmentSelectionEngine.checkBatteryVoltageCompatibility(
-            preview.batteryName, preview.inverterKw, preview.inverterName
-        )
-    }
-
-    val checks = remember(preview, requiredInverterKw, batteryMaxDischargeKw, peakLoadKw, pvCompat, batteryVoltageCompat) {
-        listOf(
-            // A49: this is distinct from the backup-coverage check below it — it fires whenever the
-            // *selected* inverter can't cover ordinary peak household load, regardless of what
-            // backup coverage was requested. GUIDED/LOAD equipment is chosen specifically to avoid
-            // this (EquipmentSelectionEngine), so it should only ever realistically fire for MANUAL.
-            EngineeringCheck(
-                label = "Inverter capacity suitable for peak load",
-                pass = preview.inverterKw >= requiredInverterKw - 0.05,
-                detail = if (preview.inverterKw < requiredInverterKw - 0.05) {
-                    "Selected inverter (%s, %.1f kW) is below the calculated peak-load requirement (%.2f kW)."
-                        .format(preview.inverterName, preview.inverterKw, requiredInverterKw)
-                } else null
-            ),
-            EngineeringCheck(
-                label = "Inverter capacity suitable for backup coverage",
-                pass = preview.backupCapacityWarningKw == null,
-                detail = preview.backupCapacityWarningKw?.let {
-                    "Requested backup coverage implies about %.1f kW — above what the %s (%.1f kW) can deliver."
-                        .format(it, preview.inverterName, preview.inverterKw)
-                }
-            ),
-            EngineeringCheck(
-                label = "Battery capacity suitable for backup target",
-                pass = preview.totalBatteryKwh >= preview.batteryRequiredKwh - 0.05,
-                detail = if (preview.totalBatteryKwh < preview.batteryRequiredKwh - 0.05) {
-                    "About %.1f kWh is needed for the requested backup; %.1f kWh is selected."
-                        .format(preview.batteryRequiredKwh, preview.totalBatteryKwh)
-                } else null
-            ),
-            // A66 (spec Phase 3A/8/25 — MANUAL mode must show a distinct PASS/FAIL for "backup
-            // duration," not just nominal capacity): the check above compares nominal kWh against
-            // a flat requirement; this one compares the REAL simulated outage duration
-            // (`estimatedBackupHours`, an actual grid-disconnected day-simulation — A54) against
-            // the hours the installer actually asked for. A64 already computes
-            // `batteryBackupTargetMet` for exactly this comparison but it was never wired into this
-            // review screen — a system whose nominal kWh check above passes can still fail this one
-            // (e.g. its own DOD/discharge-power limits eat into the simulated runtime).
-            EngineeringCheck(
-                label = "Battery backup meets requested duration (simulated)",
-                pass = preview.batteryBackupTargetMet != false,
-                detail = if (preview.batteryBackupTargetMet == false) {
-                    "Simulated backup: %.1f h — %.0f h requested. %s"
-                        .format(preview.estimatedBackupHours, inputs.backupHours, preview.estimatedBackupReason)
-                } else null
-            ),
-            EngineeringCheck(
-                label = "Battery power suitable for peak load",
-                pass = preview.totalBatteryKwh <= 0.0 || batteryMaxDischargeKw >= peakLoadKw - 0.05,
-                detail = if (preview.totalBatteryKwh > 0.0 && batteryMaxDischargeKw < peakLoadKw - 0.05) {
-                    "Peak load (%.1f kW) may exceed the battery's typical continuous discharge rate (%.1f kW)."
-                        .format(peakLoadKw, batteryMaxDischargeKw)
-                } else null
-            ),
-            // A72 (spec Phase 7): real per-model battery voltage window vs. the inverter's real
-            // accepted battery-port voltage window — see
-            // EquipmentSelectionEngine.checkBatteryVoltageCompatibility's own doc.
-            EngineeringCheck(
-                label = "Battery voltage compatible with inverter's battery port",
-                pass = preview.totalBatteryKwh <= 0.0 || batteryVoltageCompat.ok,
-                detail = if (preview.totalBatteryKwh > 0.0 && !batteryVoltageCompat.ok) {
-                    "Battery voltage window (%.1f-%.1fV) falls outside the inverter's accepted battery-port range (%.1f-%.1fV)."
-                        .format(batteryVoltageCompat.batteryMinV, batteryVoltageCompat.batteryMaxV, batteryVoltageCompat.inverterMinV, batteryVoltageCompat.inverterMaxV)
-                } else null
-            ),
-            EngineeringCheck(
-                label = "PV array within inverter's max PV input power",
-                pass = pvCompat.powerOk,
-                detail = if (!pvCompat.powerOk) {
-                    "%.2f kWp of panels exceeds the inverter's real maximum PV input, %.2f kW."
-                        .format(pvCompat.arrayKw, pvCompat.requiredMaxPvKw)
-                } else "%.2f kWp of %.2f kW max PV input.".format(pvCompat.arrayKw, pvCompat.requiredMaxPvKw)
-            ),
-            EngineeringCheck(
-                label = "Series string Voc within inverter's max PV voltage",
-                pass = pvCompat.vocOk,
-                detail = if (!pvCompat.vocOk) {
-                    "Cold-corrected series Voc %.0fV exceeds the inverter's maximum PV voltage %.0fV."
-                        .format(pvCompat.stringVocV, pvCompat.mpptVoltageMaxV)
-                } else null
-            ),
-            EngineeringCheck(
-                label = "Series string Vmp within MPPT operating range",
-                pass = pvCompat.vmpOk,
-                detail = if (!pvCompat.vmpOk) {
-                    "Series Vmp %.0fV is below the inverter's minimum MPPT operating voltage.".format(pvCompat.stringVmpV)
-                } else null
-            ),
-            // A71 (spec Phase 6): the MPPT range's real per-model CEILING — a separate, lower
-            // figure from the VOC check's own maxPvV ceiling above (see
-            // EquipmentSelectionEngine.PanelCompatibilityResult.vmpUpperOk's own doc). Without
-            // this, a design failing only this one would show every other check here passing while
-            // it was actually electrically invalid.
-            EngineeringCheck(
-                label = "Series string Vmp within MPPT tracking-range ceiling",
-                pass = pvCompat.vmpUpperOk,
-                detail = if (!pvCompat.vmpUpperOk) {
-                    "Series Vmp %.0fV exceeds the inverter's real MPPT tracking-range ceiling.".format(pvCompat.stringVmpV)
-                } else null
-            ),
-            EngineeringCheck(
-                label = "Series string short-circuit current within MPPT current limits",
-                pass = pvCompat.iscOk,
-                detail = if (!pvCompat.iscOk) {
-                    "Series Isc %.1fA exceeds the inverter's implied max PV current — this is the panel's own current (voltage adds in series, current does not multiply by panel count)."
-                        .format(pvCompat.stringIscA)
-                } else null
-            ),
-            // A71: the string's real OPERATING current (Imp), against the inverter's real
-            // continuous max input current per tracker — a different, typically lower datasheet
-            // figure from the short-circuit check above (see PanelCompatibilityResult.impOk's own
-            // doc).
-            EngineeringCheck(
-                label = "Series string operating current within continuous MPPT current limits",
-                pass = pvCompat.impOk,
-                detail = if (!pvCompat.impOk) {
-                    "Series Imp %.1fA exceeds the inverter's real continuous max PV input current per tracker."
-                        .format(pvCompat.stringImpA)
-                } else null
-            ),
-            // A54 (spec §22–23): a real simulated day, starting from the battery's reserve floor,
-            // checking whether the selected PV array can actually recharge it back to a usable SOC
-            // by early afternoon — calculated, not assumed passing just because sizing "looks" big enough.
-            EngineeringCheck(
-                label = "Battery can recharge to a usable SOC by ~2 PM",
-                pass = preview.batteryRechargeTargetMet != false,
-                detail = if (preview.batteryRechargeTargetMet == false) {
-                    val socText = "%.0f%%".format(preview.batteryRechargeSocAt2pmPercent ?: 0f)
-                    val whenText = preview.batteryRechargeHour?.let { "reached later, around ${formatSimTime(it)}" }
-                        ?: "never fully recharged within the simulated day"
-                    "⚠ BATTERY RECHARGE TARGET NOT MET — only $socText SOC by 2 PM ($whenText). Consider more PV, a smaller battery, or reduced daytime load."
-                } else null
-            )
-        )
-    }
+    // A75 (spec Phase 12 — "improve System Review"): now the same shared SystemDiagnostics
+    // .checksFor() that SystemResultScreen's "WHY WAS THIS SYSTEM SELECTED?" panel uses, instead
+    // of this screen's own separately-maintained duplicate of the same 13 checks — the exact
+    // "not consolidated this round" drift A71/A72 kept flagging here finally closed, since the
+    // fields diverging between the two lists is what let SystemResultScreen's panel actually
+    // miss a real check (see SystemDiagnostics.kt's own A75 note) until this round caught it.
+    val checks = remember(preview, inputs.backupHours) { SystemDiagnostics.checksFor(preview, inputs.backupHours) }
 
     val confidenceChecks = remember(inputs) {
         listOf(

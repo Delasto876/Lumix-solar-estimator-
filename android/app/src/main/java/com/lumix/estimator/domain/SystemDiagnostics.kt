@@ -17,7 +17,7 @@ data class DiagnosticCheck(val label: String, val pass: Boolean, val detail: Str
  */
 object SystemDiagnostics {
 
-    fun checksFor(result: QuoteResult): List<DiagnosticCheck> {
+    fun checksFor(result: QuoteResult, targetBackupHours: Double): List<DiagnosticCheck> {
         val requiredInverterKw = result.peakWatts * 1.25 / 1000.0
         val peakLoadKw = result.peakWatts / 1000.0
         // A72 (spec Phase 7 — "fix battery calculations"): reads the real per-model figure
@@ -62,6 +62,19 @@ object SystemDiagnostics {
                 detail = if (result.totalBatteryKwh < result.batteryRequiredKwh - 0.05) {
                     "About %.1f kWh is needed for the requested backup; %.1f kWh is selected."
                         .format(result.batteryRequiredKwh, result.totalBatteryKwh)
+                } else null
+            ),
+            // A75 (spec Phase 12 — "improve System Review"): this screen's own check was missing
+            // even though StepSystemReview.kt's pre-Calculate wizard step already had it (A66) —
+            // a real system could reach the Results screen and show "All checks pass" here while
+            // the wizard step had already flagged a real simulated-backup-duration shortfall.
+            // Ported over unchanged so both screens agree on the same real simulated figure.
+            DiagnosticCheck(
+                label = "BATTERY BACKUP DURATION — meets requested backup time (simulated)",
+                pass = result.batteryBackupTargetMet != false,
+                detail = if (result.batteryBackupTargetMet == false) {
+                    "Simulated backup: %.1f h — %.0f h requested. %s"
+                        .format(result.estimatedBackupHours, targetBackupHours, result.estimatedBackupReason)
                 } else null
             ),
             DiagnosticCheck(

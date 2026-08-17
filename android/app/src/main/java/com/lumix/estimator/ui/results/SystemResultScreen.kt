@@ -193,17 +193,17 @@ fun SystemResultScreen(
                 // A58 (spec §37–38): the diagnostics panel — every engineering check that went
                 // into (or would have blocked) this exact system, plus the plain-language reasons
                 // GUIDED/LOAD's EquipmentSelectionEngine picked each component, all in one place.
-                DiagnosticsSection(result)
+                DiagnosticsSection(result, inputs.backupHours)
             }
         }
     }
 }
 
 @Composable
-private fun DiagnosticsSection(result: QuoteResult) {
+private fun DiagnosticsSection(result: QuoteResult, targetBackupHours: Double) {
     val palette = LocalLumixPalette.current
     var open by remember(result) { mutableStateOf(false) }
-    val checks = remember(result) { SystemDiagnostics.checksFor(result) }
+    val checks = remember(result, targetBackupHours) { SystemDiagnostics.checksFor(result, targetBackupHours) }
     val failCount = checks.count { !it.pass }
     val reasons = listOfNotNull(
         result.panelSelectionReason?.let { "PV" to it },

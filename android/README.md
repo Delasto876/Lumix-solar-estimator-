@@ -4342,3 +4342,60 @@ helper, which `SimulationScreen.kt`'s `StatusStatement` composable still genuine
 
 **Tests**: none needed updating — confirmed via grep that no test file referenced either
 `HouseSimulationVisual` or `statusColor`.
+
+## A75 — Phase 12: improve System Review
+
+**Inspected**: `StepSystemReview.kt` (the wizard's pre-Calculate System Review step) end to end,
+`SystemDiagnostics.kt` (the shared "why was this system selected?" check-builder its own doc
+comment already claims is the ONE place `StepSystemReview.kt` and `SystemResultScreen.kt`'s
+diagnostics panel both read from), and `SystemResultScreen.kt`'s `DiagnosticsSection` (the
+post-Calculate screen that actually calls it).
+
+**Found a real bug**: `SystemDiagnostics.checksFor` was NOT actually the one shared source its own
+doc comment claims — `StepSystemReview.kt` had its own separately-maintained 13-check list (an
+`EngineeringCheck` data class and a hand-built `listOf(...)`) that had drifted from
+`SystemDiagnostics.checksFor`'s 12 checks, missing exactly one: "Battery backup meets requested
+duration (simulated)" (A66's real, simulated-outage-vs-requested-hours check, distinct from the
+nominal-kWh check above it). Two prior rounds (A71, A72) had already noticed and commented on this
+exact duplication ("this screen has its own separately-maintained duplicate of the same checks, not
+consolidated this round") without ever finishing the consolidation — so the drift this created was
+real and live: a system could reach `SystemResultScreen`'s "WHY WAS THIS SYSTEM SELECTED?" panel
+right after Calculate and show "All checks pass" even though the wizard's own System Review step,
+one screen earlier, had already flagged a real simulated-backup-duration shortfall for the exact
+same system.
+
+**Fixed**:
+- Ported A66's check into `SystemDiagnostics.checksFor` unchanged (same pass condition, same detail
+  text), so both screens now compute from the identical simulated figures
+  (`batteryBackupTargetMet`/`estimatedBackupHours`/`estimatedBackupReason`). This needed one new
+  parameter, `targetBackupHours: Double` (the check's detail text needs the requested hours, which
+  live on `QuoteInputs`, not `QuoteResult`) — both call sites already have `QuoteInputs` in scope
+  (`StepSystemReview`'s own `inputs` parameter; `SystemResultScreen`'s `SavedQuote.inputs`), so no
+  new data plumbing was needed.
+- Finished the consolidation A71/A72 had deferred: `StepSystemReview.kt` now calls
+  `SystemDiagnostics.checksFor(preview, inputs.backupHours)` directly instead of maintaining its own
+  copy — removing the private `EngineeringCheck` data class, the local `pvCompat`/
+  `batteryVoltageCompat` computations (now computed once, inside `checksFor`, instead of twice), and
+  the now-unused `EquipmentSelectionEngine`/`formatSimTime` imports. There is now exactly one place
+  these 13 checks are computed, closing off the class of drift that caused this bug in the first
+  place rather than just re-syncing the two lists for one more round.
+- One visible, deliberate side effect: the wizard's System Review step's check labels now read in
+  the same `ALL-CAPS — category` style as the Results screen's diagnostics panel (e.g. "Inverter
+  capacity suitable for peak load" → "INVERTER — suitable for peak load") rather than its previous
+  friendlier sentence case, since both screens now render the identical `DiagnosticCheck` list. Both
+  screens are installer-facing engineering detail behind an explicit VIEW CALCULATIONS/expand
+  affordance, not customer-facing copy, and the two screens now visibly agreeing on identical wording
+  for the identical check reads as more trustworthy, not less — but this is a judgment call, not a
+  physics question, and is a one-line revert (give `StepSystemReview.kt` its own label-remapping
+  step) if the installer prefers the old wording kept separate.
+
+**Files changed**: `SystemDiagnostics.kt` (new check, new `targetBackupHours` parameter),
+`SystemResultScreen.kt` (`DiagnosticsSection`/its call site pass the new parameter),
+`StepSystemReview.kt` (consolidated onto the shared `checksFor`, removed the now-dead duplicate
+check list and its now-unused imports), `SystemDiagnosticsTest.kt` (new regression tests for the
+ported check, updated existing calls/count for the new parameter and 12→13 check count).
+
+**Tests**: `SystemDiagnosticsTest.kt` — two new tests (`battery backup duration not met surfaces
+simulated vs requested hours`, `battery backup duration check passes when target is met or
+unknown`) plus updated existing tests for the new `targetBackupHours` parameter and the 13-check
+count.
