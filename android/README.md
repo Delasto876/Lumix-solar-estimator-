@@ -4218,3 +4218,44 @@ PV-free discharge scenario proving the real DC energy drawn from SOC now exceeds
 delivered by exactly the `1 / INVERTER_EFFICIENCY` factor (with an explicit regression guard against
 the old, wrong 100%-efficient figure), plus a direct check that A47's energy-balance invariant still
 holds exactly.
+
+## Phase 9: rebuild simulation around that model
+
+**Inspected**: `SimulationViewModel.kt` end to end (the state machine behind the Simulation screen),
+`SimulationScreen.kt` and its visual sub-components (`HouseSimulationVisual.kt`, `InspectPanel.kt`,
+`TechnicalReadout.kt`) for any locally-computed physics, and every other screen that shows
+simulation-derived numbers (`StepSystemReview.kt`, `ResultsScreen.kt`/`SystemResultScreen.kt`, the
+Home dashboard) for a second, separately-maintained simulation path.
+
+**Found: nothing left to rebuild — this phase's own goal was already met by earlier work (A45/A54/
+A63/A64), and this round re-verified it's still true rather than assuming so**:
+- **The ViewModel is a thin, correct layer over the one shared engine, not a second
+  implementation.** `SimulationViewModel.load()`/`rebuildTimeline()` call `SimulationEngine
+  .buildDayTimeline()` exactly once per state change and store the resulting `List<SimFrame>`
+  verbatim; every other function (`scrubTo`, `play`, `setHourInternal`) only reads from that stored
+  timeline via `SimulationEngine.frameAt()`/`nextBatteryFullHour()` — a cheap lookup/interpolation,
+  never a second physics pass. Confirmed by reading the full 305-line file, not the class-level doc
+  comment's own claim.
+- **No parallel simulation exists anywhere else in the UI.** `StepSystemReview.kt` (design-time
+  preview) and `ResultsScreen.kt`/`SystemResultScreen.kt` (post-calculation) read
+  `BackupEstimator`/`RechargeFeasibility` results already resolved once inside `SystemCalculator
+  .calculate()` (both of which are themselves thin callers of the same `buildDayTimeline`) — neither
+  screen builds its own timeline. The two direct `SimulationEngine.irradianceFactor` calls outside
+  the Simulation screen's own visuals (`SimulationScreen.kt`'s sun-glow/cloud-opacity rendering) are
+  cosmetic, already disclosed as such in A70's own section, not a second production model.
+- **Midnight-crossing state continuity (A45) still holds under this round's changes.**
+  `advanceHour()` correctly chains each simulated day's real ending battery SOC into the next day's
+  starting point during continuous playback, re-verified still correct after A73's discharge-
+  efficiency change (which only affects *how fast* SOC depletes within a day, not how the ending
+  SOC carries across the boundary — the chaining logic reads `timeline.last().batterySocKwh`
+  directly, whatever that real number now is).
+- **Playback timing (`System.nanoTime()`-paced real-time speed control) is correctly separated from
+  simulation determinism.** Wall-clock time paces *how fast the scrubber advances through the
+  precomputed timeline* — a UI concern — never feeds into `buildDayTimeline`'s own physics, which
+  stays a pure function of its explicit parameters exactly as A73's Phase 8 audit already
+  established.
+
+No code changes this round — the honest finding is that "rebuilding the simulation around the
+deterministic model" was already this app's actual architecture since A54, and this phase's own
+verification pass (reading the ViewModel and every simulation-adjacent screen directly, not
+inferring from prior rounds' doc comments) found nothing left to do.
