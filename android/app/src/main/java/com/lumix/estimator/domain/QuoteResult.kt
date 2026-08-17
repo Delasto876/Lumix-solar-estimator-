@@ -41,7 +41,27 @@ data class QuoteResult(
     val materialsTotal: Double,
     val serviceCharge: Double,
     val deliveryCharge: Double,
+    /**
+     * A78 (spec Phase 15 — "improve quote engine", §39 "Show: Original subtotal, Discount, Final
+     * subtotal..."): `materialsTotal + serviceCharge + deliveryCharge`, computed once here instead
+     * of every consumer (PDF/CSV/HTML/`ResultsScreen`) re-adding the same three fields itself —
+     * the same "computed twice, risks drift" pattern this codebase has fixed for other figures
+     * (see e.g. A72's `SystemDiagnostics` doc). Defaults to 0.0 for quotes saved before this field
+     * existed, which is a display-only backfill gap (nothing was ever computed wrong), not a real
+     * historical inaccuracy.
+     */
+    val subtotalBeforeDiscount: Double = 0.0,
     val discountAmount: Double,
+    /**
+     * A78 (spec Phase 15, §38/§39 — "tax/fees if applicable"): infrastructure for a configurable
+     * tax/fee line, always 0.0 today since no tax rate is configurable anywhere in the app yet
+     * (the spec itself files "Tax settings" under §40 SETTINGS, not the quote engine) — adding a
+     * real rate without the installer's explicit input on Jamaica's GCT applicability/whether
+     * quoted prices are already tax-inclusive would be inventing business policy, not engineering
+     * data. `grandTotal` already includes this term so enabling a real rate later needs no formula
+     * change, only a nonzero value here.
+     */
+    val taxAmount: Double = 0.0,
     val grandTotal: Double,
     /**
      * Set when the requested backup coverage (Most Load / Custom) implies a load the actually-

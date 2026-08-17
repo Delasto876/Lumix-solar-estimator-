@@ -914,7 +914,11 @@ object SystemCalculator {
         if (discountAmount < 0) discountAmount = 0.0
         if (discountAmount > preDiscountTotal) discountAmount = preDiscountTotal
 
-        val grandTotal = preDiscountTotal - discountAmount
+        // A78 (spec Phase 15, §39): taxAmount is always 0.0 today (see QuoteResult.taxAmount's own
+        // doc) — written as an explicit term rather than omitted so a future real tax rate needs no
+        // formula change here, only a nonzero value passed below.
+        val taxAmount = 0.0
+        val grandTotal = preDiscountTotal - discountAmount + taxAmount
 
         // Resolved once, here, at calculation time — never re-matched against a possibly-newer
         // equipment catalog when a saved quote's simulation is opened later. See
@@ -948,7 +952,9 @@ object SystemCalculator {
             materialsTotal = materialsTotal,
             serviceCharge = serviceCharge,
             deliveryCharge = input.deliveryCharge,
+            subtotalBeforeDiscount = preDiscountTotal,
             discountAmount = discountAmount,
+            taxAmount = taxAmount,
             grandTotal = grandTotal,
             backupCapacityWarningKw = backupCapacityWarningKw,
             batteryMaxChargeKw = batteryMaxChargeKw,

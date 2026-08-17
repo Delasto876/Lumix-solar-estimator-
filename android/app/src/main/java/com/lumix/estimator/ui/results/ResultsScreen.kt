@@ -42,6 +42,9 @@ import com.lumix.estimator.domain.SavingsCalculator
 import com.lumix.estimator.domain.SystemMode
 import com.lumix.estimator.domain.formatCurrency
 import com.lumix.estimator.domain.formatQty
+import com.lumix.estimator.domain.quoteNumberFor
+import com.lumix.estimator.export.QuoteCsvGenerator
+import com.lumix.estimator.export.QuoteHtmlGenerator
 import com.lumix.estimator.pdf.QuotePdfGenerator
 import com.lumix.estimator.ui.components.EnergyFlowDiagram
 import com.lumix.estimator.ui.components.FlowNode
@@ -72,6 +75,7 @@ fun ResultsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var isSharing by remember { mutableStateOf(false) }
+    var sharingFormat by remember { mutableStateOf<String?>(null) }
     var selectedNode by remember { mutableStateOf<FlowNode?>(null) }
     val palette = LocalLumixPalette.current
 
@@ -93,34 +97,83 @@ fun ResultsScreen(
         bottomBar = {
             val current = saved
             if (current != null) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    LumixSecondaryButton(text = "New quote", onClick = onNewQuote, modifier = Modifier.weight(1f))
-                    LumixPrimaryButton(
-                        text = if (isSharing) "Preparing…" else "Share PDF",
-                        enabled = !isSharing,
-                        onClick = {
-                            isSharing = true
-                            scope.launch {
-                                val file = withContext(Dispatchers.IO) {
-                                    QuotePdfGenerator.generate(context, current.inputs, current.result, current.timestamp)
-                                }
-                                isSharing = false
-                                context.startActivity(
-                                    android.content.Intent.createChooser(
-                                        QuotePdfGenerator.shareIntent(context, file),
-                                        "Share quote PDF"
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LumixSecondaryButton(text = "New quote", onClick = onNewQuote, modifier = Modifier.weight(1f))
+                        LumixPrimaryButton(
+                            text = if (isSharing && sharingFormat == "pdf") "Preparing…" else "Share PDF",
+                            enabled = !isSharing,
+                            onClick = {
+                                isSharing = true
+                                sharingFormat = "pdf"
+                                scope.launch {
+                                    val file = withContext(Dispatchers.IO) {
+                                        QuotePdfGenerator.generate(context, quoteId, current.inputs, current.result, current.timestamp)
+                                    }
+                                    isSharing = false
+                                    context.startActivity(
+                                        android.content.Intent.createChooser(
+                                            QuotePdfGenerator.shareIntent(context, file),
+                                            "Share quote PDF"
+                                        )
                                     )
-                                )
-                            }
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    // A78 (spec Phase 15, §38 "Allow: PDF, HTML, CSV where appropriate") — the
+                    // same already-computed QuoteResult, two more export formats.
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LumixSecondaryButton(
+                            text = if (isSharing && sharingFormat == "html") "Preparing…" else "Share HTML",
+                            enabled = !isSharing,
+                            onClick = {
+                                isSharing = true
+                                sharingFormat = "html"
+                                scope.launch {
+                                    val file = withContext(Dispatchers.IO) {
+                                        QuoteHtmlGenerator.generate(context, quoteId, current.inputs, current.result, current.timestamp)
+                                    }
+                                    isSharing = false
+                                    context.startActivity(
+                                        android.content.Intent.createChooser(
+                                            QuoteHtmlGenerator.shareIntent(context, file),
+                                            "Share quote HTML"
+                                        )
+                                    )
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        LumixSecondaryButton(
+                            text = if (isSharing && sharingFormat == "csv") "Preparing…" else "Share CSV",
+                            enabled = !isSharing,
+                            onClick = {
+                                isSharing = true
+                                sharingFormat = "csv"
+                                scope.launch {
+                                    val file = withContext(Dispatchers.IO) {
+                                        QuoteCsvGenerator.generate(context, quoteId, current.inputs, current.result, current.timestamp)
+                                    }
+                                    isSharing = false
+                                    context.startActivity(
+                                        android.content.Intent.createChooser(
+                                            QuoteCsvGenerator.shareIntent(context, file),
+                                            "Share quote CSV"
+                                        )
+                                    )
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         }
@@ -162,6 +215,12 @@ fun ResultsScreen(
                             "Recommended solar system for ${inputs.propertyType.label.lowercase()}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = palette.textSecondary
+                        )
+                        Text(
+                            quoteNumberFor(quoteId),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.textSecondary,
+                            modifier = Modifier.padding(top = 4.dp)
                         )
                     }
                 }
@@ -285,11 +344,20 @@ fun ResultsScreen(
                 }
 
                 item {
+                    // A78 (spec Phase 15, §39 "Show: Original subtotal, Discount, Final subtotal,
+                    // Tax/fees, Grand total"): Subtotal/Tax rows now read the same
+                    // subtotalBeforeDiscount/taxAmount fields the PDF/HTML/CSV exports use — no
+                    // separate re-addition of materialsTotal+installationCost here.
                     SectionCard(title = "Cost") {
                         StatRow("Equipment", formatCurrency(result.materialsTotal), null)
                         StatRow("Installation", formatCurrency(installationCost), null)
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                        StatRow("Subtotal", formatCurrency(result.subtotalBeforeDiscount), null)
                         if (result.discountAmount > 0) {
                             StatRow("Discount", "-${formatCurrency(result.discountAmount)}", null)
+                        }
+                        if (result.taxAmount > 0) {
+                            StatRow("Tax/fees", formatCurrency(result.taxAmount), null)
                         }
                         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                         StatRow("TOTAL", formatCurrency(result.grandTotal), null, emphasize = true)

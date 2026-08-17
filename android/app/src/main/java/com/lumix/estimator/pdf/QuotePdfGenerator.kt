@@ -9,6 +9,8 @@ import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.formatCurrency
 import com.lumix.estimator.domain.formatQty
+import com.lumix.estimator.domain.quoteNumberFor
+import com.lumix.estimator.domain.quoteValidUntil
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -29,7 +31,7 @@ object QuotePdfGenerator {
     private val mutedPaint = Paint().apply { textSize = 9f; color = 0xFF6B7280.toInt() }
     private val linePaint = Paint().apply { color = 0xFFE5E7EB.toInt(); strokeWidth = 1f }
 
-    fun generate(context: Context, inputs: QuoteInputs, result: QuoteResult, timestamp: Long): File {
+    fun generate(context: Context, quoteId: Long, inputs: QuoteInputs, result: QuoteResult, timestamp: Long): File {
         val document = PdfDocument()
         var pageNumber = 1
         var page = document.startPage(PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNumber).create())
@@ -46,11 +48,13 @@ object QuotePdfGenerator {
             }
         }
 
-        canvas.drawText("Lumix Solar Estimator", MARGIN, y, titlePaint); y += 18f
+        canvas.drawText("Lumix Technologies", MARGIN, y, titlePaint); y += 18f
         canvas.drawText("Solar System Quote", MARGIN, y, mutedPaint); y += 20f
 
         val dateStr = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(timestamp))
-        canvas.drawText("Date: $dateStr", MARGIN, y, bodyPaint); y += 14f
+        val validUntilStr = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(quoteValidUntil(timestamp))
+        canvas.drawText("Quote ${quoteNumberFor(quoteId)}", MARGIN, y, bodyPaint); y += 14f
+        canvas.drawText("Date: $dateStr  ·  Valid until: $validUntilStr", MARGIN, y, bodyPaint); y += 14f
         if (inputs.customerName.isNotBlank()) {
             canvas.drawText("Customer: ${inputs.customerName}", MARGIN, y, bodyPaint); y += 14f
         }
@@ -109,14 +113,19 @@ object QuotePdfGenerator {
             y += 14f
         }
 
-        ensureSpace(110f)
+        ensureSpace(140f)
         y += 6f
         canvas.drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, linePaint); y += 16f
         canvas.drawText("Materials total: ${formatCurrency(result.materialsTotal)}", MARGIN, y, bodyPaint); y += 14f
         canvas.drawText("Service (15%): ${formatCurrency(result.serviceCharge)}", MARGIN, y, bodyPaint); y += 14f
         canvas.drawText("Delivery: ${formatCurrency(result.deliveryCharge)}", MARGIN, y, bodyPaint); y += 14f
-        canvas.drawText("Discount: -${formatCurrency(result.discountAmount)}", MARGIN, y, bodyPaint); y += 16f
-        canvas.drawText("Grand Total: ${formatCurrency(result.grandTotal)}", MARGIN, y, totalPaint); y += 20f
+        // A78 (spec Phase 15, §39 "Show: Original subtotal, Discount, Final subtotal, Tax/fees,
+        // Grand total"): subtotalBeforeDiscount/taxAmount are the same fields SystemCalculator
+        // already computed once — never re-added here from the three lines above.
+        canvas.drawText("Subtotal: ${formatCurrency(result.subtotalBeforeDiscount)}", MARGIN, y, bodyPaint); y += 14f
+        canvas.drawText("Discount: -${formatCurrency(result.discountAmount)}", MARGIN, y, bodyPaint); y += 14f
+        canvas.drawText("Tax/fees: ${formatCurrency(result.taxAmount)}", MARGIN, y, bodyPaint); y += 16f
+        canvas.drawText("Grand Total: ${formatCurrency(result.grandTotal)}", MARGIN, y, totalPaint); y += 24f
 
         canvas.drawText("This is an estimate. Final pricing may vary after a site visit.", MARGIN, y, mutedPaint)
 

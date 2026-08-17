@@ -4536,3 +4536,84 @@ communication/parallel-capability rows for batteries).
 **Tests**: new `EquipmentSpecsTest.kt` — asserts exactly the two real entries have a surge figure set
 (with the correct real values), every other entry has neither field set (no invented data crept in),
 and every battery still carries a non-blank `bmsCommunication` note.
+
+## A78 — Phase 15: improve quote engine
+
+The 67-order's Phase 15 maps to the original spec's §38 ("QUOTE GENERATOR" — the full content
+checklist a quote should include) and §39 ("DISCOUNT LOGIC" — one original price, then a
+percentage-or-fixed discount, showing "Original subtotal, Discount, Final subtotal, Tax/fees, Grand
+total").
+
+**Inspected**: `QuotePdfGenerator.kt` (the only export format that existed), `SystemCalculator.kt`'s
+pricing math, `QuoteResult.kt`'s pricing fields, `ResultsScreen.kt`'s Cost section, and
+`Step7Pricing.kt` (discount input) against §38's full content checklist and §39's exact discount
+math/display structure.
+
+**Confirmed already correct, no fix needed**: §39's discount math itself was already exactly right
+— `SystemCalculator.kt`'s `preDiscountTotal = materialsTotal + serviceCharge + deliveryCharge`,
+discount clamped to `[0, preDiscountTotal]`, `grandTotal = preDiscountTotal - discountAmount` — the
+spec's own required "one original price, then percent-or-fixed discount, system calculates the
+final price" structure, already built in A57. The gap was that `preDiscountTotal` (the spec's
+"Original subtotal") was never exposed anywhere outside a local variable — every consumer that
+wanted it would have had to re-derive it from three separate fields itself, and none of them
+actually did (the UI simply never showed it).
+
+**Found and fixed — real gaps against §38's content checklist**:
+- **No quote number existed anywhere.** Added `quoteNumberFor(id)` (`Formatting.kt`) — a stable,
+  human-readable number (`LMX-Q-00042`) derived directly from the saved quote's own database id,
+  deliberately not a second independently-tracked sequence (one more thing that could drift from
+  the id it's describing). Shown on `ResultsScreen`, the PDF header, and both new export formats.
+- **No quote validity existed anywhere.** Added `quoteValidUntil(issuedAtMillis)` — 30 days from
+  issue, a placeholder default disclosed as such (not a confirmed Lumix policy), matching this
+  file's own doc comment pointing at Phase 16's Settings scope for making it configurable.
+- **"Original subtotal" was computed but never exposed.** New `QuoteResult.subtotalBeforeDiscount`
+  — `SystemCalculator` now sets it directly from the same `preDiscountTotal` it already computes,
+  so every consumer (PDF, the two new export formats, `ResultsScreen`'s Cost card) reads the
+  identical figure instead of re-adding `materialsTotal + serviceCharge + deliveryCharge` itself.
+- **"Tax/fees if applicable" had no field to be applicable in.** New `QuoteResult.taxAmount`,
+  always `0.0` today — the spec itself files "Tax settings" under §40 SETTINGS, not the quote
+  engine, and no tax rate is configurable anywhere in this app yet. Adding a real nonzero rate
+  (e.g. assuming Jamaica's GCT applies, or that displayed prices are/aren't already tax-inclusive)
+  without the installer's explicit direction would be inventing business policy, not fixing
+  engineering data — flagged rather than guessed. `grandTotal`'s formula now explicitly includes
+  `+ taxAmount` (currently a no-op term) so a real rate needs no formula change later, only a
+  nonzero value.
+- **Only PDF export existed; §38 explicitly asks for "PDF, HTML, CSV where appropriate."** Added
+  `QuoteHtmlGenerator` (browser-viewable/printable) and `QuoteCsvGenerator` (installer's own
+  spreadsheet workflow) — both new, small generators in a new `export` package, both rendering the
+  identical already-computed `QuoteResult` data the PDF does, so no format can ever show a
+  different total than another for the same saved quote. Wired into `ResultsScreen.kt` as two new
+  "Share HTML"/"Share CSV" buttons alongside the existing "Share PDF."
+- **The PDF's own header said "Lumix Solar Estimator."** The spec's §38 checklist literally opens
+  with "Lumix Technologies" as the company name a quote should show — this is the spec's own stated
+  real company name, not invented, so the PDF/HTML header now says it.
+
+**Deliberately NOT fabricated — flagged rather than guessed, matching this session's established
+"do not invent" discipline for equipment data, now applied to business content too.** §38 also
+lists: company logo, business information (address/phone/email), payment terms, warranty, terms and
+conditions, and notes. None of these exist anywhere in this app today (no Settings fields hold a
+real Lumix address, phone number, logo asset, warranty policy, or payment terms text), and
+inventing plausible-sounding business/legal boilerplate to fill them in would mean shipping
+fabricated content on a document a real customer might see — the exact failure mode the equipment
+database work has been careful to avoid all session, now applying the same standard to business
+content. The spec's own §40 SETTINGS section is where "Company information / Logo / Address / Phone
+/ Email... Default warranty / Payment terms" are explicitly supposed to live — this is Phase 16's
+scope, not manufactured here. The PDF/HTML/CSV simply omit these sections today rather than
+showing empty or fabricated placeholders.
+
+**Also not attempted this round**: a live subtotal/discount/tax preview inside `Step7Pricing.kt`
+itself (the discount *input* step) — the full, correct breakdown is already shown immediately after
+on `ResultsScreen`, which is the actual quote view the spec's checklist describes; a live preview
+during entry would be a genuine UX improvement but is additive, not a fix for something broken, and
+was left out to keep this round's scope to what §38/§39 actually require.
+
+**Files changed**: `QuoteResult.kt` (`subtotalBeforeDiscount`, `taxAmount`), `SystemCalculator.kt`
+(sets the new fields, explicit `+ taxAmount` term in the `grandTotal` formula), `Formatting.kt`
+(`quoteNumberFor`, `quoteValidUntil`, `DEFAULT_QUOTE_VALIDITY_DAYS`), `QuotePdfGenerator.kt` (quote
+number/validity, Subtotal/Tax rows, company name), `ResultsScreen.kt` (quote number display,
+Subtotal/Tax rows in the Cost card, two new export share buttons), new
+`export/QuoteHtmlGenerator.kt`, new `export/QuoteCsvGenerator.kt`.
+
+**Tests**: new `SystemCalculatorPricingTest.kt` (subtotal/tax/grand-total relationship holds across
+NONE/PERCENT/FIXED discount types) and new `FormattingTest.kt` (`quoteNumberFor`'s zero-padding,
+`quoteValidUntil`'s exact 30-day window).
