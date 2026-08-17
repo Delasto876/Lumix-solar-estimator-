@@ -41,19 +41,24 @@ class EquipmentSelectionEngineTest {
         assertEquals(0.0, result.oversizePercent, 0.5)
     }
 
-    // ---- 2. A63: the preferred 15% voltage margin outranks "smallest array" when they disagree ----
+    // ---- 2. A63/A65: the preferred voltage margin outranks "smallest array" when they disagree ----
     @Test
     fun `a margin-compliant but larger array beats a smaller array that violates the preferred voltage margin`() {
-        // 595W panel (Vmp 44.6V, Voc 52.6V), 2 MPPT trackers, 90V floor, 250V hard ceiling.
-        // Hand-traced per count (Python port of MpptStringPlanner + the Voc check):
-        //   4 panels -> [4] (2+2 would undervolt at 89.2V) -> Voc 219.9V: hard-valid, OUTSIDE the
-        //     212.5V (85%) preferred margin — the smaller array (2.38kW) but the worse one.
-        //   5 panels -> [5] -> Voc 274.8V: exceeds the 250V hard ceiling entirely — invalid.
+        // 595W panel (Vmp 44.6V, Voc 52.6V), 2 MPPT trackers, 90V floor, 225V hard ceiling (A65:
+        // widened from 250V to 225V so this scenario still demonstrates the margin tier under the
+        // updated 0.95 fraction — see PREFERRED_VOC_MARGIN_FRACTION's own doc for why the fraction
+        // changed). Hand-traced per count (Python port of MpptStringPlanner + the Voc check):
+        //   4 panels -> [4] (2+2 would undervolt at 89.2V) -> Voc 219.9V: hard-valid (<=225V),
+        //     OUTSIDE the 213.75V (95%) preferred margin — the smaller array (2.38kW) but the
+        //     worse one.
+        //   5 panels -> [5] -> Voc 274.8V: exceeds the 225V hard ceiling entirely — invalid.
         //   6 panels -> [3, 3] (now a 2-way split clears 90V: 3 x 44.6 = 133.8V) -> Voc 164.9V:
-        //     hard-valid AND inside the 212.5V margin — a bigger array (3.57kW) but the safer one.
+        //     hard-valid AND inside the 213.75V margin — a bigger array (3.57kW) but the safer one.
+        //   7/8 panels -> longest string still 4 panels (same as the 4-panel case) -> Voc 219.9V:
+        //     hard-valid but still outside the margin, same as 4 panels.
         // If "smallest array" were still the only criterion, 4 panels would win. It doesn't.
         val result = EquipmentSelectionEngine.selectBestPanelConfigurationForLimits(
-            requiredPvKw = 2.0, maxPvW = 50_000.0, maxPvV = 250.0, mpptTrackers = 2,
+            requiredPvKw = 2.0, maxPvW = 50_000.0, maxPvV = 225.0, mpptTrackers = 2,
             wattages = listOf(595)
         )
         assertTrue("expected an electrically valid pick: ${result.reason}", result.electricallyValid)
@@ -226,18 +231,23 @@ class EquipmentSelectionEngineTest {
         assertEquals(listOf(5, 5), counts)
     }
 
-    // ---- A62: the preferred 15% MPPT voltage design margin is a distinct, softer signal from the hard Voc ceiling ----
+    // ---- A62/A65: the preferred MPPT voltage design margin is a distinct, softer signal from the hard Voc ceiling ----
+    // A65: the margin fraction changed from 0.85 to 0.95 (installer's explicit choice between the
+    // two spec messages' conflicting worked examples — see PREFERRED_VOC_MARGIN_FRACTION's own
+    // doc) — both scenarios below happen to land on the same side of the threshold either way
+    // (384.8V/329.8V vs. a 380V line instead of a 340V one), so only the comments/messages needed
+    // updating, not the panel counts.
 
     @Test
-    fun `a string within the hard voltage ceiling but outside the preferred 15 percent margin is still valid, just flagged`() {
+    fun `a string within the hard voltage ceiling but outside the preferred design margin is still valid, just flagged`() {
         // Real 595W panel Voc 52.6V, cold-corrected: 7 x 52.6 x 1.045 = 384.77V. maxPvV=400V, so
         // this is comfortably under the hard ceiling (vocOk) but past the preferred design target
-        // of 400 x 0.85 = 340V.
+        // of 400 x 0.95 = 380V.
         val result = EquipmentSelectionEngine.checkPanelInverterCompatibilityForLimits(
             panelWatts = 595, panelCount = 7, maxPvW = 50_000.0, maxPvV = 400.0, mpptTrackers = 1
         )
         assertTrue("expected this configuration to still be electrically valid: ${result.notes}", result.valid)
-        assertFalse("expected 384.8V to fall outside the preferred 340V (85%) design margin", result.withinPreferredVoltageMargin)
+        assertFalse("expected 384.8V to fall outside the preferred 380V (95%) design margin", result.withinPreferredVoltageMargin)
         assertTrue(
             "expected the notes to explain the margin, even though the string is still valid: ${result.notes}",
             result.notes.any { it.contains("margin", ignoreCase = true) }
@@ -245,14 +255,14 @@ class EquipmentSelectionEngineTest {
     }
 
     @Test
-    fun `a string inside both the hard ceiling and the preferred 15 percent margin is flagged as within margin`() {
+    fun `a string inside both the hard ceiling and the preferred design margin is flagged as within margin`() {
         // Same inverter limit as above, one fewer panel: 6 x 52.6 x 1.045 = 329.8V, under both the
-        // 400V hard ceiling and the 340V (85%) preferred target.
+        // 400V hard ceiling and the 380V (95%) preferred target.
         val result = EquipmentSelectionEngine.checkPanelInverterCompatibilityForLimits(
             panelWatts = 595, panelCount = 6, maxPvW = 50_000.0, maxPvV = 400.0, mpptTrackers = 1
         )
         assertTrue("expected this configuration to be electrically valid: ${result.notes}", result.valid)
-        assertTrue("expected 329.8V to fall inside the preferred 340V (85%) design margin", result.withinPreferredVoltageMargin)
+        assertTrue("expected 329.8V to fall inside the preferred 380V (95%) design margin", result.withinPreferredVoltageMargin)
     }
 
     // ---- 11. Isc/Imp exceeds inverter limits ----

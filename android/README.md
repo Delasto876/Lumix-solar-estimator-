@@ -3571,3 +3571,45 @@ the fixed `SUNSET_HOUR` constant (spec §2's "better" alternative) — the fixed
 closely approximates it for Jamaica's near-equatorial ~12-hour day (dusk to `SUNSET_HOUR +
 backupHours` lands almost exactly on `SUNRISE_HOUR` for the default 12-hour case), so this was
 judged not worth the added complexity this round, but it remains a documented gap.
+
+## A65 — Phase 1 audit ("Lumix Solar Pro") + preferred voltage margin fraction: 0.85 → 0.95
+
+A full audit request against a large new 67-phase specification ("LUMIX SOLAR PRO"). Per its own
+explicit instruction ("Do not immediately rewrite the application... Then begin PHASE 1 only.
+After PHASE 1 is complete, stop and report before making major architectural changes"), this round
+was an audit + one narrowly-scoped correction, not a rebuild. The full audit report was delivered
+in chat, not this README — worth summarizing its two headline findings here since they bear on
+future rounds:
+
+1. **Most of the spec's "24 previously reported problems" investigation list is already resolved**,
+   across dedicated prior rounds (SOC midnight discontinuity, PV voltage fixed at 380V, appliances
+   running all day, the old time dial, MPPT allocation, etc.) — confirmed directly from source, not
+   assumed. Asked to confirm, the installer had no live repro to add.
+2. **A real, second instance of the same "label doesn't match its own worked arithmetic" pattern**
+   A62 already resolved once: this round's spec calls its string-voltage headroom rule "15%
+   VOLTAGE OPERATING MARGIN" but works its own example as `380 x 0.95 = 361V` — arithmetically a 5%
+   reduction, not 15% (the prior round's "10% design margin... 380 x 0.85" text was, by contrast,
+   arithmetically consistent with its own "preferred 15%" language elsewhere in that same message —
+   0.85 truly is a 15% reduction). Asked directly which fraction to use going forward, the
+   installer chose this round's arithmetic: 0.95.
+
+**Implemented**: `PREFERRED_VOC_MARGIN_FRACTION` in `EquipmentSelectionEngine.kt` is now `0.95`
+(was `0.85`). Every place that described this as a "preferred 15% margin" — two user-facing reason
+strings (`PanelCompatibilityResult.notes`, `PanelChoice.reason`'s margin note) plus several internal
+doc comments — now says "preferred 5%," since that's what 0.95 actually computes, flagged honestly
+rather than keeping a percentage label that no longer (and, on inspection, never actually did)
+match its own arithmetic. The constant's own doc comment now carries the full history of both
+rounds' conflicting worked examples so a future reader isn't left guessing why this number moved
+twice. Two `EquipmentSelectionEngineTest.kt` cases needed re-tracing: the two testing
+`checkPanelInverterCompatibilityForLimits` at a fixed 400V ceiling happened to land the same
+pass/fail result under both fractions (only their comments/messages needed updating); the one
+testing the margin tier winning a cross-candidate search needed its `maxPvV` moved from 250V to
+225V to keep demonstrating a genuine conflict between "smallest array" and "clears the margin"
+under the new, tighter-to-the-ceiling 0.95 fraction (re-traced in Python, both hard-validity and
+margin outcomes confirmed for every candidate count in the search window).
+
+**Not attempted this round, per the spec's own instruction to stop after Phase 1**: any of Phases
+2–66 — workflow simplification, Edit/Recalculate UI, equipment/quote/settings management UI, map,
+electrical-code lookup, CRM/projects/installations/monitoring/inventory (none of which exist in any
+form today), AI/MCP layer. The full audit findings and file-by-file breakdown were delivered in
+chat for the installer to review and re-scope from before any of that begins.
