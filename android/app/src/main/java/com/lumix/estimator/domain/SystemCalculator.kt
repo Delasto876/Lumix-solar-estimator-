@@ -903,7 +903,9 @@ object SystemCalculator {
         if (pvcOneBundleCount > 0) materials += MaterialLine("PVC conduit 1\" bundle", pvcOneBundleCount.toDouble(), prices.pvcConduitOneBundle)
 
         val materialsTotal = materials.sumOf { it.subtotal }
-        val serviceCharge = materialsTotal * 0.15
+        // A79 (spec Phase 16, §40 "Labour rates"): reads the now-configurable rate instead of a
+        // hard-coded 0.15 literal — see PriceList.serviceRatePercent's own doc.
+        val serviceCharge = materialsTotal * (prices.serviceRatePercent / 100.0)
         val preDiscountTotal = materialsTotal + serviceCharge + input.deliveryCharge
 
         var discountAmount = when (input.discountType) {
@@ -914,10 +916,11 @@ object SystemCalculator {
         if (discountAmount < 0) discountAmount = 0.0
         if (discountAmount > preDiscountTotal) discountAmount = preDiscountTotal
 
-        // A78 (spec Phase 15, §39): taxAmount is always 0.0 today (see QuoteResult.taxAmount's own
-        // doc) — written as an explicit term rather than omitted so a future real tax rate needs no
-        // formula change here, only a nonzero value passed below.
-        val taxAmount = 0.0
+        // A79 (spec Phase 16, §40 "Tax settings"): reads the now-configurable rate, applied to the
+        // post-discount subtotal — see PriceList.taxRatePercent's own doc for why tax follows
+        // discount rather than the other way around. Still 0.0 by default (PriceList.DEFAULT), so
+        // an installer who never opens Settings sees identical totals to before this round.
+        val taxAmount = (preDiscountTotal - discountAmount) * (prices.taxRatePercent / 100.0)
         val grandTotal = preDiscountTotal - discountAmount + taxAmount
 
         // Resolved once, here, at calculation time — never re-matched against a possibly-newer

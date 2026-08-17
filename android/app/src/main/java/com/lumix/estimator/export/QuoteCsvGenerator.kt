@@ -3,6 +3,7 @@ package com.lumix.estimator.export
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
+import com.lumix.estimator.domain.BusinessInfo
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.quoteNumberFor
@@ -20,14 +21,24 @@ import java.util.Locale
  */
 object QuoteCsvGenerator {
 
-    fun generate(context: Context, quoteId: Long, inputs: QuoteInputs, result: QuoteResult, timestamp: Long): File {
+    fun generate(context: Context, quoteId: Long, inputs: QuoteInputs, result: QuoteResult, timestamp: Long, business: BusinessInfo = BusinessInfo()): File {
         val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
         val validUntilFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+        // A79 (spec Phase 16): see QuotePdfGenerator's identical fix for why this reads the real
+        // effective rate instead of a hard-coded "15%".
+        val servicePercentLabel = if (result.materialsTotal > 0) {
+            " (%.0f%%)".format(result.serviceCharge / result.materialsTotal * 100.0)
+        } else ""
 
         val csv = buildString {
             appendLine(csvRow("Quote Number", quoteNumberFor(quoteId)))
             appendLine(csvRow("Date", dateFormat.format(Date(timestamp))))
             appendLine(csvRow("Valid Until", validUntilFormat.format(quoteValidUntil(timestamp))))
+            // A79 (spec Phase 16, §40): only written once the installer has filled these in.
+            if (business.companyName.isNotBlank()) appendLine(csvRow("Company", business.companyName))
+            if (business.address.isNotBlank()) appendLine(csvRow("Address", business.address))
+            if (business.phone.isNotBlank()) appendLine(csvRow("Phone", business.phone))
+            if (business.email.isNotBlank()) appendLine(csvRow("Email", business.email))
             appendLine(csvRow("Customer", inputs.customerName))
             appendLine(csvRow("Contact", inputs.customerContact))
             val location = listOf(inputs.nearestTown, inputs.parish).filter { it.isNotBlank() }.joinToString(", ")
@@ -46,12 +57,19 @@ object QuoteCsvGenerator {
             appendLine()
 
             appendLine(csvRow("Materials Total", "%.2f".format(result.materialsTotal)))
-            appendLine(csvRow("Service (15%)", "%.2f".format(result.serviceCharge)))
+            appendLine(csvRow("Service$servicePercentLabel", "%.2f".format(result.serviceCharge)))
             appendLine(csvRow("Delivery", "%.2f".format(result.deliveryCharge)))
             appendLine(csvRow("Subtotal", "%.2f".format(result.subtotalBeforeDiscount)))
             appendLine(csvRow("Discount", "-%.2f".format(result.discountAmount)))
             appendLine(csvRow("Tax/Fees", "%.2f".format(result.taxAmount)))
             appendLine(csvRow("Grand Total", "%.2f".format(result.grandTotal)))
+
+            // A79 (spec Phase 16, §40): only written once the installer has filled these in.
+            if (business.warranty.isNotBlank() || business.paymentTerms.isNotBlank()) {
+                appendLine()
+                if (business.warranty.isNotBlank()) appendLine(csvRow("Warranty", business.warranty))
+                if (business.paymentTerms.isNotBlank()) appendLine(csvRow("Payment Terms", business.paymentTerms))
+            }
         }
 
         val dir = File(context.filesDir, "quotes").apply { mkdirs() }

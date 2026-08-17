@@ -26,6 +26,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -94,6 +95,13 @@ fun SettingsScreen(
     val panelDegradationRatePercent = panelDegradationRate * 100.0
 
     val currentPrices by priceRepository.prices.collectAsState(initial = PriceList.DEFAULT)
+
+    val companyName by settingsRepository.companyName.collectAsState(initial = "")
+    val companyAddress by settingsRepository.companyAddress.collectAsState(initial = "")
+    val companyPhone by settingsRepository.companyPhone.collectAsState(initial = "")
+    val companyEmail by settingsRepository.companyEmail.collectAsState(initial = "")
+    val defaultWarranty by settingsRepository.defaultWarranty.collectAsState(initial = "")
+    val paymentTerms by settingsRepository.paymentTerms.collectAsState(initial = "")
 
     var showClearHistoryConfirm by remember { mutableStateOf(false) }
 
@@ -184,6 +192,58 @@ fun SettingsScreen(
             }
 
             item {
+                // A79 (spec Phase 16, §40 "Company information / Address / Phone / Email /
+                // Default warranty / Payment terms"): none of this existed anywhere before this
+                // round — every field starts blank (see SettingsRepository's own doc for why
+                // nothing is pre-filled). Once the installer enters their own real details here,
+                // the quote PDF/HTML/CSV exports pick them up automatically (see ResultsScreen.kt).
+                CollapsibleSectionCard(
+                    title = "Business Information",
+                    subtitle = "Shown on quote PDF/HTML/CSV exports once filled in"
+                ) {
+                    OutlinedTextField(
+                        value = companyName,
+                        onValueChange = { v -> scope.launch { settingsRepository.setCompanyName(v) } },
+                        label = { Text("Company name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    )
+                    OutlinedTextField(
+                        value = companyAddress,
+                        onValueChange = { v -> scope.launch { settingsRepository.setCompanyAddress(v) } },
+                        label = { Text("Address") },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    )
+                    OutlinedTextField(
+                        value = companyPhone,
+                        onValueChange = { v -> scope.launch { settingsRepository.setCompanyPhone(v) } },
+                        label = { Text("Phone") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    )
+                    OutlinedTextField(
+                        value = companyEmail,
+                        onValueChange = { v -> scope.launch { settingsRepository.setCompanyEmail(v) } },
+                        label = { Text("Email") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    )
+                    OutlinedTextField(
+                        value = defaultWarranty,
+                        onValueChange = { v -> scope.launch { settingsRepository.setDefaultWarranty(v) } },
+                        label = { Text("Default warranty") },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    )
+                    OutlinedTextField(
+                        value = paymentTerms,
+                        onValueChange = { v -> scope.launch { settingsRepository.setPaymentTerms(v) } },
+                        label = { Text("Payment terms") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            item {
                 // A61 (spec §10/12): Materials & Pricing is now its own section, separate from
                 // Appearance/Simulation/Financial rather than sharing the flat scroll they used to
                 // all live in — and its ~60 fields are grouped into per-category collapsibles
@@ -209,7 +269,7 @@ fun SettingsScreen(
                                         val updated = field.set(currentPrices, v)
                                         scope.launch { priceRepository.update(updated) }
                                     },
-                                    suffix = "J$"
+                                    suffix = field.suffix
                                 )
                             }
                         }

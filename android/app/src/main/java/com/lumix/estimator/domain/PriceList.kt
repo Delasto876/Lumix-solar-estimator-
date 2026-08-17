@@ -82,7 +82,26 @@ data class PriceList(
     val db8Way: Double = 5000.0,
     val drawBox: Double = 2000.0,
     val pvcConduitHalfBundle: Double = 4800.0,
-    val pvcConduitOneBundle: Double = 10000.0
+    val pvcConduitOneBundle: Double = 10000.0,
+
+    /**
+     * A79 (spec Phase 16 — "improve settings/materials", §40's own "Labour rates"): previously
+     * hard-coded as a literal `* 0.15` inside [SystemCalculator], not editable anywhere despite
+     * being exactly the kind of business rate the spec's Settings checklist asks for. Now the
+     * single source [SystemCalculator.calculate] reads, editable from the same Materials & Pricing
+     * settings section every other price already is.
+     */
+    val serviceRatePercent: Double = 15.0,
+    /**
+     * A79 (spec Phase 16, §40's own "Tax settings"): always effectively 0 before this round (see
+     * [QuoteResult.taxAmount]'s A78 doc) since no rate existed anywhere to set. Applied to the
+     * post-discount subtotal in [SystemCalculator.calculate], matching standard practice and the
+     * spec's own display order ("Original subtotal, Discount, Final subtotal, Tax/fees, Grand
+     * total" — tax follows discount, not the other way around). Defaults to 0.0 — enabling a real
+     * rate (e.g. Jamaica's GCT) is the installer's own business decision to make here, not
+     * something to assume.
+     */
+    val taxRatePercent: Double = 0.0
 ) {
     fun panelPrice(watts: Int): Double = when (watts) {
         595 -> panel595W
@@ -103,7 +122,9 @@ data class PriceFieldSpec(
     val label: String,
     val group: String,
     val get: (PriceList) -> Double,
-    val set: (PriceList, Double) -> PriceList
+    val set: (PriceList, Double) -> PriceList,
+    /** A79 (spec Phase 16): almost every field here is a J$ amount, but [PriceList.serviceRatePercent]/[PriceList.taxRatePercent] are percentages — this lets the shared Settings field loop render the correct unit instead of always assuming currency. */
+    val suffix: String = "J$"
 )
 
 object PriceFields {
@@ -173,7 +194,12 @@ object PriceFields {
         PriceFieldSpec("db8Way", "8-way distribution panel", "Boxes & Protection", { it.db8Way }, { p, v -> p.copy(db8Way = v) }),
         PriceFieldSpec("drawBox", "Draw box", "Boxes & Protection", { it.drawBox }, { p, v -> p.copy(drawBox = v) }),
         PriceFieldSpec("pvcConduitHalfBundle", "PVC conduit 1/2\" bundle", "Boxes & Protection", { it.pvcConduitHalfBundle }, { p, v -> p.copy(pvcConduitHalfBundle = v) }),
-        PriceFieldSpec("pvcConduitOneBundle", "PVC conduit 1\" bundle", "Boxes & Protection", { it.pvcConduitOneBundle }, { p, v -> p.copy(pvcConduitOneBundle = v) })
+        PriceFieldSpec("pvcConduitOneBundle", "PVC conduit 1\" bundle", "Boxes & Protection", { it.pvcConduitOneBundle }, { p, v -> p.copy(pvcConduitOneBundle = v) }),
+
+        // A79 (spec Phase 16, §40 "Labour rates" / "Tax settings"): the only two percentage-typed
+        // fields in this list — see PriceFieldSpec.suffix's own doc for why the "%" is explicit.
+        PriceFieldSpec("serviceRatePercent", "Service/labour rate (% of materials)", "Business Rates", { it.serviceRatePercent }, { p, v -> p.copy(serviceRatePercent = v) }, suffix = "%"),
+        PriceFieldSpec("taxRatePercent", "Tax/fees rate (% of post-discount subtotal)", "Business Rates", { it.taxRatePercent }, { p, v -> p.copy(taxRatePercent = v) }, suffix = "%")
     )
 
     val groups: List<String> = all.map { it.group }.distinct()

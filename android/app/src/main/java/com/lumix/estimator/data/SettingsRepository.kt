@@ -27,6 +27,20 @@ class SettingsRepository(private val context: Context) {
     private val billEscalationRateKey = doublePreferencesKey("bill_escalation_rate")
     private val panelDegradationRateKey = doublePreferencesKey("panel_degradation_rate")
 
+    // A79 (spec Phase 16 — "improve settings/materials", §40's own "Company information / Address
+    // / Phone / Email / Default warranty / Payment terms"): none of this existed anywhere before
+    // this round — every key defaults to blank, since the app has no real Lumix business content
+    // to pre-fill (inventing plausible-sounding business/legal text would be fabricating content a
+    // real customer could see on a quote — see A78's identical reasoning for why the PDF/HTML/CSV
+    // exports left these sections out entirely rather than guessing). The installer fills these in
+    // with their own real details; once non-blank, the quote exports pick them up automatically.
+    private val companyNameKey = stringPreferencesKey("company_name")
+    private val companyAddressKey = stringPreferencesKey("company_address")
+    private val companyPhoneKey = stringPreferencesKey("company_phone")
+    private val companyEmailKey = stringPreferencesKey("company_email")
+    private val defaultWarrantyKey = stringPreferencesKey("default_warranty")
+    private val paymentTermsKey = stringPreferencesKey("payment_terms")
+
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
         prefs[themeModeKey]?.let { raw -> runCatching { ThemeMode.valueOf(raw) }.getOrNull() } ?: ThemeMode.SYSTEM
     }
@@ -49,6 +63,13 @@ class SettingsRepository(private val context: Context) {
         prefs[panelDegradationRateKey] ?: SavingsCalculator.PANEL_DEGRADATION_RATE
     }
 
+    val companyName: Flow<String> = context.settingsDataStore.data.map { it[companyNameKey] ?: "" }
+    val companyAddress: Flow<String> = context.settingsDataStore.data.map { it[companyAddressKey] ?: "" }
+    val companyPhone: Flow<String> = context.settingsDataStore.data.map { it[companyPhoneKey] ?: "" }
+    val companyEmail: Flow<String> = context.settingsDataStore.data.map { it[companyEmailKey] ?: "" }
+    val defaultWarranty: Flow<String> = context.settingsDataStore.data.map { it[defaultWarrantyKey] ?: "" }
+    val paymentTerms: Flow<String> = context.settingsDataStore.data.map { it[paymentTermsKey] ?: "" }
+
     suspend fun setThemeMode(mode: ThemeMode) {
         context.settingsDataStore.edit { it[themeModeKey] = mode.name }
     }
@@ -68,4 +89,11 @@ class SettingsRepository(private val context: Context) {
     suspend fun setPanelDegradationRate(rate: Double) {
         context.settingsDataStore.edit { it[panelDegradationRateKey] = rate }
     }
+
+    suspend fun setCompanyName(value: String) { context.settingsDataStore.edit { it[companyNameKey] = value } }
+    suspend fun setCompanyAddress(value: String) { context.settingsDataStore.edit { it[companyAddressKey] = value } }
+    suspend fun setCompanyPhone(value: String) { context.settingsDataStore.edit { it[companyPhoneKey] = value } }
+    suspend fun setCompanyEmail(value: String) { context.settingsDataStore.edit { it[companyEmailKey] = value } }
+    suspend fun setDefaultWarranty(value: String) { context.settingsDataStore.edit { it[defaultWarrantyKey] = value } }
+    suspend fun setPaymentTerms(value: String) { context.settingsDataStore.edit { it[paymentTermsKey] = value } }
 }

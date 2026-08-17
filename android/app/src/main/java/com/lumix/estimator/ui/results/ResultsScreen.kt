@@ -23,6 +23,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,7 +36,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SavedQuote
+import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.BackupCoverage
+import com.lumix.estimator.domain.BusinessInfo
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.SavingsCalculator
@@ -65,6 +68,7 @@ import kotlinx.coroutines.withContext
 fun ResultsScreen(
     quoteId: Long,
     quoteRepository: QuoteRepository,
+    settingsRepository: SettingsRepository,
     onNewQuote: () -> Unit,
     onBackToHome: () -> Unit,
     onSimulate: (Long) -> Unit,
@@ -78,6 +82,17 @@ fun ResultsScreen(
     var sharingFormat by remember { mutableStateOf<String?>(null) }
     var selectedNode by remember { mutableStateOf<FlowNode?>(null) }
     val palette = LocalLumixPalette.current
+
+    // A79 (spec Phase 16): the installer's own real business details, entered in Settings — see
+    // BusinessInfo's own doc for why every field defaults blank and each export section only
+    // renders once non-blank.
+    val companyName by settingsRepository.companyName.collectAsState(initial = "")
+    val companyAddress by settingsRepository.companyAddress.collectAsState(initial = "")
+    val companyPhone by settingsRepository.companyPhone.collectAsState(initial = "")
+    val companyEmail by settingsRepository.companyEmail.collectAsState(initial = "")
+    val defaultWarranty by settingsRepository.defaultWarranty.collectAsState(initial = "")
+    val paymentTerms by settingsRepository.paymentTerms.collectAsState(initial = "")
+    val business = BusinessInfo(companyName, companyAddress, companyPhone, companyEmail, defaultWarranty, paymentTerms)
 
     LaunchedEffect(quoteId) {
         saved = quoteRepository.getSavedQuote(quoteId)
@@ -114,7 +129,7 @@ fun ResultsScreen(
                                 sharingFormat = "pdf"
                                 scope.launch {
                                     val file = withContext(Dispatchers.IO) {
-                                        QuotePdfGenerator.generate(context, quoteId, current.inputs, current.result, current.timestamp)
+                                        QuotePdfGenerator.generate(context, quoteId, current.inputs, current.result, current.timestamp, business)
                                     }
                                     isSharing = false
                                     context.startActivity(
@@ -139,7 +154,7 @@ fun ResultsScreen(
                                 sharingFormat = "html"
                                 scope.launch {
                                     val file = withContext(Dispatchers.IO) {
-                                        QuoteHtmlGenerator.generate(context, quoteId, current.inputs, current.result, current.timestamp)
+                                        QuoteHtmlGenerator.generate(context, quoteId, current.inputs, current.result, current.timestamp, business)
                                     }
                                     isSharing = false
                                     context.startActivity(
@@ -160,7 +175,7 @@ fun ResultsScreen(
                                 sharingFormat = "csv"
                                 scope.launch {
                                     val file = withContext(Dispatchers.IO) {
-                                        QuoteCsvGenerator.generate(context, quoteId, current.inputs, current.result, current.timestamp)
+                                        QuoteCsvGenerator.generate(context, quoteId, current.inputs, current.result, current.timestamp, business)
                                     }
                                     isSharing = false
                                     context.startActivity(

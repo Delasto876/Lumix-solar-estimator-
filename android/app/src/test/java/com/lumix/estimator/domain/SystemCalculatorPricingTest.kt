@@ -4,11 +4,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * A78 (spec Phase 15 — "improve quote engine", §39's own "Show: Original subtotal, Discount,
- * Final subtotal, Tax/fees, Grand total"): regression tests for [QuoteResult.subtotalBeforeDiscount]/
- * [QuoteResult.taxAmount] — the two fields added this round so every quote-facing screen/export
- * reads the same already-computed figures instead of re-adding materialsTotal/serviceCharge/
- * deliveryCharge itself.
+ * A78/A79 (spec Phase 15/16 — "improve quote engine"/"improve settings/materials", §39's own "Show:
+ * Original subtotal, Discount, Final subtotal, Tax/fees, Grand total"): regression tests for
+ * [QuoteResult.subtotalBeforeDiscount]/[QuoteResult.taxAmount] — the two fields added in A78 so
+ * every quote-facing screen/export reads the same already-computed figures instead of re-adding
+ * materialsTotal/serviceCharge/deliveryCharge itself — plus A79's [PriceList.serviceRatePercent]/
+ * [PriceList.taxRatePercent], which made the service and tax rates those fields depend on actually
+ * configurable instead of a hard-coded 0.15/0.0.
  */
 class SystemCalculatorPricingTest {
 
@@ -30,9 +32,28 @@ class SystemCalculatorPricingTest {
     }
 
     @Test
-    fun `taxAmount is zero — no configurable tax rate exists yet`() {
+    fun `taxAmount is zero under the default 0 percent tax rate`() {
         val result = SystemCalculator.calculate(manualHybridInputs(), PriceList.DEFAULT)
         assertEquals(0.0, result.taxAmount, 0.0)
+    }
+
+    @Test
+    fun `a configured tax rate applies to the post-discount subtotal, not the pre-discount one`() {
+        val prices = PriceList.DEFAULT.copy(taxRatePercent = 10.0)
+        val result = SystemCalculator.calculate(manualHybridInputs(DiscountType.PERCENT, 20.0), prices)
+        val postDiscountSubtotal = result.subtotalBeforeDiscount - result.discountAmount
+        assertEquals(postDiscountSubtotal * 0.10, result.taxAmount, 0.01)
+        assertEquals(postDiscountSubtotal + result.taxAmount, result.grandTotal, 0.01)
+    }
+
+    @Test
+    fun `a configured service rate replaces the old hard-coded 15 percent`() {
+        val defaultResult = SystemCalculator.calculate(manualHybridInputs(), PriceList.DEFAULT)
+        assertEquals(defaultResult.materialsTotal * 0.15, defaultResult.serviceCharge, 0.01)
+
+        val prices = PriceList.DEFAULT.copy(serviceRatePercent = 20.0)
+        val result = SystemCalculator.calculate(manualHybridInputs(), prices)
+        assertEquals(result.materialsTotal * 0.20, result.serviceCharge, 0.01)
     }
 
     @Test

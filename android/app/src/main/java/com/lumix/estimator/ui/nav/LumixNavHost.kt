@@ -167,6 +167,7 @@ fun LumixNavHost(app: LumixApp) {
                 ResultsScreen(
                     quoteId = quoteId,
                     quoteRepository = app.quoteRepository,
+                    settingsRepository = app.settingsRepository,
                     onNewQuote = {
                         wizardViewModel.reset()
                         navController.navigate(ROUTE_WIZARD) {

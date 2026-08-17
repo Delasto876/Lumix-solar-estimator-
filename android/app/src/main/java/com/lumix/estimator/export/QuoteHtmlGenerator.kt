@@ -3,6 +3,7 @@ package com.lumix.estimator.export
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
+import com.lumix.estimator.domain.BusinessInfo
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.formatCurrency
@@ -24,12 +25,17 @@ import java.util.Locale
  */
 object QuoteHtmlGenerator {
 
-    fun generate(context: Context, quoteId: Long, inputs: QuoteInputs, result: QuoteResult, timestamp: Long): File {
+    fun generate(context: Context, quoteId: Long, inputs: QuoteInputs, result: QuoteResult, timestamp: Long, business: BusinessInfo = BusinessInfo()): File {
         val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
         val validUntilFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
         val backupLabel = if (result.totalBatteryKwh > 0) {
             if (result.estimatedBackupSufficient) "${result.estimatedBackupHours.toInt()}+ h" else "~%.1f h".format(result.estimatedBackupHours)
         } else null
+        // A79 (spec Phase 16): see QuotePdfGenerator's identical fix for why this reads the real
+        // effective rate instead of a hard-coded "15%".
+        val servicePercentLabel = if (result.materialsTotal > 0) {
+            " (%.0f%%)".format(result.serviceCharge / result.materialsTotal * 100.0)
+        } else ""
 
         val html = buildString {
             append("<!doctype html><html><head><meta charset=\"utf-8\"><title>Quote ${quoteNumberFor(quoteId)}</title>")
@@ -44,6 +50,12 @@ object QuoteHtmlGenerator {
                     "</style></head><body>"
             )
             append("<h1>Lumix Technologies</h1><div class=\"muted\">Solar System Quote</div>")
+            // A79 (spec Phase 16, §40): only rendered once the installer has filled these in.
+            listOfNotNull(
+                business.address.takeIf { it.isNotBlank() },
+                business.phone.takeIf { it.isNotBlank() },
+                business.email.takeIf { it.isNotBlank() }
+            ).forEach { line -> append("<div class=\"muted\">$line</div>") }
             append("<p>Quote ${quoteNumberFor(quoteId)}<br>")
             append("Date: ${dateFormat.format(Date(timestamp))} &middot; Valid until: ${validUntilFormat.format(quoteValidUntil(timestamp))}")
             if (inputs.customerName.isNotBlank()) append("<br>Customer: ${inputs.customerName}")
@@ -68,13 +80,17 @@ object QuoteHtmlGenerator {
 
             append("<table class=\"totals\">")
             append("<tr><td>Materials total</td><td>${formatCurrency(result.materialsTotal)}</td></tr>")
-            append("<tr><td>Service (15%)</td><td>${formatCurrency(result.serviceCharge)}</td></tr>")
+            append("<tr><td>Service$servicePercentLabel</td><td>${formatCurrency(result.serviceCharge)}</td></tr>")
             append("<tr><td>Delivery</td><td>${formatCurrency(result.deliveryCharge)}</td></tr>")
             append("<tr><td>Subtotal</td><td>${formatCurrency(result.subtotalBeforeDiscount)}</td></tr>")
             append("<tr><td>Discount</td><td>-${formatCurrency(result.discountAmount)}</td></tr>")
             append("<tr><td>Tax/fees</td><td>${formatCurrency(result.taxAmount)}</td></tr>")
             append("<tr class=\"grand\"><td>Grand Total</td><td>${formatCurrency(result.grandTotal)}</td></tr>")
             append("</table>")
+
+            // A79 (spec Phase 16, §40): only rendered once the installer has filled these in.
+            if (business.warranty.isNotBlank()) append("<h2>Warranty</h2><p>${business.warranty}</p>")
+            if (business.paymentTerms.isNotBlank()) append("<h2>Payment Terms</h2><p>${business.paymentTerms}</p>")
 
             append("<p class=\"muted\">This is an estimate. Final pricing may vary after a site visit.</p>")
             append("</body></html>")

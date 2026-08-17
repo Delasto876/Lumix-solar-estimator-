@@ -4617,3 +4617,90 @@ Subtotal/Tax rows in the Cost card, two new export share buttons), new
 **Tests**: new `SystemCalculatorPricingTest.kt` (subtotal/tax/grand-total relationship holds across
 NONE/PERCENT/FIXED discount types) and new `FormattingTest.kt` (`quoteNumberFor`'s zero-padding,
 `quoteValidUntil`'s exact 30-day window).
+
+## A79 — Phase 16: improve settings/materials
+
+The 67-order's Phase 16 maps to the original spec's §40 (SETTINGS — the full "editable business
+configuration" checklist), §41 (MATERIALS/EQUIPMENT SETTINGS — move equipment management into
+Settings, ADD/EDIT/DELETE/DISABLE/RESTORE), and §42 (DEFAULT SETTINGS — today's hard-coded defaults
+must become editable, without ever overwriting a user-entered project value).
+
+**Inspected**: `SettingsScreen.kt`/`SettingsRepository.kt` against §40's full checklist field by
+field, `SystemCalculator.kt`'s pricing math for hard-coded business rates, and where else in the
+codebase a §40/§42 "default" is currently a compile-time literal rather than a real setting.
+
+**Found and fixed — a genuine hard-coded rate, not just a missing settings field.** §40 explicitly
+lists "Labour rates" as editable business configuration. `SystemCalculator.kt` computed
+`serviceCharge` as a literal `materialsTotal * 0.15` — not editable anywhere, and (worse) two of
+the three quote exports printed the literal string "Service (15%)" regardless of what was actually
+charged. Fixed properly: new `PriceList.serviceRatePercent` (default `15.0`, so every existing
+installer sees identical totals until they change it), read by `SystemCalculator`, edited from the
+same Materials & Pricing settings section every other price already uses (`PriceFieldSpec` gained a
+`suffix` field so this and the new tax field render "%" instead of the generic "J$"). The PDF/HTML/
+CSV service-line labels now compute their percentage from the real `serviceCharge`/`materialsTotal`
+ratio instead of a hard-coded string, so they can never go stale again.
+
+**Found and fixed — §40's "Tax settings" had no field to be a setting for.** New
+`PriceList.taxRatePercent` (default `0.0`, same zero-behavior-change guarantee), applied in
+`SystemCalculator` to the *post-discount* subtotal — matching standard invoicing practice and the
+spec's own display order (§39: "Original subtotal, Discount, Final subtotal, Tax/fees, Grand
+total" — tax follows discount). This is the field A78's `QuoteResult.taxAmount` was built to receive
+but had nothing to read from; now it does.
+
+**Found and fixed — §40's "Company information / Address / Phone / Email / Default warranty /
+Payment terms" genuinely didn't exist anywhere.** New `SettingsRepository` fields (all blank by
+default — see the file's own doc for why nothing is pre-filled, the same "do not fabricate business
+content" reasoning A78 applied to the exports themselves), a new "Business Information" Settings
+section with plain text fields for each, and a new shared `BusinessInfo` data class threaded from
+Settings through `ResultsScreen.kt` into all three quote exports. Each export section (address/
+phone/email under the header; Warranty/Payment Terms near the footer) now renders automatically once
+the installer fills these in — closing the loop A78 deliberately left open (that round built the
+export *infrastructure* for this content but had nothing real to put in it; this round gives the
+installer the actual input form).
+
+**Audited and deliberately NOT attempted, disclosed rather than silently skipped or shallow-built**:
+- **§41 "Move materials/equipment management into Settings... ADD/EDIT/DELETE/DISABLE/RESTORE
+  equipment."** The existing "Materials & Pricing" settings section only edits *prices* for a fixed
+  set of equipment `PriceFields` already knows about — it cannot add, remove, or disable an actual
+  panel/inverter/battery *model*. Real equipment CRUD would mean turning `EquipmentSpecs.kt`/
+  `Catalog.kt` (currently an immutable Kotlin `object` with compile-time `listOf(...)` literals) into
+  persisted, user-editable storage — a new Room table/DAO, a migration, and a full CRUD UI. This is a
+  substantially larger, separate feature than anything else in this round and was not attempted here
+  rather than built shallow.
+- **§42's Default PSH / Default backup target / Default SOC reserve / Default electricity rate.**
+  `QuoteInputs()`'s compile-time defaults (PSH 5.5h, backup 12h) are already fully overridable
+  per-quote in the wizard today, so nothing about a project's own numbers is ever silently
+  overwritten — the actual gap is only that the *starting* defaults for a brand-new quote aren't
+  themselves Settings-configurable, which needs `WizardViewModel` to gain `SettingsRepository`
+  access and have `reset()` read from it instead of `QuoteInputs()`'s literals. A real, buildable
+  change, but a separate architectural piece from everything else in this round — not attempted here.
+  **Battery SOC reserve specifically is flagged as a judgment call, not just a scope call**: unlike
+  PSH/backup hours (business preferences), the SOC reserve floor is a battery-protection safety
+  limit (`SimulationEngine.BATTERY_MIN_SOC_FRACTION`) — making it a freely-installer-editable
+  per-project setting risks an installer accidentally configuring an unsafe reserve. Per the spec's
+  own instruction for exactly this situation ("implement per spec unless it would break an
+  established engineering/safety requirement"), this one should get the installer's explicit
+  confirmation before becoming freely editable, not be added as a plain settings field alongside
+  PSH/backup hours.
+- **Currency/Units.** Hard-coded J$ and metric-plus-derived-feet are the correct defaults for this
+  specific Jamaican-market app; making them configurable has no real value for a single-market
+  installer tool and was judged not worth building.
+- **Invoice numbering.** Not applicable — this app has no separate "invoice" concept from "quote"
+  (see A78's `quoteNumberFor`, which already covers §40's "Quote numbering").
+
+**Files changed**: `PriceList.kt` (`serviceRatePercent`, `taxRatePercent`, `PriceFieldSpec.suffix`),
+`SystemCalculator.kt` (reads the two new rates instead of a hard-coded `0.15`/`0.0`),
+`SettingsScreen.kt` (new "Business Information" section, `field.suffix` instead of a hard-coded
+"J$"), `SettingsRepository.kt` (6 new business-info fields), new `domain/BusinessInfo.kt`,
+`QuotePdfGenerator.kt`/`QuoteHtmlGenerator.kt`/`QuoteCsvGenerator.kt` (accept `BusinessInfo`, render
+address/phone/email/warranty/payment-terms sections when non-blank, compute the real service-rate
+percentage instead of a hard-coded "15%"), `ResultsScreen.kt` (reads Settings, builds and passes
+`BusinessInfo` to all three exports), `LumixNavHost.kt` (wiring), `Step7Pricing.kt` (removed a now-
+inaccurate "15% service" mention from its own supporting text).
+
+**Tests**: new `PriceListBusinessRatesTest.kt` (defaults match pre-existing behavior exactly, the
+two new fields are correctly grouped/suffixed, getter/setter round-trip) and new
+`BusinessInfoTest.kt` (`isBlank` correctly requires every field blank). Export generators
+(`QuotePdfGenerator`/`QuoteHtmlGenerator`/`QuoteCsvGenerator`) remain untested at the unit level,
+consistent with this project's existing pattern — they need an Android `Context`, which this
+project's test suite doesn't instrument for any file.

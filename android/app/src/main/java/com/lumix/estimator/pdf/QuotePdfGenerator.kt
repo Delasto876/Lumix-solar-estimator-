@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import androidx.core.content.FileProvider
+import com.lumix.estimator.domain.BusinessInfo
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.formatCurrency
@@ -31,7 +32,7 @@ object QuotePdfGenerator {
     private val mutedPaint = Paint().apply { textSize = 9f; color = 0xFF6B7280.toInt() }
     private val linePaint = Paint().apply { color = 0xFFE5E7EB.toInt(); strokeWidth = 1f }
 
-    fun generate(context: Context, quoteId: Long, inputs: QuoteInputs, result: QuoteResult, timestamp: Long): File {
+    fun generate(context: Context, quoteId: Long, inputs: QuoteInputs, result: QuoteResult, timestamp: Long, business: BusinessInfo = BusinessInfo()): File {
         val document = PdfDocument()
         var pageNumber = 1
         var page = document.startPage(PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNumber).create())
@@ -49,7 +50,15 @@ object QuotePdfGenerator {
         }
 
         canvas.drawText("Lumix Technologies", MARGIN, y, titlePaint); y += 18f
-        canvas.drawText("Solar System Quote", MARGIN, y, mutedPaint); y += 20f
+        canvas.drawText("Solar System Quote", MARGIN, y, mutedPaint); y += 14f
+        // A79 (spec Phase 16, §40): only rendered once the installer has filled these in via
+        // Settings — see BusinessInfo's own doc for why nothing is pre-filled/fabricated.
+        listOfNotNull(
+            business.address.takeIf { it.isNotBlank() },
+            business.phone.takeIf { it.isNotBlank() },
+            business.email.takeIf { it.isNotBlank() }
+        ).forEach { line -> canvas.drawText(line, MARGIN, y, mutedPaint); y += 12f }
+        y += 6f
 
         val dateStr = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(timestamp))
         val validUntilStr = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(quoteValidUntil(timestamp))
@@ -116,8 +125,14 @@ object QuotePdfGenerator {
         ensureSpace(140f)
         y += 6f
         canvas.drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, linePaint); y += 16f
+        // A79 (spec Phase 16): the service rate is now configurable (PriceList.serviceRatePercent)
+        // — this label reads the real effective percent from the two already-computed fields
+        // rather than a hard-coded "15%" that would go stale the moment Settings changes the rate.
+        val servicePercentLabel = if (result.materialsTotal > 0) {
+            " (%.0f%%)".format(result.serviceCharge / result.materialsTotal * 100.0)
+        } else ""
         canvas.drawText("Materials total: ${formatCurrency(result.materialsTotal)}", MARGIN, y, bodyPaint); y += 14f
-        canvas.drawText("Service (15%): ${formatCurrency(result.serviceCharge)}", MARGIN, y, bodyPaint); y += 14f
+        canvas.drawText("Service$servicePercentLabel: ${formatCurrency(result.serviceCharge)}", MARGIN, y, bodyPaint); y += 14f
         canvas.drawText("Delivery: ${formatCurrency(result.deliveryCharge)}", MARGIN, y, bodyPaint); y += 14f
         // A78 (spec Phase 15, §39 "Show: Original subtotal, Discount, Final subtotal, Tax/fees,
         // Grand total"): subtotalBeforeDiscount/taxAmount are the same fields SystemCalculator
@@ -127,6 +142,19 @@ object QuotePdfGenerator {
         canvas.drawText("Tax/fees: ${formatCurrency(result.taxAmount)}", MARGIN, y, bodyPaint); y += 16f
         canvas.drawText("Grand Total: ${formatCurrency(result.grandTotal)}", MARGIN, y, totalPaint); y += 24f
 
+        // A79 (spec Phase 16, §40): only rendered once the installer has filled these in.
+        if (business.warranty.isNotBlank()) {
+            ensureSpace(30f)
+            canvas.drawText("Warranty", MARGIN, y, headingPaint); y += 14f
+            canvas.drawText(business.warranty, MARGIN, y, bodyPaint); y += 18f
+        }
+        if (business.paymentTerms.isNotBlank()) {
+            ensureSpace(30f)
+            canvas.drawText("Payment Terms", MARGIN, y, headingPaint); y += 14f
+            canvas.drawText(business.paymentTerms, MARGIN, y, bodyPaint); y += 18f
+        }
+
+        ensureSpace(14f)
         canvas.drawText("This is an estimate. Final pricing may vary after a site visit.", MARGIN, y, mutedPaint)
 
         document.finishPage(page)

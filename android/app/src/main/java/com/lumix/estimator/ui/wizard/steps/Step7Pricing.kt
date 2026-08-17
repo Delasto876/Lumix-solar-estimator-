@@ -99,7 +99,10 @@ fun Step7Pricing(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -
                     value = inputs.discountValue,
                     onValueChange = { v -> onUpdate { it.copy(discountValue = v) } },
                     supportingText = if (inputs.discountType == DiscountType.PERCENT)
-                        "% off the total (materials + 15% service + delivery)." else null,
+                        // A79 (spec Phase 16): the service rate is now configurable in Settings
+                        // (PriceList.serviceRatePercent), no longer always 15% — this copy no
+                        // longer names a specific figure that could go stale.
+                        "% off the total (materials + service + delivery)." else null,
                     modifier = Modifier.padding(top = 12.dp)
                 )
                 Text(
