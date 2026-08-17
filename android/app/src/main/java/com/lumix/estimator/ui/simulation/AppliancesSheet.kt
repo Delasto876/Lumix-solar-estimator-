@@ -113,8 +113,9 @@ fun formatScheduleSummary(state: ApplianceState): String {
 /** Real daily energy for one appliance — quantity × watts × duty factor × each run's own duration, summed. */
 fun applianceDailyEnergyKwh(type: SimApplianceType, state: ApplianceState, dayType: DayType): Double {
     if (!state.enabled) return 0.0
+    val watts = state.wattsOverride ?: type.watts.toDouble()
     return state.runs.filter { dayType in it.dayTypes }
-        .sumOf { it.quantity * type.watts * type.dutyFactor * it.durationHours / 1000.0 }
+        .sumOf { it.quantity * watts * type.dutyFactor * it.durationHours / 1000.0 }
 }
 
 @Composable
@@ -319,8 +320,11 @@ private fun ApplianceScheduleEditorContent(
             )
         }
         Text(type.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+        // A68: shows the real per-unit wattage this household was actually sized against (e.g.
+        // AC's real BTU-derived average) when one exists, not the catalog's generic placeholder.
+        val displayWatts = (state.wattsOverride ?: type.watts.toDouble()).roundToInt()
         Text(
-            "${type.watts} W each · %.2f kWh/day".format(applianceDailyEnergyKwh(type, state, dayType)),
+            "$displayWatts W each · %.2f kWh/day".format(applianceDailyEnergyKwh(type, state, dayType)),
             style = MaterialTheme.typography.labelMedium,
             color = palette.textSecondary,
             modifier = Modifier.padding(top = 2.dp, bottom = 16.dp)
@@ -343,10 +347,14 @@ private fun ApplianceScheduleEditorContent(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             QuickPresetChip("Smart Default") {
-                onChange(ApplianceState(enabled = true, runs = defaultScheduleFor(type).map { it.copy(quantity = quantity) }))
+                // A68: carry the current wattsOverride forward (e.g. AC's real BTU-derived
+                // average) rather than resetting to the catalog's generic placeholder — this
+                // preset changes the schedule shape/quantity, not what the household's units
+                // actually draw.
+                onChange(ApplianceState(enabled = true, runs = defaultScheduleFor(type).map { it.copy(quantity = quantity) }, wattsOverride = state.wattsOverride))
             }
             QuickPresetChip("Always On") {
-                onChange(ApplianceState(enabled = true, runs = listOf(ApplianceRun(quantity = quantity, startHour = 0.0, durationHours = 24.0))))
+                onChange(ApplianceState(enabled = true, runs = listOf(ApplianceRun(quantity = quantity, startHour = 0.0, durationHours = 24.0)), wattsOverride = state.wattsOverride))
             }
             QuickPresetChip("Off") {
                 onChange(state.copy(enabled = false))

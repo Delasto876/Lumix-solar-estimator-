@@ -3725,3 +3725,78 @@ no stale-value risk); confirmed no existing test asserts a fixed check count tha
 UI redesign (spec Phase 12/31/59 — "CALCULATED REQUIREMENT vs. SELECTED EQUIPMENT," per-string MPPT
 breakdown display, expandable warnings) is a larger, separate visual-design pass than this
 correctness-focused phase, and comes later in the installer's own 67-order (Phase 12).
+
+## A68 — Phase 4: fix the appliance/load model ("Lumix Solar Pro" spec, phase 67's own order)
+
+**Inspected**: read the complete `defaultScheduleFor` catalog (all 46 `SimApplianceType` entries)
+against every one of the spec's own worked examples — refrigerator compressor cycling, iron/AC/
+microwave/washer NOT running all day, lights concentrated morning/evening/night, TV primarily
+evening, water pump intermittent — plus `defaultQuantityFor`, `defaultApplianceStates`'s wizard
+wiring, and weekday/weekend day-type variation.
+
+**Confirmed already correct, no fix needed**: every one of the spec's specific appliance examples
+already matches almost exactly — IRON is a single 30-minute evening event (not 12 hours), AC is a
+single scheduled evening window with a 0.60 duty factor (not 24 hours), MICROWAVE is two ~10-minute
+events, WASHING_MACHINE is a short evening run plus a real Saturday laundry batch, lighting is
+concentrated in morning/evening/night windows per fixture, TV is weekday-evening-plus-weekend-
+daytime. This model was already built out carefully across several prior rounds (A21/A36/A38/A39) —
+nothing here needed correcting.
+
+**Found and fixed a real, safety-relevant bug**: air conditioning. The wizard sizes AC from the
+installer's actual BTU-tier selection (`AcLoad.counts` — `SystemCalculator` already correctly uses
+`btu / 10` as the real per-unit watts for both daily-energy and peak-load sizing). But
+`defaultApplianceStates` collapsed every selected AC unit into a single generic
+`SimApplianceType.AIR_CONDITIONER` entry whose own catalog `watts` (1500) exists only to give AC a
+duty-cycle/schedule *shape* — every simulation timestep, the Simulation screen's live load display,
+and the startup-surge calculation all silently ran every selected AC unit at that flat 1500W
+regardless of what it was actually sized as. A household sized around three 9,000 BTU (900W) units
+would simulate as three 1500W units — a 67% overstatement; the reverse (understatement) happens
+just as easily for larger BTU tiers. This directly violates the spec's own "MOST IMPORTANT
+REQUIREMENT" (Phase 66): "whatever system the installer designs is EXACTLY the system the
+simulation models... no hard-coded substitute values."
+
+**Fixed**: new `ApplianceState.wattsOverride: Double?` — when set, every load-calculation function
+that reads `SimApplianceType.watts` (`totalApplianceLoadKwAt`, `applianceLoadKwByTierAt`,
+`applianceLoadKwByLegAt`, `worstCaseStartupSurgeKw`, `applianceDailyEnergyByCategoryKwh`, plus the
+Simulation screen's own `applianceDailyEnergyKwh`) now prefers it over the catalog placeholder.
+`defaultApplianceStates` computes AC's real blended watts-per-unit from `inputs.ac.counts` (total
+real BTU-derived watts ÷ total unit count — exact for the TOTAL load even across a mixed-BTU
+selection, since a linear sum doesn't care whether it's expressed as one blended average or several
+distinct unit wattages) and passes it through. The Simulation screen's own appliance detail sheet
+(`AppliancesSheet.kt`) now displays this real figure instead of the flat placeholder, and its two
+schedule-reset presets ("Smart Default"/"Always On") now carry the override forward instead of
+silently discarding it back to 1500W on the first manual schedule edit. Every other appliance type
+needed no change — their catalog wattage already *is* their real figure; only AC has an
+installer-configurable wattage that the generic per-type catalog was never built to represent.
+
+**Files changed**: `domain/simulation/SimAppliance.kt` (new field + 5 functions),
+`ui/simulation/AppliancesSheet.kt` (display + 2 preset buttons), new
+`domain/simulation/ApplianceWattsOverrideTest.kt`. No database/schema change (this is a derived,
+in-memory field, never persisted — a saved quote's own `estimatedBackupHours` etc. were already
+computed with the correct figures via `SystemCalculator`'s independent AC handling, which never had
+this bug; only the live Simulation screen's own appliance-state reconstruction did).
+
+**Tests**: five new cases — a mixed-BTU blend computes the exact real average; a uniform single-tier
+selection blends to exactly that tier's own wattage; no AC selected leaves the override null and the
+appliance disabled; the simulated timestep load and the worst-case startup surge both reflect the
+real blended wattage against hand-computed expected values (1.8kW vs. the old bug's 2.7kW; 9.0kW
+vs. 13.5kW, for the same test mix). Confirmed no existing test references AC's wattage or the
+functions' exact numeric output in a way this changes.
+
+**Remaining issues / deliberately not attempted**: the spec's Phase 4 also asks that "each appliance
+must have... essential/non-essential classification" and "phase assignment where applicable." Phase
+assignment is already handled (each `SimApplianceType` carries an `ElectricalTier` — 110V/220V — and
+LOW-tier appliances already alternate across the two split-phase legs for neutral-current
+calculations, from A37). Essential/non-essential classification genuinely does NOT exist as a
+per-appliance field today — `BackupCoverage.CRITICAL_LOADS`/`ESSENTIALS` is currently a flat
+percentage applied uniformly to the whole load (spec's own separate Phase 51, "Load Coverage," asks
+for the simulation to show which SPECIFIC loads are powered during solar/battery/utility). Adding a
+real per-appliance classification AND changing how backup coverage actually sheds load by circuit
+is a substantial feature — data model, an installer-facing way to choose which circuits are on the
+critical panel, and a change to how `SimulationEngine`/`BackupEstimator`/`OvernightLoadProfile` all
+compute load — better done as its own coherent round than folded shallowly into this one. Also not
+attempted: "probability of operation" (a stochastic per-appliance usage-likelihood model) — this
+app's schedules are deliberately deterministic "typical day" assumptions, the same approach real
+solar-sizing methodologies use; a genuine Monte Carlo layer would be a large methodology change of
+questionable value for a design/sizing tool, not something to build without being asked for it
+specifically.

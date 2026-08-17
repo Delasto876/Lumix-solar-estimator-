@@ -164,7 +164,20 @@ data class ApplianceRun(
  */
 data class ApplianceState(
     val enabled: Boolean = false,
-    val runs: List<ApplianceRun> = listOf(ApplianceRun())
+    val runs: List<ApplianceRun> = listOf(ApplianceRun()),
+    /**
+     * A68: overrides [SimApplianceType.watts] for this specific household's selection, when the
+     * catalog's flat per-type wattage isn't what was actually sized. [SimApplianceType.AIR_CONDITIONER]'s
+     * own `watts` (1500) only exists to give AC a duty-cycle/schedule *shape* — the installer's real
+     * AC sizing is per-BTU-tier ([com.lumix.estimator.domain.AcLoad.counts]), and
+     * [com.lumix.estimator.domain.SystemCalculator]'s own wizard sizing already uses that real
+     * figure. Before this field existed, the simulation silently discarded it and ran every
+     * selected AC unit at the flat 1500W placeholder regardless of its real BTU/wattage — violating
+     * "whatever system the installer designs is EXACTLY the system the simulation models" for the
+     * single highest-power appliance in the catalog. Null for every other appliance, where the
+     * catalog wattage already *is* the real figure.
+     */
+    val wattsOverride: Double? = null
 ) {
     val totalQuantity: Int get() = runs.sumOf { it.quantity }
 }
@@ -340,9 +353,9 @@ private fun defaultQuantityFor(type: SimApplianceType): Int = when (type) {
  */
 fun defaultApplianceStates(inputs: QuoteInputs): Map<SimApplianceType, ApplianceState> {
     fun qty(type: ApplianceType) = inputs.appliances[type]?.qty ?: 0
-    fun stateFor(type: SimApplianceType, quantity: Int = defaultQuantityFor(type), enabled: Boolean = true): ApplianceState {
+    fun stateFor(type: SimApplianceType, quantity: Int = defaultQuantityFor(type), enabled: Boolean = true, wattsOverride: Double? = null): ApplianceState {
         val q = quantity.coerceAtLeast(1)
-        return ApplianceState(enabled = enabled, runs = defaultScheduleFor(type).map { it.copy(quantity = q) })
+        return ApplianceState(enabled = enabled, runs = defaultScheduleFor(type).map { it.copy(quantity = q) }, wattsOverride = wattsOverride)
     }
     // Every appliance follows exactly what the customer actually reported having, including being
     // off entirely when they reported zero or never touched that row at all.
@@ -370,7 +383,23 @@ fun defaultApplianceStates(inputs: QuoteInputs): Map<SimApplianceType, Appliance
         SimApplianceType.CEILING_FAN to stateFromWizard(SimApplianceType.CEILING_FAN, ApplianceType.FAN),
         SimApplianceType.STANDING_FAN to stateFromWizard(SimApplianceType.STANDING_FAN, ApplianceType.STANDING_FAN),
         SimApplianceType.BEDROOM_FAN to stateFromWizard(SimApplianceType.BEDROOM_FAN, ApplianceType.BEDROOM_FAN),
-        SimApplianceType.AIR_CONDITIONER to stateFor(SimApplianceType.AIR_CONDITIONER, quantity = inputs.ac.counts.values.sum().coerceAtLeast(1), enabled = inputs.ac.hasAc),
+        // A68: AIR_CONDITIONER's own catalog watts (1500) only exists to give AC a duty-cycle/
+        // schedule shape — the installer's real AC sizing is per-BTU-tier (inputs.ac.counts), the
+        // same figure SystemCalculator's own wizard sizing already uses (btu/10). Blending it into
+        // one real average watts-per-unit (rather than the flat placeholder) keeps the TOTAL AC
+        // load correct even across a mixed BTU selection, since the total is a linear sum either
+        // way — see ApplianceState.wattsOverride's own doc for the bug this fixes.
+        SimApplianceType.AIR_CONDITIONER to run {
+            val totalAcUnits = inputs.ac.counts.values.sum()
+            val totalAcWatts = inputs.ac.counts.entries.sumOf { (btu, count) -> (btu / 10.0) * count }
+            val avgAcWattsPerUnit = if (totalAcUnits > 0) totalAcWatts / totalAcUnits else null
+            stateFor(
+                SimApplianceType.AIR_CONDITIONER,
+                quantity = totalAcUnits.coerceAtLeast(1),
+                enabled = inputs.ac.hasAc,
+                wattsOverride = avgAcWattsPerUnit
+            )
+        },
 
         // Lighting — the wizard's generic "Lights"/"Outdoor Lights" map onto one representative
         // indoor/outdoor fixture type each rather than fanning one quantity across every room.
@@ -452,7 +481,7 @@ fun defaultDailyEnergyKwh(type: SimApplianceType, quantity: Int, dayType: DayTyp
 fun totalApplianceLoadKwAt(states: Map<SimApplianceType, ApplianceState>, hour: Double, dayType: DayType = DayType.WEEKDAY): Double =
     states.entries.filter { it.value.enabled }.sumOf { (type, state) ->
         val activeQty = state.runs.filter { it.isActiveAt(hour, dayType) }.sumOf { it.quantity }
-        activeQty * type.watts * type.dutyFactor / 1000.0
+        activeQty * (state.wattsOverride ?: type.watts.toDouble()) * type.dutyFactor / 1000.0
     }
 
 /** Splits the appliance load active at [hour] on [dayType] by [ElectricalTier], for per-circuit current readings. */
@@ -461,7 +490,9 @@ fun applianceLoadKwByTierAt(states: Map<SimApplianceType, ApplianceState>, hour:
         .associate { (type, state) -> type to state.runs.filter { it.isActiveAt(hour, dayType) }.sumOf { it.quantity } }
         .filterValues { it > 0 }
         .entries.groupBy({ it.key.tier }, { it.key to it.value })
-        .mapValues { (_, list) -> list.sumOf { (type, qty) -> qty * type.watts * type.dutyFactor } / 1000.0 }
+        .mapValues { (_, list) ->
+            list.sumOf { (type, qty) -> qty * (states[type]?.wattsOverride ?: type.watts.toDouble()) * type.dutyFactor } / 1000.0
+        }
 
 /**
  * Which 110V leg (L1 or L2) a LOW-tier appliance is modeled as wired to. There's no real panel
@@ -483,7 +514,7 @@ fun applianceLoadKwByLegAt(states: Map<SimApplianceType, ApplianceState>, hour: 
         if (type.tier != ElectricalTier.LOW) return@forEach
         val qty = state.runs.filter { it.isActiveAt(hour, dayType) }.sumOf { it.quantity }
         if (qty <= 0) return@forEach
-        val kw = qty * type.watts * type.dutyFactor / 1000.0
+        val kw = qty * (state.wattsOverride ?: type.watts.toDouble()) * type.dutyFactor / 1000.0
         if (legFor(type) == 0) l1 += kw else l2 += kw
     }
     return l1 to l2
@@ -504,7 +535,7 @@ fun applianceLoadKwByLegAt(states: Map<SimApplianceType, ApplianceState>, hour: 
 fun worstCaseStartupSurgeKw(states: Map<SimApplianceType, ApplianceState>, hour: Double, dayType: DayType = DayType.WEEKDAY): Double =
     states.entries.filter { it.value.enabled }.sumOf { (type, state) ->
         val activeQty = state.runs.filter { it.isActiveAt(hour, dayType) }.sumOf { it.quantity }
-        activeQty * type.watts * type.startupSurgeMultiplier / 1000.0
+        activeQty * (state.wattsOverride ?: type.watts.toDouble()) * type.startupSurgeMultiplier / 1000.0
     }
 
 /**
@@ -545,8 +576,9 @@ fun previewLoadShape(inputs: QuoteInputs, dayType: DayType = DayType.WEEKDAY): A
 fun applianceDailyEnergyByCategoryKwh(states: Map<SimApplianceType, ApplianceState>, dayType: DayType = DayType.WEEKDAY): Map<String, Double> =
     states.entries.filter { it.value.enabled }
         .flatMap { (type, state) ->
+            val watts = state.wattsOverride ?: type.watts.toDouble()
             state.runs.filter { dayType in it.dayTypes }
-                .map { run -> type.category to (run.quantity * type.watts * type.dutyFactor * run.durationHours / 1000.0) }
+                .map { run -> type.category to (run.quantity * watts * type.dutyFactor * run.durationHours / 1000.0) }
         }
         .groupBy({ it.first }, { it.second })
         .mapValues { (_, contributions) -> contributions.sum() }
