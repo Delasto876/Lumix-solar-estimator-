@@ -132,6 +132,11 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
     testImplementation("junit:junit:4.13.2")
+    // A83 (Phase 22): SimulatedMonitoringProviderTest calls suspend fun fetchLatest via
+    // runBlocking. kotlinx-coroutines-core is already pulled in transitively (Room/DataStore/
+    // Lifecycle-ktx all depend on it), but declared explicitly here rather than relying on that,
+    // consistent with how every other test dependency in this file is already explicit.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

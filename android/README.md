@@ -5028,3 +5028,75 @@ against an existing standard resolves to `Found` with both objects attached, and
 asserting `SystemDiagnostics.ALL_CHECK_LABELS` exactly matches (same values, same order) what
 `checksFor` actually emits — so the citation-picker's fixed option list can never silently drift
 from the real Diagnostics panel it's meant to describe.
+
+## A83 — Phase 22: monitoring architecture
+
+The 67-order's Phase 22 maps to the original spec's §63 ("FUTURE MONITORING" — "prepare the
+architecture for Deye, LuxPower, Growatt, SOLARMAN, Solar of Things... but do not make monitoring
+the priority until the design/sizing/simulation engine is stable... use a normalized internal
+model... manufacturer APIs should translate into this model").
+
+**Note on Phases 20/21**: the installer flagged that Phase 20 (Installation/commissioning) and
+Phase 21 (Inventory) have no dedicated content sections in the spec — Phase 20 is only a diagram
+box, Phase 21 isn't mentioned anywhere at all — and asked to hold both until real requirements are
+provided (Phase 21: "provide me with what you need and i will upload all for you to use" — a
+concrete request list was given in chat). Both remain unimplemented pending that input; this round
+skips ahead to Phase 22, which — unlike 20/21 — does have a real, if intentionally light, spec
+section to build against.
+
+**Inspected**: confirmed nothing monitoring-related existed yet (the earlier grep hits for "Deye"/
+"SOLARMAN" were just equipment-catalog brand names, unrelated). Found that `TechnicalReadout`
+(A53's real per-MPPT electrical model, `TechnicalModel.compute`) already computes genuine
+pvVoltage/pvCurrent/batteryVoltage/batteryCurrent/energyTodayKwh from the simulation — not
+placeholders — making it possible to populate most of the spec's own normalized-model fields with
+real, already-verified internal data rather than inventing numbers for a "prepare the
+architecture" phase.
+
+**Built — architecture only, per the spec's own "do not make monitoring the priority."**
+- **`domain/monitoring/DeviceTelemetry.kt`** (new): the normalized model, using the spec's own
+  field names verbatim (`pvPower`, `pvVoltage`, `pvCurrent`, `batterySoc`, `batteryPower`,
+  `batteryVoltage`, `loadPower`, `gridPower`, `energyToday`, `energyTotal`, `faultCode`,
+  `temperature`, `timestamp`) — units documented since the spec itself doesn't specify them, kept
+  consistent with the rest of this app (kW/kWh/V/A/°C). `MonitoringManufacturer` (the 5 named
+  manufacturers), `MonitoringResult` (`Connected`/`NotConfigured`/`Error`), and the
+  `MonitoringProvider` interface every real integration would implement — with `NotConfigured` as
+  the spec-mandated honest default rather than a silently-passing stub.
+- **`domain/monitoring/SimulatedMonitoringProvider.kt`** (new): the one `MonitoringProvider` that
+  actually exists — not a live device feed, a `DeviceTelemetry` snapshot of this app's own
+  already-computed `TechnicalReadout`/`SimFrame` at one simulated instant. `pvPower`/`pvVoltage`/
+  `pvCurrent`/`batterySoc`/`batteryPower`/`batteryVoltage`/`loadPower`/`gridPower`/`energyToday`/
+  `temperature` all come from real, already-verified internal engineering data (A53's electrical
+  model, A54's simulation engine) — not invented for this round. `energyTotal` (a lifetime
+  cumulative counter) and `faultCode` stay `null`: this app has no persisted lifetime-energy
+  accumulator (only "today" and a ×30 month *estimate*, per `TechnicalReadout`'s own doc) or
+  fault-code concept, and a plausible-looking fabricated value for either would be exactly the
+  "invent data" this codebase's discipline forbids.
+- **`MonitoringProviderRegistry`**: one provider per named manufacturer, every one unconditionally
+  `NotConfigured` — the literal "prepare the architecture for Deye/LuxPower/Growatt/SOLARMAN/
+  Solar of Things," with the real network client for each left for whenever real API
+  credentials/documented endpoints actually exist to build against.
+- **Settings → "Device Monitoring"** (new, informational): lists the 5 manufacturers as "Not
+  connected," sourced from the same `MonitoringManufacturer` enum the registry itself keys
+  providers by (can't silently drift from the real registry) — a status list, not a live
+  dashboard, matching "do not make monitoring the priority."
+
+**Audited and deliberately NOT attempted, disclosed rather than silently skipped**:
+- **Any real Deye/LuxPower/Growatt/SOLARMAN/Solar of Things network client.** No API credentials
+  and no documented endpoint contracts for any of these five were provided or available to build
+  against — writing plausible-looking HTTP calls to real commercial services without either would
+  mean inventing behavior this app has no way to verify, the same reasoning A82 already applied to
+  electrical-code content.
+- **`energyTotal`/`faultCode` for the simulated provider.** Both stay `null` rather than a
+  fabricated running total or a hardcoded "no fault" code — see `DeviceTelemetry.kt`'s own doc.
+- **A live-updating monitoring dashboard screen.** The spec's own "do not make monitoring the
+  priority" makes this explicitly out of scope for this round; the architecture (model, provider
+  interface, registry) is what "prepare the architecture" actually asks for.
+
+**Files changed**: new `domain/monitoring/DeviceTelemetry.kt`, `domain/monitoring/
+SimulatedMonitoringProvider.kt`; `ui/settings/SettingsScreen.kt` (new "Device Monitoring" section);
+`app/build.gradle.kts` (explicit `kotlinx-coroutines-test` for the new suspend-function test).
+
+**Tests**: new `SimulatedMonitoringProviderTest.kt` — `toDeviceTelemetry` maps every tracked field
+from a real `TechnicalReadout`/`SimFrame` pair (not a placeholder), `energyTotal`/`faultCode` are
+always null, `fetchLatest` returns a real `Connected` result with genuine solar-noon PV output, and
+every named manufacturer in `MonitoringProviderRegistry` honestly reports `NotConfigured`.

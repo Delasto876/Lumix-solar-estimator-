@@ -56,6 +56,7 @@ import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.data.ThemeMode
 import com.lumix.estimator.domain.CodeRequirementReference
 import com.lumix.estimator.domain.CodeStandard
+import com.lumix.estimator.domain.monitoring.MonitoringManufacturer
 import com.lumix.estimator.domain.PriceFields
 import com.lumix.estimator.domain.PriceList
 import com.lumix.estimator.domain.SavingsCalculator
@@ -317,6 +318,36 @@ fun SettingsScreen(
                         },
                         onDeleteReference = { id -> scope.launch { codeStandardRepository.deleteReference(id) } }
                     )
+                }
+            }
+
+            item {
+                // A83 (spec Phase 22, original §63 "FUTURE MONITORING"): "prepare the
+                // architecture... but do not make monitoring the priority" — this is a status
+                // list, not a live dashboard. The manufacturer list itself comes from
+                // MonitoringManufacturer (the same enum MonitoringProviderRegistry keys its own
+                // NotConfigured providers by), so this can't silently drift from the real
+                // registry — see DeviceTelemetry.kt's own doc for why no live client exists yet.
+                CollapsibleSectionCard(
+                    title = "Device Monitoring",
+                    subtitle = "Architecture ready — no live device connected"
+                ) {
+                    Text(
+                        "Prepared for future live monitoring from these manufacturers. None are connected yet — no API access has been configured, and none will be invented here.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textSecondary,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+                    MonitoringManufacturer.entries.forEach { manufacturer ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(manufacturer.label, style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
+                            Text("Not connected", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+                        }
+                    }
                 }
             }
 
