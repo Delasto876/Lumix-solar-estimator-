@@ -64,7 +64,9 @@ fun ResultsScreen(
     quoteRepository: QuoteRepository,
     onNewQuote: () -> Unit,
     onBackToHome: () -> Unit,
-    onSimulate: (Long) -> Unit
+    onSimulate: (Long) -> Unit,
+    /** A76 (spec Phase 13): loads this exact saved quote's real inputs back into the wizard for editing — see `WizardViewModel.loadForEdit`'s own doc. */
+    onEditSystem: (SavedQuote) -> Unit
 ) {
     var saved by remember(quoteId) { mutableStateOf<SavedQuote?>(null) }
     val context = LocalContext.current
@@ -174,6 +176,11 @@ fun ResultsScreen(
                         LumixPrimaryButton(
                             text = "⚡ Explore Your Energy",
                             onClick = { onSimulate(quoteId) },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                        )
+                        LumixSecondaryButton(
+                            text = "✏️ Edit System",
+                            onClick = { onEditSystem(current) },
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                         )
                     }

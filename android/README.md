@@ -4399,3 +4399,72 @@ ported check, updated existing calls/count for the new parameter and 12→13 che
 simulated vs requested hours`, `battery backup duration check passes when target is met or
 unknown`) plus updated existing tests for the new `targetBackupHours` parameter and the 13-check
 count.
+
+## A76 — Phase 13: add editable design + Recalculate
+
+The 67-order's Phase 13 maps to the original spec's §19-31 ("Edit/Recalculate UI"), explicitly
+deferred by A64's own scope note. Sections 19-22 (MANUAL mode's own equipment/electrical/validation
+steps) and §30-32 (advanced appliance control, mobile UI, premium direction) were already built in
+earlier rounds. The real remaining gap was §28 ("SYSTEM CHANGES — if the installer changes
+panels/inverter/battery/load/backup/mode, then recalculate... update system sizing, simulation,
+quote, financial calculations, reports... do not leave stale values").
+
+**Inspected**: `WizardViewModel.calculateAndSave` (already recomputes the *entire* `QuoteResult`
+from scratch on every call — no partial/stale recalculation risk once it runs), `QuoteRepository
+.update` (fully re-serializes both `inputs` and `result` on every save — no stale-field risk at the
+persistence layer either), and every navigation entry point into the wizard, to find where an
+installer could actually reach "change something, recalculate" for an *already-saved* system.
+
+**Found a real gap**: the engine and persistence layer already satisfy §28's "no stale values"
+requirement completely — but there was no UI path to reach them for a saved quote. `SystemResultScreen`
+(the screen right after "Calculate System," before a quote's customer/pricing details exist) already
+has a working "Edit System" button — but it only works because `WizardViewModel`'s `_inputs`/
+`_savedQuoteId` are still live in memory from the same design session (it's just `popBackStack()`).
+Once a quote is fully saved (customer + pricing attached, "Save Quote" pressed) and later reopened
+from Home or History — `ResultsScreen`, at the `results/{id}` route — there was no edit path at all:
+only "New quote" (blank slate, a different project) or read-only viewing. An installer who wanted to
+revise an already-quoted system's panel count, inverter, battery, or backup coverage had to redesign
+the whole thing from scratch and lose the link to the original saved row.
+
+**Fixed**: `WizardViewModel.loadForEdit(saved: SavedQuote)` — populates `_inputs`/`_result` from the
+saved quote's real, decoded data (not a blank `QuoteInputs()`), sets `_savedQuoteId` to that row's id
+(so `calculateAndSave`'s existing update-in-place branch fires instead of creating a duplicate row),
+and lands on step 12 (System Review — always present in `designSteps()` regardless of quote mode).
+From there, Back walks through every earlier step to change anything, and "Calculate System"
+re-runs the complete engineering pipeline exactly as it already does for a first-time calculation.
+`ResultsScreen.kt` gained a new "✏️ Edit System" button (`onEditSystem: (SavedQuote) -> Unit`) next
+to its existing "⚡ Explore Your Energy" button, wired in `LumixNavHost.kt` to call `loadForEdit`
+then navigate to the wizard. No changes were needed to the calculation engine, persistence layer, or
+the simulation/quote screens — they already re-fetch by `quoteId` fresh every time (A66's own
+architecture audit), so once the saved row is updated, every other screen automatically reflects it.
+
+**Judgment call flagged, not silently resolved — spec §29 ("SYSTEM VERSIONING... do not overwrite
+historical quote versions") vs. this app's existing behavior.** `calculateAndSave` has updated the
+same row in place since A56 ("must never become a second row for the same project" — its own doc
+comment), which is what makes this round's fix simple and is the intentional way an *in-progress*
+design (not yet fully quoted) avoids leaving duplicate half-finished rows. But recalculating an
+*already-quoted* system today silently overwrites its historical numbers too — the spec explicitly
+wants old versions preserved (worked example: V1 "8kW inverter, 10.24kWh battery" kept alongside V2
+"10kW inverter, 16.07kWh battery"), which this app doesn't do for any quote, past or present. Real
+versioning (a `configurationId`/`configurationVersion` scheme, a schema migration, and a History UI
+that can show and pick between multiple versions of one project) is a substantially larger, separate
+piece of work than "make editing possible" — not attempted this round. Per the spec's own instruction
+for exactly this situation ("explain CURRENT BEHAVIOR, EXPECTED BEHAVIOR, WHY THEY DIFFER,
+RECOMMENDED CHANGE, then implement per spec unless it would break an established requirement"):
+CURRENT — in-place overwrite, no history kept; EXPECTED — every recalculation preserves the prior
+version; WHY THEY DIFFER — in-place overwrite was a deliberate, working A56 design decision for the
+in-progress case, never revisited for the already-quoted case; RECOMMENDED — build real versioning
+as its own dedicated phase, since it touches the database schema and the History UI, both bigger
+than this phase's scope.
+
+**Files changed**: `WizardViewModel.kt` (new `loadForEdit`), `ResultsScreen.kt` (new `onEditSystem`
+parameter + button), `LumixNavHost.kt` (wiring).
+
+**Tests**: none added — `WizardViewModel` (and every other `ViewModel` in this app) has no existing
+unit-test coverage, since it needs Android/coroutine test infrastructure this project doesn't have
+set up; `loadForEdit` is a small, declarative state-setter following the exact same untested pattern
+as the adjacent `reset()`/`goToStep()` functions it sits beside. Manually traced the full navigation
+path (`ResultsScreen` → `loadForEdit` → step 12 → Back through every earlier step → Calculate →
+`calculateAndSave`'s existing-id branch → `SystemResultScreen` → back-stack correctly unwound via
+the existing `onBackToHome`/`onQuoteSaved` popUpTo logic) against the actual navigation graph, not
+assumed.

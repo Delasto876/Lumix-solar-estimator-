@@ -174,7 +174,11 @@ fun LumixNavHost(app: LumixApp) {
                         }
                     },
                     onBackToHome = { navController.popBackStack(ROUTE_HOME, inclusive = false) },
-                    onSimulate = { id -> navController.navigate("simulation/$id") }
+                    onSimulate = { id -> navController.navigate("simulation/$id") },
+                    onEditSystem = { saved ->
+                        wizardViewModel.loadForEdit(saved)
+                        navController.navigate(ROUTE_WIZARD)
+                    }
                 )
             }
 

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.lumix.estimator.data.PriceRepository
 import com.lumix.estimator.data.QuoteRepository
+import com.lumix.estimator.data.SavedQuote
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteMode
 import com.lumix.estimator.domain.QuoteResult
@@ -143,6 +144,26 @@ class WizardViewModel(
         _currentStep.value = 2
         _result.value = null
         _savedQuoteId.value = null
+    }
+
+    /**
+     * A76 (spec Phase 13 — "add editable design + Recalculate"): the only way back into the
+     * wizard with an ALREADY-SAVED quote's real inputs loaded, instead of a blank [QuoteInputs].
+     * Before this, a quote opened from Home/History (`ResultsScreen`) had no edit path at all —
+     * only "New quote" (blank slate) or read-only viewing; the existing "Edit System" button on
+     * `SystemResultScreen` only worked because the wizard's own state was still live in memory
+     * from the same design session. Lands on step 12 (System Review) — the same screen "Edit
+     * System" already returns to, and always in [designSteps] regardless of quote mode — so
+     * pressing Back walks through every earlier step to change anything, and pressing "Calculate
+     * System" re-runs the full engineering pipeline. [_savedQuoteId] being non-null here is what
+     * makes [calculateAndSave] update this SAME row instead of creating a duplicate.
+     */
+    fun loadForEdit(saved: SavedQuote) {
+        _inputs.value = saved.inputs
+        _result.value = saved.result
+        _savedQuoteId.value = saved.id
+        _flowMode.value = WizardFlowMode.DESIGN
+        _currentStep.value = 12
     }
 
     /**
