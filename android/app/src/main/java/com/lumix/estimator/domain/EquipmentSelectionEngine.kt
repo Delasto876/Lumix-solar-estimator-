@@ -566,4 +566,43 @@ object EquipmentSelectionEngine {
             )
         return BatteryChoice(best.tier, best.modules, best.tier.kwh * best.modules, best.usableTotal, best.dischargeTotal, reason, powerOk)
     }
+
+    /**
+     * A72 (spec Phase 7 — "fix battery calculations"): real per-model battery voltage windows
+     * ([EquipmentSpecs.BatterySpecSheet.minVoltageV]/`maxVoltageV`) and real per-model inverter
+     * battery-port voltage windows ([EquipmentSpecs.InverterSpec.batteryVoltageMinV]/
+     * `batteryVoltageMaxV`) both already exist in the equipment database — the same "real data sat
+     * unused" pattern A71 found for MPPT voltage — but nothing ever cross-checked them: a battery
+     * whose voltage swing (nominal ± charge/discharge) doesn't fully fit inside the inverter's
+     * accepted battery-port range would never actually have been flagged. Every real combination in
+     * this catalog today happens to be compatible (every SRNE tier's 44.8-58.4V window sits inside
+     * every real inverter's 40-60V battery range), so this never actually fires yet — added anyway,
+     * the same reasoning A71's Vmp-upper-bound/Imp checks used: a real check that currently always
+     * passes still catches the next equipment addition that doesn't.
+     */
+    data class BatteryVoltageCompatibilityResult(
+        val ok: Boolean,
+        val batteryMinV: Double?,
+        val batteryMaxV: Double?,
+        val inverterMinV: Double?,
+        val inverterMaxV: Double?
+    )
+
+    /** Explicit-limits core, split out for deterministic unit testing — see [checkBatteryVoltageCompatibility]'s own doc. Compatible (true) whenever either side has no confirmed voltage-window data, since there is nothing to contradict. */
+    internal fun batteryVoltageCompatibleForLimits(
+        batteryMinV: Double?, batteryMaxV: Double?, inverterMinV: Double?, inverterMaxV: Double?
+    ): Boolean {
+        if (batteryMinV == null || batteryMaxV == null || inverterMinV == null || inverterMaxV == null) return true
+        return batteryMinV >= inverterMinV && batteryMaxV <= inverterMaxV
+    }
+
+    /** Real entry point: resolves both real specs by name/kW and checks the battery's full voltage window fits inside the inverter's accepted battery-port range. */
+    fun checkBatteryVoltageCompatibility(batteryName: String?, inverterKw: Double, inverterNameHint: String? = null): BatteryVoltageCompatibilityResult {
+        val batterySpec = EquipmentSpecs.batterySpecFor(batteryName)
+        val invSpec = EquipmentSpecs.inverterSpecFor(inverterKw, inverterNameHint)
+        val ok = batteryVoltageCompatibleForLimits(
+            batterySpec?.minVoltageV, batterySpec?.maxVoltageV, invSpec?.batteryVoltageMinV, invSpec?.batteryVoltageMaxV
+        )
+        return BatteryVoltageCompatibilityResult(ok, batterySpec?.minVoltageV, batterySpec?.maxVoltageV, invSpec?.batteryVoltageMinV, invSpec?.batteryVoltageMaxV)
+    }
 }

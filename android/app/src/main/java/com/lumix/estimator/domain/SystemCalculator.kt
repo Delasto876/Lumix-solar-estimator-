@@ -156,14 +156,42 @@ object SystemCalculator {
      * at the inverter's own ceiling — shared by [calculate]'s final [QuoteResult] fields and its
      * own A63 recharge-aware panel-count refinement below, so both read the exact same figures
      * (resolved once, from the equipment library, rather than computed twice and risking drift).
+     *
+     * A72 (spec Phase 7 — "fix battery calculations"): the ceiling used to be [inverterKw] alone
+     * (the inverter's continuous AC output rating) — the same AC-rating-as-DC-proxy pattern A69
+     * (PV input) and A71 (MPPT) already found and fixed for the *other* two DC-side ports on this
+     * same hardware. The matched inverter's own real DC battery-port rating is a genuinely
+     * different figure on some models — e.g. LuxPower GEN-LB-US 13K's own confirmed datasheet
+     * `maxChargePowerKw`/`maxDischargePowerKw` is 10.0kW, LOWER than its 13kW AC rating — meaning
+     * the old code would have let a large enough battery bank charge/discharge up to 13kW when the
+     * real hardware caps it at 10.0kW. Prefers the inverter's own direct datasheet
+     * `maxChargePowerKw`/`maxDischargePowerKw` when confirmed (the most authoritative figure);
+     * falls back to deriving one from `maxBatteryA` at the matched battery's own real bus voltage
+     * when only the current rating is confirmed; falls back to [inverterCeilingKw] alone (the old
+     * behavior) when neither exists. Whichever of the resulting ceiling and [inverterCeilingKw] is
+     * LOWER binds — exactly like a real system where the AC stage and the DC battery port are two
+     * independent hardware limits.
      */
-    private fun resolvedBatteryPowerKw(chosenBattery: BatteryOption?, totalBatteryKwh: Double, inverterKw: Double): Pair<Double?, Double?> {
+    /** `internal` (not `private`) so this module's own JVM unit tests (`SystemCalculatorBatteryPowerCeilingTest`) can exercise this directly against real catalog data, the same reason several other single-purpose helpers in this file (`sizeHybridBatteryForBackup`, `recheckPanelCountForRecharge`) already are. */
+    internal fun resolvedBatteryPowerKw(chosenBattery: BatteryOption?, totalBatteryKwh: Double, inverterKw: Double, inverterName: String? = null): Pair<Double?, Double?> {
         val matchedBattery = EquipmentSpecs.batterySpecFor(chosenBattery?.name)
         if (matchedBattery == null || totalBatteryKwh <= 0) return null to null
         val units = (totalBatteryKwh / matchedBattery.ratedEnergyKwh).roundToInt().coerceAtLeast(1)
         val inverterCeilingKw = inverterKw.coerceAtLeast(0.1)
-        val chargeKw = (matchedBattery.maxChargeA * matchedBattery.voltageV / 1000.0 * units).coerceAtMost(inverterCeilingKw)
-        val dischargeKw = (matchedBattery.maxDischargeA * matchedBattery.voltageV / 1000.0 * units).coerceAtMost(inverterCeilingKw)
+        val invSpec = EquipmentSpecs.inverterSpecFor(inverterKw, inverterName)
+        // A72: the inverter's own real DC battery-port power ceiling — the direct datasheet
+        // kW figure when confirmed, else derived from the real max battery current at the matched
+        // battery's own real bus voltage, else no additional ceiling beyond inverterCeilingKw.
+        val batteryPortChargeCeilingKw = invSpec?.maxChargePowerKw
+            ?: invSpec?.maxBatteryA?.let { it * matchedBattery.voltageV / 1000.0 }
+            ?: Double.MAX_VALUE
+        val batteryPortDischargeCeilingKw = invSpec?.maxDischargePowerKw
+            ?: invSpec?.maxBatteryA?.let { it * matchedBattery.voltageV / 1000.0 }
+            ?: Double.MAX_VALUE
+        val chargeKw = (matchedBattery.maxChargeA * matchedBattery.voltageV / 1000.0 * units)
+            .coerceAtMost(minOf(inverterCeilingKw, batteryPortChargeCeilingKw))
+        val dischargeKw = (matchedBattery.maxDischargeA * matchedBattery.voltageV / 1000.0 * units)
+            .coerceAtMost(minOf(inverterCeilingKw, batteryPortDischargeCeilingKw))
         return chargeKw to dischargeKw
     }
 
@@ -247,7 +275,7 @@ object SystemCalculator {
                 break
             }
 
-            val (chargeKw, dischargeKw) = resolvedBatteryPowerKw(choice.option, choice.totalKwh, inverterKw)
+            val (chargeKw, dischargeKw) = resolvedBatteryPowerKw(choice.option, choice.totalKwh, inverterKw, inverterName)
             val fallbackKw = min(choice.totalKwh * 0.5, inverterKw.coerceAtLeast(0.1))
             val trialConfig = SimSystemConfig(
                 pvCapacityKw = 0.0, panelCount = 0, panelWatts = 0,
@@ -526,7 +554,7 @@ object SystemCalculator {
                 // and only then, if it can't, grow it by 1 or 2 panels until it does (or until +2
                 // stops helping) — never for MANUAL mode, never when there's no battery.
                 if (input.systemMode == SystemMode.HYBRID && totalBatteryKwh > 0) {
-                    val (earlyChargeKw, earlyDischargeKw) = resolvedBatteryPowerKw(chosenBattery, totalBatteryKwh, selectedInverter.kw)
+                    val (earlyChargeKw, earlyDischargeKw) = resolvedBatteryPowerKw(chosenBattery, totalBatteryKwh, selectedInverter.kw, selectedInverter.name)
                     panelChoice = recheckPanelCountForRecharge(
                         baseline = panelChoice,
                         inverter = selectedInverter,
@@ -891,7 +919,7 @@ object SystemCalculator {
         // Resolved once, here, at calculation time — never re-matched against a possibly-newer
         // equipment catalog when a saved quote's simulation is opened later. See
         // QuoteResult.batteryMaxChargeKw's own doc for why this matters for reproducibility.
-        val (batteryMaxChargeKw, batteryMaxDischargeKw) = resolvedBatteryPowerKw(chosenBattery, totalBatteryKwh, inverter.kw)
+        val (batteryMaxChargeKw, batteryMaxDischargeKw) = resolvedBatteryPowerKw(chosenBattery, totalBatteryKwh, inverter.kw, inverter.name)
         // A69: same reproducibility rationale, for the inverter's real max PV DC input power — see
         // QuoteResult.inverterMaxPvKw's own doc.
         val inverterMaxPvKw = EquipmentSpecs.inverterSpecFor(inverter.kw, inverter.name)?.maxPvW?.let { it / 1000.0 }

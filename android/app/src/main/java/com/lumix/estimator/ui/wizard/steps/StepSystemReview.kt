@@ -70,8 +70,15 @@ fun StepSystemReview(
     val gridServiceAmps by settingsRepository.defaultGridServiceAmps.collectAsState(initial = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS)
     val preview = remember(inputs) { SystemCalculator.calculate(inputs, PriceList.DEFAULT) }
     val requiredInverterKw = remember(preview) { preview.peakWatts * 1.25 / 1000.0 }
+    // A72 (spec Phase 7): reads the real per-model figure SystemCalculator.calculate() already
+    // resolved (preview.batteryMaxDischargeKw) instead of independently recomputing a generic 0.5C
+    // estimate here — see SystemDiagnostics.checksFor's identical fix for the full rationale (this
+    // screen has its own separately-maintained duplicate of the same checks, not consolidated this
+    // round). Falls back to the same 0.5C estimate only when no confirmed match exists.
     val batteryMaxDischargeKw = remember(preview) {
-        if (preview.totalBatteryKwh > 0) min(preview.totalBatteryKwh * 0.5, preview.inverterKw.coerceAtLeast(0.1)) else 0.0
+        if (preview.totalBatteryKwh > 0) {
+            preview.batteryMaxDischargeKw ?: min(preview.totalBatteryKwh * 0.5, preview.inverterKw.coerceAtLeast(0.1))
+        } else 0.0
     }
     val peakLoadKw = preview.peakWatts / 1000.0
     // A54: preview.estimatedBackupHours comes from an actual grid-disconnected simulation of this
@@ -90,7 +97,16 @@ fun StepSystemReview(
         )
     }
 
-    val checks = remember(preview, requiredInverterKw, batteryMaxDischargeKw, peakLoadKw, pvCompat) {
+    // A72 (spec Phase 7): real per-model battery voltage window vs. the inverter's real accepted
+    // battery-port voltage window — see EquipmentSelectionEngine.checkBatteryVoltageCompatibility's
+    // own doc.
+    val batteryVoltageCompat = remember(preview) {
+        EquipmentSelectionEngine.checkBatteryVoltageCompatibility(
+            preview.batteryName, preview.inverterKw, preview.inverterName
+        )
+    }
+
+    val checks = remember(preview, requiredInverterKw, batteryMaxDischargeKw, peakLoadKw, pvCompat, batteryVoltageCompat) {
         listOf(
             // A49: this is distinct from the backup-coverage check below it — it fires whenever the
             // *selected* inverter can't cover ordinary peak household load, regardless of what
@@ -142,6 +158,17 @@ fun StepSystemReview(
                 detail = if (preview.totalBatteryKwh > 0.0 && batteryMaxDischargeKw < peakLoadKw - 0.05) {
                     "Peak load (%.1f kW) may exceed the battery's typical continuous discharge rate (%.1f kW)."
                         .format(peakLoadKw, batteryMaxDischargeKw)
+                } else null
+            ),
+            // A72 (spec Phase 7): real per-model battery voltage window vs. the inverter's real
+            // accepted battery-port voltage window — see
+            // EquipmentSelectionEngine.checkBatteryVoltageCompatibility's own doc.
+            EngineeringCheck(
+                label = "Battery voltage compatible with inverter's battery port",
+                pass = preview.totalBatteryKwh <= 0.0 || batteryVoltageCompat.ok,
+                detail = if (preview.totalBatteryKwh > 0.0 && !batteryVoltageCompat.ok) {
+                    "Battery voltage window (%.1f-%.1fV) falls outside the inverter's accepted battery-port range (%.1f-%.1fV)."
+                        .format(batteryVoltageCompat.batteryMinV, batteryVoltageCompat.batteryMaxV, batteryVoltageCompat.inverterMinV, batteryVoltageCompat.inverterMaxV)
                 } else null
             ),
             EngineeringCheck(

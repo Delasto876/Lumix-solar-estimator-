@@ -4042,3 +4042,84 @@ LuxPower scenario (`PvElectricalModelTest`'s 3-MPPT/12-panel case: 4-panel strin
 140V exactly as they cleared 120V, so no test needed updating) and against
 `SystemCalculatorBatteryBackupSizingTest`'s LuxPower 12K battery-sizing scenario (confirmed it never
 calls the panel-compatibility path at all — battery-only trial configs use `pvCapacityKw = 0.0`).
+
+## A72 — Phase 7: fix battery calculations
+
+**Inspected**: `SystemCalculator.resolvedBatteryPowerKw` (the real per-model battery charge/
+discharge power resolution), `EquipmentSelectionEngine.selectBestHybridBattery` (tier/module
+search), `BatteryPowerCurve` (SOC-dependent charge/discharge tapering), `SystemDiagnostics`/
+`StepSystemReview.kt`'s battery-related engineering checks, and every field on
+`EquipmentSpecs.BatterySpecSheet`/the battery-related fields on `InverterSpec`.
+
+**Confirmed already correct**: the SOC-tapering curve (`BatteryPowerCurve`), the real usable-energy
+fraction (`usableEnergyKwh / ratedEnergyKwh`, already read from the real datasheet rather than the
+flat `BATTERY_DOD` design assumption whenever a match exists), the "never mix battery capacities"
+invariant, and A64's real day-simulation-driven backup sizing (`sizeHybridBatteryForBackup`) — all
+sound, none touched.
+
+**Found and fixed (two separate real bugs, same "real per-model data sat unused" pattern A69/A71
+already found for the PV input and MPPT ports)**:
+
+1. **The battery charge/discharge power ceiling was `inverterKw` alone** (the inverter's continuous
+   AC output rating) — the same AC-rating-as-DC-proxy pattern already found and fixed twice this
+   spec for the *other* two DC-side ports on this same hardware. `EquipmentSpecs.InverterSpec`
+   already carries the inverter's own real DC battery-port rating — a direct datasheet
+   `maxChargePowerKw`/`maxDischargePowerKw` figure when confirmed, or a real `maxBatteryA` current
+   rating otherwise — but neither was ever read. Concretely: LuxPower GEN-LB-US 13K's own confirmed
+   datasheet battery-port rating is 10.0kW, LOWER than its 13kW AC rating — a battery bank large
+   enough to want more than 10kW (a single 15kWh-tier SRNE SR-EOS15B module already can, at a raw
+   10.24kW) would have been allowed to charge/discharge up to 13kW, overstating real capability by
+   ~30%.
+2. **`SystemDiagnostics.checksFor` and `StepSystemReview.kt`'s own separately-maintained duplicate
+   checklist both independently recomputed a generic 0.5C battery-discharge estimate** instead of
+   reading `QuoteResult.batteryMaxChargeKw`/`batteryMaxDischargeKw` — the real, per-model figure
+   `SystemCalculator.calculate()` already resolves (via `resolvedBatteryPowerKw`, including the fix
+   above). This is the exact "computed twice and risking drift" failure mode
+   `resolvedBatteryPowerKw`'s own doc comment says it exists to prevent, which had silently crept
+   back in for this one displayed/checked figure — the "BATTERY POWER — suitable for peak load"
+   check and the "Maximum discharge power" readout always showed the flat heuristic, never the real
+   resolved number, regardless of which real battery/inverter was actually matched.
+
+**Also added (a genuinely new check, not a bug fix)**: real per-model battery voltage windows
+(`BatterySpecSheet.minVoltageV`/`maxVoltageV`) and real per-model inverter battery-port voltage
+windows (`InverterSpec.batteryVoltageMinV`/`batteryVoltageMaxV`) both already existed in the
+equipment database but were never cross-checked against each other — nothing would have flagged a
+battery whose voltage swing doesn't fully fit inside the inverter's accepted battery-port range.
+New `EquipmentSelectionEngine.checkBatteryVoltageCompatibility` (with an explicit-limits
+`batteryVoltageCompatibleForLimits` core for deterministic testing, mirroring A71's own
+`*ForLimits` split) checks this; `SystemDiagnostics`/`StepSystemReview.kt` both gained a new
+"BATTERY — voltage compatible with inverter's battery port" row. Honestly disclosed: every real
+combination in today's catalog is compatible (every SRNE tier's 44.8-58.4V window sits inside every
+real inverter's 40-60V battery range), so this check never actually fires against current data —
+added anyway, the same reasoning A71's Vmp-upper-bound/Imp checks used: a real check that currently
+always passes still catches the next equipment addition that doesn't.
+
+**Files changed**: `SystemCalculator.kt` (`resolvedBatteryPowerKw`'s new real ceiling, made
+`internal` for direct testing, `inverterName` threaded through its three call sites),
+`EquipmentSelectionEngine.kt` (new `checkBatteryVoltageCompatibility`/
+`batteryVoltageCompatibleForLimits`/`BatteryVoltageCompatibilityResult`), `SystemDiagnostics.kt` and
+`StepSystemReview.kt` (both: read the real resolved discharge figure instead of recomputing 0.5C,
+plus the new voltage-compatibility row).
+
+**Tests**: new `SystemCalculatorBatteryPowerCeilingTest.kt` — the real LuxPower 13K scenario proving
+the new ceiling binds at 10.0kW (not the raw 10.24kW battery figure, not the old 13kW AC-rating
+proxy), and a genuinely-unmatched-inverter-wattage (6.3kW, no catalog entry at that rating)
+regression guard proving the old AC-rating-only behavior is preserved when no real spec exists. 5
+new tests in `EquipmentSelectionEngineTest.kt` for the voltage-compatibility check (compatible,
+incompatible on each bound, defaults-to-compatible when either side is unconfirmed, and the real
+SRNE/Deye combination). `SystemDiagnosticsTest.kt`'s check-count assertion updated 11→12. Verified
+no existing test exercises the one real inverter (LuxPower 13K) whose behavior actually changes, and
+that `SystemDiagnosticsTest`'s hand-built battery name ("10kWh (SRNE SR-EOS10B)", no space) never
+matched a real spec before or after this round, so its asserted numbers are unaffected.
+
+**Deliberately not addressed this round, disclosed rather than silently skipped**:
+`BatterySpecSheet.maxParallelUnits` (16 modules per catalog entry) is still never checked against
+the module counts `EquipmentSelectionEngine.selectBestHybridBattery`/A64's escalation loop could in
+principle select — not a live concern for any residential Jamaica system this app would realistically
+size (16 modules of the smallest tier alone is 80kWh), but not structurally prevented either.
+`BatterySpecSheet.recommendedContinuousPowerKw` (a synthetic 80%-of-max-discharge figure, not itself
+an independently-sourced datasheet number per each entry's own `dataQualityNote`) remains unused —
+sizing/validation uses the real max-rated current throughout, not a conservative continuous-duty
+derating; treating a synthetic 80% figure as authoritative would be introducing this app's own
+assumption's teeth without a real datasheet backing it, a genuinely different kind of decision from
+the real-data gaps fixed above.

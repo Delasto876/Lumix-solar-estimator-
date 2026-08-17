@@ -53,7 +53,8 @@ class SystemDiagnosticsTest {
         // A71: 9 -> 11 — added the real MPPT tracking-range ceiling (Vmp upper bound) and real
         // continuous operating current (Imp) checks, previously not surfaced at all even though
         // pvCompat.valid already silently depended on both once EquipmentSpecs had the data.
-        assertEquals(11, checks.size)
+        // A72: 11 -> 12 — added the real battery-voltage-window-vs-inverter-battery-port check.
+        assertEquals(12, checks.size)
     }
 
     @Test

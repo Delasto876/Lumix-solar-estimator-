@@ -20,11 +20,23 @@ object SystemDiagnostics {
     fun checksFor(result: QuoteResult): List<DiagnosticCheck> {
         val requiredInverterKw = result.peakWatts * 1.25 / 1000.0
         val peakLoadKw = result.peakWatts / 1000.0
+        // A72 (spec Phase 7 — "fix battery calculations"): reads the real per-model figure
+        // SystemCalculator.calculate() already resolved (result.batteryMaxDischargeKw — via
+        // resolvedBatteryPowerKw, now including the real DC battery-port ceiling A72 added) instead
+        // of independently recomputing a generic 0.5C estimate here. Before this fix, this check
+        // (and StepSystemReview's identical duplicate) always showed the flat 0.5C figure
+        // regardless of which real battery/inverter was actually matched — the exact "computed
+        // twice and risking drift" this file's own doc comment says it exists to prevent, which had
+        // silently crept back in for this one figure. Falls back to the same 0.5C estimate only
+        // when no confirmed match exists at all (result.batteryMaxDischargeKw is null).
         val batteryMaxDischargeKw = if (result.totalBatteryKwh > 0) {
-            min(result.totalBatteryKwh * 0.5, result.inverterKw.coerceAtLeast(0.1))
+            result.batteryMaxDischargeKw ?: min(result.totalBatteryKwh * 0.5, result.inverterKw.coerceAtLeast(0.1))
         } else 0.0
         val pvCompat = EquipmentSelectionEngine.checkPanelInverterCompatibility(
             result.panelWatts, result.panelCount, result.inverterKw, result.inverterName
+        )
+        val batteryVoltageCompat = EquipmentSelectionEngine.checkBatteryVoltageCompatibility(
+            result.batteryName, result.inverterKw, result.inverterName
         )
 
         return listOf(
@@ -58,6 +70,19 @@ object SystemDiagnostics {
                 detail = if (result.totalBatteryKwh > 0.0 && batteryMaxDischargeKw < peakLoadKw - 0.05) {
                     "Peak load (%.1f kW) may exceed the battery's typical continuous discharge rate (%.1f kW)."
                         .format(peakLoadKw, batteryMaxDischargeKw)
+                } else null
+            ),
+            // A72: real per-model battery voltage window vs. the inverter's real accepted
+            // battery-port voltage window — see EquipmentSelectionEngine
+            // .checkBatteryVoltageCompatibility's own doc. Always passes on today's catalog (every
+            // real combination happens to be compatible) but protects against the next equipment
+            // addition that isn't.
+            DiagnosticCheck(
+                label = "BATTERY — voltage compatible with inverter's battery port",
+                pass = result.totalBatteryKwh <= 0.0 || batteryVoltageCompat.ok,
+                detail = if (result.totalBatteryKwh > 0.0 && !batteryVoltageCompat.ok) {
+                    "Battery voltage window (%.1f-%.1fV) falls outside the inverter's accepted battery-port range (%.1f-%.1fV)."
+                        .format(batteryVoltageCompat.batteryMinV, batteryVoltageCompat.batteryMaxV, batteryVoltageCompat.inverterMinV, batteryVoltageCompat.inverterMaxV)
                 } else null
             ),
             DiagnosticCheck(

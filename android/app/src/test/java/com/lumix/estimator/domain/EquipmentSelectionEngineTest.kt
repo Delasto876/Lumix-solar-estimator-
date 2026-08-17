@@ -394,4 +394,53 @@ class EquipmentSelectionEngineTest {
             result.notes.any { it.contains("Imp", ignoreCase = true) }
         )
     }
+
+    // ---- A72 (spec Phase 7 — "fix battery calculations"): real battery/inverter voltage-window compatibility ----
+
+    @Test
+    fun `battery voltage compatibility passes when the battery's window sits fully inside the inverter's`() {
+        assertTrue(
+            EquipmentSelectionEngine.batteryVoltageCompatibleForLimits(
+                batteryMinV = 44.8, batteryMaxV = 58.4, inverterMinV = 40.0, inverterMaxV = 60.0
+            )
+        )
+    }
+
+    @Test
+    fun `battery voltage compatibility fails when the battery's own max exceeds the inverter's accepted max`() {
+        assertFalse(
+            EquipmentSelectionEngine.batteryVoltageCompatibleForLimits(
+                batteryMinV = 44.8, batteryMaxV = 65.0, inverterMinV = 40.0, inverterMaxV = 60.0
+            )
+        )
+    }
+
+    @Test
+    fun `battery voltage compatibility fails when the battery's own min is below the inverter's accepted min`() {
+        assertFalse(
+            EquipmentSelectionEngine.batteryVoltageCompatibleForLimits(
+                batteryMinV = 35.0, batteryMaxV = 58.4, inverterMinV = 40.0, inverterMaxV = 60.0
+            )
+        )
+    }
+
+    @Test
+    fun `battery voltage compatibility defaults to true when either side has no confirmed data`() {
+        assertTrue(EquipmentSelectionEngine.batteryVoltageCompatibleForLimits(null, 58.4, 40.0, 60.0))
+        assertTrue(EquipmentSelectionEngine.batteryVoltageCompatibleForLimits(44.8, 58.4, null, 60.0))
+    }
+
+    @Test
+    fun `real SRNE SR-EOS10B on a real Deye SUN-6K is voltage-compatible`() {
+        // SRNE SR-EOS10B: 44.8-58.4V. Deye SUN-6K-SG01LP1-US's real accepted battery-port range:
+        // 40-60V (EquipmentSpecs). The 44.8-58.4V window sits fully inside it.
+        val result = EquipmentSelectionEngine.checkBatteryVoltageCompatibility(
+            batteryName = "10 kWh LiFePO4 (SRNE SR-EOS10B)", inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US"
+        )
+        assertTrue("expected the real SRNE/Deye combination to be voltage-compatible", result.ok)
+        assertEquals(44.8, result.batteryMinV!!, 0.01)
+        assertEquals(58.4, result.batteryMaxV!!, 0.01)
+        assertEquals(40.0, result.inverterMinV!!, 0.01)
+        assertEquals(60.0, result.inverterMaxV!!, 0.01)
+    }
 }
