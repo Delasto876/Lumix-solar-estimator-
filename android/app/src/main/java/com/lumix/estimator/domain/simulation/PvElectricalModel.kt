@@ -1,5 +1,6 @@
 package com.lumix.estimator.domain.simulation
 
+import com.lumix.estimator.domain.EquipmentSelectionEngine
 import com.lumix.estimator.domain.EquipmentSpecs
 import com.lumix.estimator.domain.MpptStringPlanner
 
@@ -34,9 +35,6 @@ object PvElectricalModel {
     /** Cold-morning/hot-noon correction baseline — Standard Test Conditions. */
     private const val STC_TEMP_C = 25.0
 
-    /** Typical low-end MPPT start voltage for this inverter class — matches [com.lumix.estimator.domain.EquipmentSelectionEngine]'s own disclosed assumption, kept consistent here rather than re-guessed. */
-    private const val MIN_MPPT_OPERATING_VOLTAGE = 90.0
-
     /**
      * One instant's per-MPPT electrical state for [config]'s actual selected panel/inverter.
      * [cellTempC] should be the same value [SimFrame.cellTempC] already carries for this instant.
@@ -57,6 +55,12 @@ object PvElectricalModel {
         val panelSpec = EquipmentSpecs.panelSpecFor(panelWatts)
         val invSpec = EquipmentSpecs.inverterSpecFor(inverterKw, inverterNameHint)
         val mpptTrackers = invSpec?.mpptCount?.coerceAtLeast(1) ?: 2
+        // A71: the real per-model MPPT floor when confirmed — shares EquipmentSelectionEngine's
+        // own resolution function (not a separately re-guessed constant), including its "higher of
+        // the tracking floor and the startup threshold" logic — see that function's own doc for
+        // why this file's old flat-constant approach was already wrong for it, not just for the
+        // continuous-tracking floor this file's own doc still explains.
+        val mpptTrackingMinV = EquipmentSelectionEngine.effectiveMpptFloorV(invSpec)
 
         val vmpPanel = panelSpec?.vmpV ?: (0.0163 * panelWatts) // ~40V/615W typical family ratio, disclosed fallback
         val vocPanel = panelSpec?.vocV ?: (0.0192 * panelWatts)
@@ -68,7 +72,7 @@ object PvElectricalModel {
         // doc) — padded back out to the inverter's real physical tracker count so an unused MPPT
         // still shows up as its own inactive/zero readout, instead of silently vanishing from the
         // per-tracker breakdown.
-        val plannedCounts = MpptStringPlanner.planStrings(panelCount, mpptTrackers, vmpPanel, MIN_MPPT_OPERATING_VOLTAGE)
+        val plannedCounts = MpptStringPlanner.planStrings(panelCount, mpptTrackers, vmpPanel, mpptTrackingMinV)
         val counts = plannedCounts + List((mpptTrackers - plannedCounts.size).coerceAtLeast(0)) { 0 }
         // Array is electrically "live" (MPPT holding a real operating voltage) whenever there's
         // any potential production this instant — independent of how much of it is actually being
@@ -95,7 +99,7 @@ object PvElectricalModel {
                     impA = if (isActive) impPanel else 0.0,
                     iscA = if (isActive) iscPanel else 0.0,
                     powerKw = powerKw,
-                    isActive = isActive && vmp >= MIN_MPPT_OPERATING_VOLTAGE
+                    isActive = isActive && vmp >= mpptTrackingMinV
                 )
             }
         }

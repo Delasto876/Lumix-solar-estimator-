@@ -317,4 +317,81 @@ class EquipmentSelectionEngineTest {
         assertFalse("8.61 kW array should exceed Deye 6K's real 7.8 kW max PV input", result.powerOk)
         assertFalse(result.valid)
     }
+
+    // ---- A71 (spec Phase 6 — "fix inverter/MPPT/string calculations"): real per-model MPPT/current data ----
+
+    @Test
+    fun `the effective MPPT floor is the HIGHER of a real tracking floor and a real startup threshold - LuxPower 6K`() {
+        // LuxPower GEN-LB-US 6K's real datasheet figures (EquipmentSpecs): mpptVoltageMinV=120V
+        // (continuous tracking floor) but startupVoltageV=140V (higher — the unit needs more
+        // voltage just to wake its MPPT algorithm up than it needs to keep tracking once running).
+        // 3 x 595W (Vmp 44.6V) consolidates onto a single string (MpptStringPlanner: a 2-way [2,1]
+        // split would undervolt either threshold) at 3 x 44.6 = 133.8V — clears the 120V tracking
+        // floor alone (the old, incomplete check) but NOT the real 140V binding floor this scenario
+        // exists to prove is now actually enforced.
+        val result = EquipmentSelectionEngine.checkPanelInverterCompatibility(
+            panelWatts = 595, panelCount = 3, inverterKw = 6.0, inverterNameHint = "LuxPower GEN-LB-US 6K"
+        )
+        assertEquals(listOf(3), result.stringCounts)
+        assertFalse(
+            "expected 133.8V to fail the real 140V startup-driven floor, not just clear the 120V tracking floor",
+            result.vmpOk
+        )
+        assertFalse(result.valid)
+    }
+
+    @Test
+    fun `real per-model MPPT floor (150V) replaces the old flat 90V fallback for Deye SUN-6K`() {
+        // Direct EquipmentSelectionEngine-level proof of the A71 fix (PvElectricalModelTest has the
+        // simulation-display-side version of the same scenario): under the OLD flat 90V floor,
+        // 6 x 615W (Vmp 45.76V) split 3+3 across Deye 6K's 2 trackers (3 x 45.76 = 137.28V, clears
+        // 90V). Deye SUN-6K-SG01LP1-US's REAL MPPT floor (EquipmentSpecs) is 150V — 137.28V would
+        // actually undervolt it, so the real per-model floor now correctly consolidates the whole
+        // array onto a single tracker instead.
+        val result = EquipmentSelectionEngine.checkPanelInverterCompatibility(
+            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US"
+        )
+        assertTrue("expected this configuration to still be electrically valid: ${result.notes}", result.valid)
+        assertEquals(listOf(6), result.stringCounts)
+    }
+
+    @Test
+    fun `Vmp upper bound invalidates a string within the hard Voc ceiling but above the real MPPT tracking-range ceiling`() {
+        // 5 x 595W (Vmp 44.6V) on a single tracker = 223V — comfortably under a 500V absolute
+        // maxPvV (vocOk: 52.6 x 5 x 1.045 = 274.8V) but above a synthetic 200V MPPT tracking-range
+        // ceiling, the genuinely separate, lower figure this check exists to catch (see
+        // EquipmentSelectionEngine.PanelCompatibilityResult.vmpUpperOk's own doc). maxPvW is large
+        // enough that neither power nor the implied-current fallback binds, isolating this one check.
+        val result = EquipmentSelectionEngine.checkPanelInverterCompatibilityForLimits(
+            panelWatts = 595, panelCount = 5, maxPvW = 50_000.0, maxPvV = 500.0, mpptTrackers = 1,
+            mpptTrackingMaxV = 200.0
+        )
+        assertTrue("expected the hard Voc ceiling to still be satisfied", result.vocOk)
+        assertFalse("expected the real MPPT tracking-range ceiling to be violated", result.vmpUpperOk)
+        assertFalse(result.valid)
+        assertTrue(
+            "expected the reason to explain the MPPT tracking-range failure: ${result.notes}",
+            result.notes.any { it.contains("tracking-range", ignoreCase = true) }
+        )
+    }
+
+    @Test
+    fun `continuous operating current (Imp) invalidates a string whose short-circuit current still clears the real limit`() {
+        // 2 x 615W (Imp 13.44A, Isc 14.11A) on a single tracker. A synthetic 10.0A real continuous
+        // max input current is below the panel's own Imp — but a synthetic 20.0A real max
+        // short-circuit current is well above its Isc, so only the continuous-current check should
+        // fail, proving impOk and iscOk are genuinely independent real-figure checks, not the same
+        // number doing both jobs.
+        val result = EquipmentSelectionEngine.checkPanelInverterCompatibilityForLimits(
+            panelWatts = 615, panelCount = 2, maxPvW = 50_000.0, maxPvV = 500.0, mpptTrackers = 1,
+            maxContinuousCurrentPerMpptA = 10.0, maxShortCircuitCurrentPerMpptA = 20.0
+        )
+        assertTrue("expected Isc to still clear the real short-circuit limit", result.iscOk)
+        assertFalse("expected Imp to violate the real continuous current limit", result.impOk)
+        assertFalse(result.valid)
+        assertTrue(
+            "expected the reason to explain the Imp failure: ${result.notes}",
+            result.notes.any { it.contains("Imp", ignoreCase = true) }
+        )
+    }
 }

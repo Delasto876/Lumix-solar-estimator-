@@ -167,12 +167,36 @@ fun StepSystemReview(
                     "Series Vmp %.0fV is below the inverter's minimum MPPT operating voltage.".format(pvCompat.stringVmpV)
                 } else null
             ),
+            // A71 (spec Phase 6): the MPPT range's real per-model CEILING — a separate, lower
+            // figure from the VOC check's own maxPvV ceiling above (see
+            // EquipmentSelectionEngine.PanelCompatibilityResult.vmpUpperOk's own doc). Without
+            // this, a design failing only this one would show every other check here passing while
+            // it was actually electrically invalid.
             EngineeringCheck(
-                label = "Series string current within MPPT current limits",
+                label = "Series string Vmp within MPPT tracking-range ceiling",
+                pass = pvCompat.vmpUpperOk,
+                detail = if (!pvCompat.vmpUpperOk) {
+                    "Series Vmp %.0fV exceeds the inverter's real MPPT tracking-range ceiling.".format(pvCompat.stringVmpV)
+                } else null
+            ),
+            EngineeringCheck(
+                label = "Series string short-circuit current within MPPT current limits",
                 pass = pvCompat.iscOk,
                 detail = if (!pvCompat.iscOk) {
                     "Series Isc %.1fA exceeds the inverter's implied max PV current — this is the panel's own current (voltage adds in series, current does not multiply by panel count)."
                         .format(pvCompat.stringIscA)
+                } else null
+            ),
+            // A71: the string's real OPERATING current (Imp), against the inverter's real
+            // continuous max input current per tracker — a different, typically lower datasheet
+            // figure from the short-circuit check above (see PanelCompatibilityResult.impOk's own
+            // doc).
+            EngineeringCheck(
+                label = "Series string operating current within continuous MPPT current limits",
+                pass = pvCompat.impOk,
+                detail = if (!pvCompat.impOk) {
+                    "Series Imp %.1fA exceeds the inverter's real continuous max PV input current per tracker."
+                        .format(pvCompat.stringImpA)
                 } else null
             ),
             // A54 (spec §22–23): a real simulated day, starting from the battery's reserve floor,

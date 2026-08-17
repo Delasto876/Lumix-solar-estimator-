@@ -70,11 +70,13 @@ class SystemCalculatorRechargeAwareSizingTest {
         // Reuses RechargeFeasibilityTest's own traced "heavily undersized array" case
         // (avgDailyLoadKwh=150 with 6 x 615W / 10.24kWh never reaches 90% SOC that day, only
         // 40.7% at 2pm) as the baseline. Panel counts 6/7/8 are all independently confirmed
-        // electrically valid against the real Growatt 10k spec (maxPvW 15000W, maxPvV 525V, 3
-        // MPPT trackers — hand-traced: 615W panel Vmp 45.76V, shortest string at any of these
-        // three counts is 2 panels = 91.5V, just clears the 90V floor; longest string Voc never
-        // exceeds ~174V, nowhere near the 525V ceiling), so every trial the function tries here
-        // is a real, valid electrical candidate, not one filtered out for an unrelated reason.
+        // electrically valid against the real Growatt 10k spec (maxPvW 15000W, maxPvV 525V,
+        // mpptVoltageMinV 150V, 3 MPPT trackers — A71 hand-traced: 615W panel Vmp 45.76V; 6 and 7
+        // panels each consolidate onto a single tracker (2/3-way splits would undervolt the real
+        // 150V floor — e.g. 2 panels = 91.5V doesn't clear it), 8 panels clears a genuine 2-way
+        // [4,4] split (4 x 45.76 = 183.04V); longest string Voc never exceeds ~406V, nowhere near
+        // the 525V ceiling), so every trial the function tries here is a real, valid electrical
+        // candidate, not one filtered out for an unrelated reason.
         //
         // What ISN'T re-traced here: exactly how much extra SOC-by-2pm 1-2 more panels buys
         // against a load this heavy (150kWh/day, 6.25kW average) — that depends on how much of

@@ -3935,3 +3935,110 @@ directly (the unscaled curve) rather than through `buildDayTimeline`'s `pshScale
 about *when* in the day production is ramping (a time-of-day shape question, not an amplitude
 question), and the overlay is cosmetic sun/cloud rendering, not an engineering figure. Neither
 needed to change for this fix, and scaling them would have been out of scope for what was asked.
+
+## A71 — Phase 6: fix inverter/MPPT/string calculations
+
+**Inspected**: `EquipmentSelectionEngine`'s Voc/Vmp/Isc string-validity checks (`evaluateCandidate`),
+`MpptStringPlanner`'s topology algorithm, `PvElectricalModel`'s live per-MPPT voltage/current
+display, and `EquipmentSpecs.InverterSpec`'s own per-model MPPT datasheet fields
+(`mpptVoltageMinV`/`mpptVoltageMaxV`/`startupVoltageV`/`stringsPerMppt`/
+`maxInputCurrentPerMpptA`/`maxShortCircuitCurrentPerMpptA`).
+
+**Confirmed already correct**: the series-topology math itself (voltage adds across a string,
+current never multiplies by panel count — A52's own regression tests still hold), the cold-morning
+Voc correction, the preferred-margin soft-warning tier (A65), and `MpptStringPlanner`'s fallback
+algorithm (fewer/longer strings when a full split would undervolt) — all sound, none touched.
+
+**Found and fixed**: every LuxPower/Deye/Growatt entry in `EquipmentSpecs` already carries real
+per-model MPPT electrical data — a real minimum AND maximum tracking-range voltage, a real
+continuous max input current per tracker, and a real max short-circuit current per tracker — but
+`EquipmentSelectionEngine` and `PvElectricalModel` never read any of it. Instead:
+- The Vmp floor check used one flat `90V` constant for every inverter, regardless of model. Real
+  floors range 80V (SRNE) to 150V (Deye/Growatt) — too permissive for Deye/Growatt (a string that
+  would genuinely undervolt these real inverters passed anyway) and too strict for SRNE.
+- There was no upper-bound Vmp check at all. A string can clear the absolute max PV voltage
+  (`maxPvV`, what the Voc check protects against — an inverter-damage ceiling) while still running
+  its operating point above the real MPPT tracking-range ceiling (`mpptVoltageMaxV`) — a lower,
+  genuinely different figure (e.g. Deye 6K: 500V absolute max vs. 425V real tracking ceiling) that
+  was never checked.
+- The Isc check derived an approximate current limit from `maxPvW / maxPvV` instead of using the
+  real per-model max short-circuit current, and there was no check at all for the panel's real
+  *operating* current (Imp) against the inverter's real *continuous* max input current — a
+  genuinely separate datasheet figure from the short-circuit rating (e.g. Deye 6K: 44A max
+  short-circuit vs. 26A max continuous — a design could pass the old single derived check while
+  still exceeding the real continuous rating).
+- `PvElectricalModel` (the simulation's live MPPT display) had its own, separately hardcoded 90V
+  floor — meaning even after fixing `EquipmentSelectionEngine`'s validation, the simulation could
+  have displayed a *different* string topology than the one actually validated for the same design,
+  breaking the "one shared source of truth" invariant `MpptStringPlanner`'s own doc already claims.
+
+**Fixed**: `evaluateCandidate` (and its two entry points, `checkPanelInverterCompatibility` for
+real designs and `selectBestPanelConfiguration`'s search) now resolve and use the matched
+inverter's real `mpptVoltageMinV`/`mpptVoltageMaxV`/`maxInputCurrentPerMpptA`/
+`maxShortCircuitCurrentPerMpptA` when a confirmed spec exists, falling back to the prior behavior
+(flat 90V floor, no upper check, derived-ratio current) only when it doesn't — so nothing regresses
+for an unmatched inverter. Two new `PanelCompatibilityResult` fields, `vmpUpperOk` and `impOk`,
+surface the two new checks; `valid` now ANDs in both. `PvElectricalModel.mpptReadouts` resolves the
+same real floor `EquipmentSelectionEngine` uses, so the simulation's displayed topology can never
+diverge from the validated one. `SystemDiagnostics.checksFor` and `StepSystemReview.kt`'s own
+engineering-checks list (a pre-existing, separately-maintained duplicate — not consolidated this
+round, out of scope) both gained two new PASS/FAIL rows for the new checks — without this, a design
+failing only one of them would have shown every displayed check passing while the system was
+actually invalid underneath, a misleading "all green" diagnostics panel.
+
+**A real consequence, not just an internal number**: a 6×615W array on a Deye SUN-6K now correctly
+consolidates onto a single MPPT tracker (274.56V) instead of splitting 3+3 (137.28V each) — the
+3-panel split would genuinely undervolt this inverter's real 150V floor. This is exactly the kind
+of case the A62 spec text itself describes ("MPPT1=X, MPPT2=unused... IF the string would operate
+too close to or below the inverter's MPPT minimum voltage"), now actually driven by each inverter's
+own real datasheet floor instead of a one-size-fits-all guess.
+
+**Files changed**: `EquipmentSelectionEngine.kt` (`evaluateCandidate` + both real entry points +
+`PanelCompatibilityResult`'s two new fields), `PvElectricalModel.kt` (real floor resolution),
+`SystemDiagnostics.kt` and `StepSystemReview.kt` (two new diagnostic rows each).
+
+**Tests**: `PvElectricalModelTest.kt` — 4 existing tests updated with hand-recomputed values now
+that Deye 6K's real 150V floor changes which scenarios split vs. consolidate (test 1 switched to a
+3-vs-6-panel comparison since 6-vs-12 no longer demonstrates different string lengths under the
+real floor; test 2 switched to 8 panels for a genuine 2-way split; test 5's hot-Vmp value
+recomputed for a 6-panel single string; test 9 switched to the 13-panel/7+6-split scenario for a
+genuine weighted-average demonstration) — plus one new dedicated test proving the single-tracker
+consolidation itself. `EquipmentSelectionEngineTest.kt` — 4 new tests: the same Deye 6K
+consolidation proven at the `EquipmentSelectionEngine` level directly, a synthetic scenario
+isolating the new Vmp-upper-bound check (passes the hard Voc ceiling, fails the real tracking-range
+ceiling), a synthetic scenario isolating the new Imp check (clears the real short-circuit limit,
+fails the real continuous-current limit — proving the two are genuinely independent, not one number
+doing both jobs), and a real LuxPower 6K scenario (3 panels at 133.8V) proving the effective MPPT
+floor is the higher of the real tracking floor and the real startup threshold, not the tracking
+floor alone. `SystemDiagnosticsTest.kt` — check-count assertion updated 9→11.
+Every existing scenario 10/11 (real Deye 6K power-limit) assertion re-verified unaffected — none
+asserted on internal topology, only on `valid`/`powerOk`/`arrayKw`/`stringIscA`/`stringImpA`, none
+of which change with topology.
+
+**Deliberately not addressed this round, disclosed rather than silently skipped**:
+`InverterSpec.stringsPerMppt` (some models, e.g. every LuxPower GEN-LB-US entry, have 2 physical
+string inputs per MPPT tracker, internally paralleled — `engineeringNote: "4 PV inputs total (2
+MPPT x 2 strings each)"`) is still unused; this app's model still treats one tracker as exactly one
+series string, which is conservative (never unsafe, just potentially under-utilizing available
+physical inputs on models that support more). Exploiting it would mean a real architecture change —
+more independent physical strings than `mpptCount` implies, current-matching requirements between
+strings paralleled onto the same tracker — a genuinely bigger change than this round's scope.
+**A second gap found while writing this section, fixed rather than left deferred**:
+`InverterSpec.startupVoltageV` (the threshold below which an inverter won't begin tracking at
+all — distinct from `mpptVoltageMinV`, the continuous operating floor once already running) was
+also still unused after the fix above, and checking the actual data showed this was a genuine, not
+just theoretical, gap: every LuxPower GEN-LB-US/LXP-LB-US entry has a real `startupVoltageV` of
+140V — HIGHER than that same model's own `mpptVoltageMinV` of 120V. A string between 120V and 140V
+would have passed the new floor check above yet, on a real LuxPower unit, never actually begin
+producing at all (the unit needs the higher startup voltage just to wake its MPPT algorithm up,
+even though it can track down to the lower figure once already running). Deye and Growatt's real
+`startupVoltageV` figures sit at or below their own `mpptVoltageMinV`, so this was specific to the
+LuxPower family in this catalog, not universal — but real enough to fix immediately rather than
+just disclose: `EquipmentSelectionEngine.effectiveMpptFloorV` now resolves the actual binding floor
+as `max(mpptVoltageMinV, startupVoltageV)`, used everywhere `mpptTrackingMinV` is resolved
+(`checkPanelInverterCompatibility`, `selectBestPanelConfiguration`, and — shared, not re-derived —
+`PvElectricalModel.mpptReadouts`). Verified against every existing test that exercises a real
+LuxPower scenario (`PvElectricalModelTest`'s 3-MPPT/12-panel case: 4-panel strings at 183.04V clear
+140V exactly as they cleared 120V, so no test needed updating) and against
+`SystemCalculatorBatteryBackupSizingTest`'s LuxPower 12K battery-sizing scenario (confirmed it never
+calls the panel-compatibility path at all — battery-only trial configs use `pvCapacityKw = 0.0`).

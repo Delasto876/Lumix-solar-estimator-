@@ -83,12 +83,37 @@ object SystemDiagnostics {
                     "Series Vmp %.0fV is below the inverter's minimum MPPT operating voltage.".format(pvCompat.stringVmpV)
                 } else null
             ),
+            // A71 (spec Phase 6): a genuinely separate check from the one above — vmpOk is the
+            // MPPT range's FLOOR, this is its real per-model CEILING (a lower, different figure
+            // from the VOC check's own maxPvV ceiling — see PanelCompatibilityResult.vmpUpperOk's
+            // own doc). Without this check, a design failing only this one would show every other
+            // check passing while pvCompat.valid (and SystemCalculator's own validity gate) was
+            // actually false — a misleading "all green" diagnostics panel.
             DiagnosticCheck(
-                label = "MPPT — series current within current limits",
+                label = "VMP — series string within MPPT tracking-range ceiling",
+                pass = pvCompat.vmpUpperOk,
+                detail = if (!pvCompat.vmpUpperOk) {
+                    "Series Vmp %.0fV exceeds the inverter's real MPPT tracking-range ceiling.".format(pvCompat.stringVmpV)
+                } else null
+            ),
+            DiagnosticCheck(
+                label = "MPPT — short-circuit current within limits",
                 pass = pvCompat.iscOk,
                 detail = if (!pvCompat.iscOk) {
                     "Series Isc %.1fA exceeds the inverter's implied max PV current — this is the panel's own current (voltage adds in series, current does not multiply by panel count)."
                         .format(pvCompat.stringIscA)
+                } else null
+            ),
+            // A71: separate from the short-circuit check above — the string's real OPERATING
+            // current (Imp) against the inverter's real continuous max input current per tracker,
+            // a different (and typically lower) datasheet figure — see PanelCompatibilityResult
+            // .impOk's own doc.
+            DiagnosticCheck(
+                label = "MPPT — continuous operating current within limits",
+                pass = pvCompat.impOk,
+                detail = if (!pvCompat.impOk) {
+                    "Series Imp %.1fA exceeds the inverter's real continuous max PV input current per tracker."
+                        .format(pvCompat.stringImpA)
                 } else null
             ),
             DiagnosticCheck(

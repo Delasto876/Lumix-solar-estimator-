@@ -53,6 +53,25 @@ object EquipmentSelectionEngine {
      */
     private const val MIN_MPPT_OPERATING_VOLTAGE = 90.0
 
+    /**
+     * A71: the real, binding MPPT voltage floor for a matched inverter — the HIGHER of its
+     * continuous tracking-range floor ([InverterSpec.mpptVoltageMinV]) and its startup threshold
+     * ([InverterSpec.startupVoltageV]), not the tracking floor alone. These are genuinely
+     * different figures on some real models: every LuxPower
+     * GEN-LB-US/LXP-LB-US entry in this catalog has a real startup voltage (140V) HIGHER than its
+     * own continuous tracking floor (120V) — the unit needs the higher voltage just to wake its
+     * MPPT algorithm up in the first place, even though it can track down to the lower figure once
+     * already running. A string that only cleared the tracking floor would, on a real LuxPower
+     * unit, never actually start producing. Falls back to [MIN_MPPT_OPERATING_VOLTAGE] when no
+     * confirmed per-model tracking floor exists (the startup figure alone, without a confirmed
+     * tracking floor to compare it against, isn't used as a floor by itself).
+     */
+    internal fun effectiveMpptFloorV(invSpec: InverterSpec?): Double {
+        val trackingFloor = invSpec?.mpptVoltageMinV?.toDouble() ?: return MIN_MPPT_OPERATING_VOLTAGE
+        val startupFloor = invSpec.startupVoltageV?.toDouble() ?: 0.0
+        return max(trackingFloor, startupFloor)
+    }
+
     private data class PanelElectrical(val vocV: Double, val vmpV: Double, val iscA: Double, val impA: Double, val estimated: Boolean)
 
     private val realPanelSample by lazy {
@@ -124,9 +143,30 @@ object EquipmentSelectionEngine {
         /** A62: panel counts per string, longest-first, as actually chosen by [MpptStringPlanner] — may use fewer than [mpptTrackers] strings (see that object's own doc). Sums to the candidate's total panel count. */
         val stringCounts: List<Int> = emptyList(),
         /** A65 (spec's own "15% VOLTAGE OPERATING MARGIN... 380 x 0.95 = 361V" worked example): true when the longest string's cold-corrected Voc stays within [PREFERRED_VOC_MARGIN_FRACTION] of [mpptVoltageMaxV], not just under the hard ceiling. A softer, preferred signal — [vocOk] alone still decides electrical validity. */
-        val withinPreferredVoltageMargin: Boolean = true
+        val withinPreferredVoltageMargin: Boolean = true,
+        /**
+         * A71 (spec Phase 6 — "fix inverter/MPPT/string calculations"): true when the longest
+         * string's (uncorrected) operating voltage stays at or under the inverter's real MPPT
+         * *tracking-range* ceiling — a genuinely different, lower figure than [mpptVoltageMaxV]
+         * (the absolute PV input voltage the DC stage can safely tolerate, [vocOk]'s own ceiling).
+         * A string can pass [vocOk] yet still run its operating point outside the range the
+         * tracker actually sweeps for MPPT — always true (no check) when the matched inverter
+         * spec has no confirmed per-model MPPT-range-max figure. See [evaluateCandidate]'s own doc
+         * for why this is checked separately from [vmpOk] (the range's *floor*).
+         */
+        val vmpUpperOk: Boolean = true,
+        /**
+         * A71: true when the string's real operating current (Imp) stays at or under the
+         * inverter's real per-tracker *continuous* max input current — a genuinely different,
+         * datasheet figure from the max PV *short-circuit* current [iscOk] checks, not the same
+         * number doing both jobs. Always true (no check) when the matched inverter spec has no
+         * confirmed per-model continuous-current figure (falls back to the same derived
+         * power/voltage approximation [iscOk] uses in that case, so nothing regresses to
+         * "unchecked").
+         */
+        val impOk: Boolean = true
     ) {
-        val valid: Boolean get() = powerOk && vocOk && vmpOk && iscOk
+        val valid: Boolean get() = powerOk && vocOk && vmpOk && vmpUpperOk && iscOk && impOk
         /** How many of [mpptTrackers] the chosen [stringCounts] actually populate. */
         val trackersUsed: Int get() = stringCounts.size
     }
@@ -145,8 +185,34 @@ object EquipmentSelectionEngine {
      */
     private const val PREFERRED_VOC_MARGIN_FRACTION = 0.95
 
-    /** Core evaluation against explicit limits — shared by the search in [selectBestPanelConfigurationForLimits] and standalone validation via [checkPanelInverterCompatibilityForLimits]. */
-    private fun evaluateCandidate(watts: Int, count: Int, maxPvW: Double, maxPvV: Double, mpptTrackers: Int): PanelCompatibilityResult {
+    /**
+     * Core evaluation against explicit limits — shared by the search in
+     * [selectBestPanelConfigurationForLimits] and standalone validation via
+     * [checkPanelInverterCompatibilityForLimits].
+     *
+     * A71 (spec Phase 6 — "fix inverter/MPPT/string calculations"): [mpptTrackingMinV]/
+     * [mpptTrackingMaxV]/[maxContinuousCurrentPerMpptA]/[maxShortCircuitCurrentPerMpptA] are the
+     * real per-model MPPT electrical figures [EquipmentSpecs.InverterSpec] already carries for
+     * every LuxPower/Deye/Growatt entry — [mpptVoltageMinV]/[mpptVoltageMaxV]/
+     * [maxInputCurrentPerMpptA]/[maxShortCircuitCurrentPerMpptA] — but which this function used to
+     * ignore entirely, substituting a single flat [MIN_MPPT_OPERATING_VOLTAGE] constant for every
+     * inverter's Vmp floor (too permissive for Deye's real 150V/Growatt's real 150V, too strict for
+     * SRNE's real 80V) and deriving BOTH the Isc-limit AND the (previously unchecked) Imp-limit
+     * from the same crude `maxPvW / maxPvV` ratio — a proxy for the array's continuous current
+     * capability, not the real datasheet current rating at all, and not the same figure as the
+     * inverter's real max PV *short-circuit* current either (a genuinely different, higher number
+     * on every model that discloses both — see each [EquipmentSpecs.InverterSpec] entry). All four
+     * parameters default to the old behavior (flat floor, no ceiling check, derived-ratio current)
+     * so a caller with no confirmed per-model spec — or an explicit-limits test — keeps working
+     * exactly as before.
+     */
+    private fun evaluateCandidate(
+        watts: Int, count: Int, maxPvW: Double, maxPvV: Double, mpptTrackers: Int,
+        mpptTrackingMinV: Double = MIN_MPPT_OPERATING_VOLTAGE,
+        mpptTrackingMaxV: Double? = null,
+        maxContinuousCurrentPerMpptA: Double? = null,
+        maxShortCircuitCurrentPerMpptA: Double? = null
+    ): PanelCompatibilityResult {
         if (count <= 0) {
             return PanelCompatibilityResult(
                 arrayKw = 0.0, requiredMaxPvKw = maxPvW / 1000.0,
@@ -160,13 +226,21 @@ object EquipmentSelectionEngine {
         val totalKw = count * watts / 1000.0
         // A62: real per-string topology (may use fewer than mpptTrackers strings — see
         // MpptStringPlanner's own doc for when and why), replacing the old always-split-across-
-        // every-tracker assumption.
-        val stringCounts = MpptStringPlanner.planStrings(count, mpptTrackers, elec.vmpV, MIN_MPPT_OPERATING_VOLTAGE)
+        // every-tracker assumption. A71: uses the real per-model MPPT floor (mpptTrackingMinV),
+        // not a flat constant — see this function's own doc.
+        val stringCounts = MpptStringPlanner.planStrings(count, mpptTrackers, elec.vmpV, mpptTrackingMinV)
         val longestStringPanels = stringCounts.max()
         val shortestStringPanels = stringCounts.min()
         val correctedVoc = elec.vocV * longestStringPanels * COLD_TEMP_VOC_CORRECTION
+        val longestStringVmp = elec.vmpV * longestStringPanels
         val shortestStringVmp = elec.vmpV * shortestStringPanels
+        // Fallback approximation for whichever real current figure wasn't matched — the same
+        // "no exact datasheet, so infer from power/voltage" reasoning this function has always
+        // used, now scoped explicitly to the case that actually needs it rather than applied
+        // unconditionally to both current checks.
         val impliedMaxCurrentA = maxPvW / maxPvV
+        val continuousCurrentLimitA = maxContinuousCurrentPerMpptA ?: impliedMaxCurrentA
+        val shortCircuitCurrentLimitA = maxShortCircuitCurrentPerMpptA ?: impliedMaxCurrentA
 
         val notes = mutableListOf<String>()
         val powerOk = totalKw * 1000.0 <= maxPvW + 1.0
@@ -183,14 +257,33 @@ object EquipmentSelectionEngine {
             notes += "longest MPPT string Voc %.0fV (%d panels, cold-corrected) is within the inverter's hard limit but outside the preferred 5%% design margin (target <= %.0fV)"
                 .format(correctedVoc, longestStringPanels, maxPvV * PREFERRED_VOC_MARGIN_FRACTION)
         }
-        val vmpOk = shortestStringVmp >= MIN_MPPT_OPERATING_VOLTAGE
+        val vmpOk = shortestStringVmp >= mpptTrackingMinV
         if (!vmpOk) {
             notes += "shortest MPPT string Vmp %.0fV (%d panels) is below the inverter's minimum MPPT operating voltage %.0fV"
-                .format(shortestStringVmp, shortestStringPanels, MIN_MPPT_OPERATING_VOLTAGE)
+                .format(shortestStringVmp, shortestStringPanels, mpptTrackingMinV)
         }
-        val iscOk = elec.iscA <= impliedMaxCurrentA + 0.05
+        // A71: genuinely new check — the longest string's operating voltage against the real MPPT
+        // *tracking-range* ceiling, a lower figure than maxPvV (vocOk's own ceiling, the absolute
+        // PV input the DC stage tolerates). Only checked when a confirmed per-model figure exists.
+        val vmpUpperOk = mpptTrackingMaxV == null || longestStringVmp <= mpptTrackingMaxV
+        if (!vmpUpperOk && mpptTrackingMaxV != null) {
+            notes += "longest MPPT string Vmp %.0fV (%d panels) exceeds the inverter's real MPPT tracking-range ceiling %.0fV (separate from, and lower than, its %.0fV absolute max PV voltage)"
+                .format(longestStringVmp, longestStringPanels, mpptTrackingMaxV, maxPvV)
+        }
+        val iscOk = elec.iscA <= shortCircuitCurrentLimitA + 0.05
         if (!iscOk) {
-            notes += "panel Isc %.1fA exceeds the inverter's implied max PV current per tracker %.1fA".format(elec.iscA, impliedMaxCurrentA)
+            val basis = if (maxShortCircuitCurrentPerMpptA != null) "max PV short-circuit current" else "implied max PV current"
+            notes += "panel Isc %.1fA exceeds the inverter's %s per tracker %.1fA".format(elec.iscA, basis, shortCircuitCurrentLimitA)
+        }
+        // A71: genuinely new check — the string's real *operating* current (Imp) against the
+        // inverter's real continuous max input current per tracker, a separate (and typically
+        // lower) datasheet figure from the short-circuit rating iscOk checks above. Falls back to
+        // the same implied ratio as iscOk when no confirmed per-model figure exists, so this never
+        // regresses a design that was passing before this check existed.
+        val impOk = elec.impA <= continuousCurrentLimitA + 0.05
+        if (!impOk) {
+            val basis = if (maxContinuousCurrentPerMpptA != null) "max continuous PV input current" else "implied max PV current"
+            notes += "panel Imp %.1fA exceeds the inverter's %s per tracker %.1fA".format(elec.impA, basis, continuousCurrentLimitA)
         }
         if (stringCounts.size < mpptTrackers) {
             notes += "using %d of %d available MPPT trackers (%s panels) — splitting across all %d would undervolt the shortest string"
@@ -199,19 +292,27 @@ object EquipmentSelectionEngine {
 
         return PanelCompatibilityResult(
             arrayKw = totalKw, requiredMaxPvKw = maxPvW / 1000.0,
-            stringVocV = correctedVoc, stringVmpV = elec.vmpV * longestStringPanels,
+            stringVocV = correctedVoc, stringVmpV = longestStringVmp,
             stringImpA = elec.impA, stringIscA = elec.iscA,
             mpptVoltageMaxV = maxPvV, mpptTrackers = mpptTrackers,
             powerOk = powerOk, vocOk = vocOk, vmpOk = vmpOk, iscOk = iscOk,
             notes = notes, estimated = elec.estimated,
-            stringCounts = stringCounts, withinPreferredVoltageMargin = withinPreferredVoltageMargin
+            stringCounts = stringCounts, withinPreferredVoltageMargin = withinPreferredVoltageMargin,
+            vmpUpperOk = vmpUpperOk, impOk = impOk
         )
     }
 
     /** Explicit-limits entry point — mirrors [selectBestPanelConfigurationForLimits]'s own split for deterministic unit testing. */
     internal fun checkPanelInverterCompatibilityForLimits(
-        panelWatts: Int, panelCount: Int, maxPvW: Double, maxPvV: Double, mpptTrackers: Int
-    ): PanelCompatibilityResult = evaluateCandidate(panelWatts, panelCount, maxPvW, maxPvV, mpptTrackers)
+        panelWatts: Int, panelCount: Int, maxPvW: Double, maxPvV: Double, mpptTrackers: Int,
+        mpptTrackingMinV: Double = MIN_MPPT_OPERATING_VOLTAGE,
+        mpptTrackingMaxV: Double? = null,
+        maxContinuousCurrentPerMpptA: Double? = null,
+        maxShortCircuitCurrentPerMpptA: Double? = null
+    ): PanelCompatibilityResult = evaluateCandidate(
+        panelWatts, panelCount, maxPvW, maxPvV, mpptTrackers,
+        mpptTrackingMinV, mpptTrackingMaxV, maxContinuousCurrentPerMpptA, maxShortCircuitCurrentPerMpptA
+    )
 
     /**
      * Validates one SPECIFIC panel/count/inverter combination — the function MANUAL mode (and any
@@ -225,7 +326,18 @@ object EquipmentSelectionEngine {
         val maxPvW = invSpec?.maxPvW?.toDouble() ?: (inverterKw * 1300.0)
         val maxPvV = invSpec?.maxPvV?.toDouble() ?: fallbackMaxPvVoltage
         val mpptTrackers = invSpec?.mpptCount?.coerceAtLeast(1) ?: 2
-        return evaluateCandidate(panelWatts, panelCount, maxPvW, maxPvV, mpptTrackers)
+        // A71: the real per-model MPPT range/current figures, when this inverter has a confirmed
+        // spec match — see evaluateCandidate's own doc for why these are checked separately from
+        // maxPvV/the derived current ratio, and effectiveMpptFloorV's own doc for why the floor
+        // itself is the higher of two genuinely different real figures, not mpptVoltageMinV alone.
+        val mpptTrackingMinV = effectiveMpptFloorV(invSpec)
+        val mpptTrackingMaxV = invSpec?.mpptVoltageMaxV?.toDouble()
+        val maxContinuousCurrentPerMpptA = invSpec?.maxInputCurrentPerMpptA
+        val maxShortCircuitCurrentPerMpptA = invSpec?.maxShortCircuitCurrentPerMpptA
+        return evaluateCandidate(
+            panelWatts, panelCount, maxPvW, maxPvV, mpptTrackers,
+            mpptTrackingMinV, mpptTrackingMaxV, maxContinuousCurrentPerMpptA, maxShortCircuitCurrentPerMpptA
+        )
     }
 
     /**
@@ -261,7 +373,16 @@ object EquipmentSelectionEngine {
         val maxPvW = invSpec?.maxPvW?.toDouble() ?: (inverterKw * 1300.0)
         val maxPvV = invSpec?.maxPvV?.toDouble() ?: fallbackMaxPvVoltage
         val mpptTrackers = invSpec?.mpptCount?.coerceAtLeast(1) ?: 2
-        return selectBestPanelConfigurationForLimits(requiredPvKw, maxPvW, maxPvV, mpptTrackers, wattages)
+        // A71: same real per-model MPPT figures as checkPanelInverterCompatibility — see that
+        // function's own doc.
+        val mpptTrackingMinV = effectiveMpptFloorV(invSpec)
+        val mpptTrackingMaxV = invSpec?.mpptVoltageMaxV?.toDouble()
+        val maxContinuousCurrentPerMpptA = invSpec?.maxInputCurrentPerMpptA
+        val maxShortCircuitCurrentPerMpptA = invSpec?.maxShortCircuitCurrentPerMpptA
+        return selectBestPanelConfigurationForLimits(
+            requiredPvKw, maxPvW, maxPvV, mpptTrackers, wattages,
+            mpptTrackingMinV, mpptTrackingMaxV, maxContinuousCurrentPerMpptA, maxShortCircuitCurrentPerMpptA
+        )
     }
 
     /** How many counts past the theoretical minimum to search per wattage before giving up and
@@ -294,14 +415,21 @@ object EquipmentSelectionEngine {
         maxPvW: Double,
         maxPvV: Double,
         mpptTrackers: Int,
-        wattages: List<Int> = Catalog.panelWattages
+        wattages: List<Int> = Catalog.panelWattages,
+        mpptTrackingMinV: Double = MIN_MPPT_OPERATING_VOLTAGE,
+        mpptTrackingMaxV: Double? = null,
+        maxContinuousCurrentPerMpptA: Double? = null,
+        maxShortCircuitCurrentPerMpptA: Double? = null
     ): PanelChoice {
         if (requiredPvKw <= 0.0) {
             return PanelChoice(wattages.first(), 0, 0.0, 0.0, true, "No PV capacity required.")
         }
 
         fun evaluate(watts: Int, count: Int): PanelCandidate {
-            val result = evaluateCandidate(watts, count, maxPvW, maxPvV, mpptTrackers)
+            val result = evaluateCandidate(
+                watts, count, maxPvW, maxPvV, mpptTrackers,
+                mpptTrackingMinV, mpptTrackingMaxV, maxContinuousCurrentPerMpptA, maxShortCircuitCurrentPerMpptA
+            )
             val oversize = (result.arrayKw - requiredPvKw) / requiredPvKw * 100.0
             return PanelCandidate(
                 watts, count, result.arrayKw, oversize, result.valid, result.notes, result.estimated,

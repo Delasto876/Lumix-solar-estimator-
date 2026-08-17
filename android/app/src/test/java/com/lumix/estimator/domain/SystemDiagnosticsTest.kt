@@ -50,7 +50,10 @@ class SystemDiagnosticsTest {
     fun `a well-sized 6x615W system with no battery passes every check`() {
         val checks = SystemDiagnostics.checksFor(minimalResult(panelCount = 6))
         assertTrue("every check should pass: ${checks.filter { !it.pass }}", checks.all { it.pass })
-        assertEquals(9, checks.size)
+        // A71: 9 -> 11 — added the real MPPT tracking-range ceiling (Vmp upper bound) and real
+        // continuous operating current (Imp) checks, previously not surfaced at all even though
+        // pvCompat.valid already silently depended on both once EquipmentSpecs had the data.
+        assertEquals(11, checks.size)
     }
 
     @Test
