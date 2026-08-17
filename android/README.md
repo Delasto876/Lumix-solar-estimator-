@@ -4123,3 +4123,98 @@ sizing/validation uses the real max-rated current throughout, not a conservative
 derating; treating a synthetic 80% figure as authoritative would be introducing this app's own
 assumption's teeth without a real datasheet backing it, a genuinely different kind of decision from
 the real-data gaps fixed above.
+
+## Phase 8: connect PV+battery+inverter+load into one deterministic model
+
+**Inspected**: `SimulationEngine.buildDayTimeline`'s full frame-by-frame allocation loop line by
+line — the actual place all four subsystems meet — plus every production call site that builds a
+timeline from it (`SimulationViewModel` for the live screen, `BackupEstimator`, `RechargeFeasibility`,
+`OvernightLoadProfile`, and indirectly A64's battery-sizing escalation loop through those), and
+`SimSystemConfig.from(result)` (the one place a calculated `QuoteResult` becomes the simulation's
+input).
+
+**Confirmed already correct, with concrete evidence, not assumed**:
+- **One shared engine, not several disconnected calculations.** All five production call sites run
+  the identical `buildDayTimeline` function against a `SimSystemConfig` built the identical way
+  (`SimSystemConfig.from(result)`) — verified by reading each call site directly, not inferring it
+  from doc comments. There is no second, separately-maintained simulation loop anywhere in the app.
+- **Energy conservation holds by construction, and is self-checked.** Every frame allocates PV
+  output and house load from the same shared pools sequentially (solar → house → battery → grid,
+  in the documented priority order per inverter mode) rather than solving each subsystem
+  independently and reconciling after the fact — so double-counting or phantom energy isn't
+  possible by construction. A47's `energyImbalanceKw` already exists specifically to verify this
+  isn't just assumed (`solarToHouse + solarToBattery + curtailed == pv`, and
+  `solarToHouse + batteryToHouse + gridToHouse + unmet == houseLoad`), and is surfaced live in the
+  Technical panel rather than only checked in tests.
+- **No double-counted load.** `applianceLoadKw` (a flat legacy parameter) and `applianceStates`
+  (the real per-appliance schedule) are additive by design, but checked directly: every production
+  caller passes only `applianceStates`, never both — confirmed by reading all five call sites, not
+  assuming the doc comment's own claim.
+- **Deterministic.** No random number generation, wall-clock reads, or iteration-order-dependent
+  arithmetic anywhere in the loop or its dependencies (`BatteryPowerCurve`, `SystemLosses`,
+  `totalApplianceLoadKwAt`) — the same inputs always produce the same timeline, checked by reading
+  every function the loop calls, not just the loop itself.
+- **The grid's own service-current limit (a real breaker/main-service rating) is applied as a
+  genuine last constraint**, correctly ordered after battery/grid allocation so it can shed
+  lower-priority grid-battery-charging draw before higher-priority grid-house draw, and correctly
+  feeds back into `unmet` rather than silently vanishing.
+
+**A genuine open question, raised and resolved this round — installer's explicit decision, not a
+silent pick**: the inverter's own DC→AC conversion loss (`SystemLosses.INVERTER_EFFICIENCY`, 0.97)
+was applied to the PV→house path (baked into `pv` before any allocation happens) but NOT to the
+battery→house path — `batteryToHouseKw` was subtracted from house load 1:1, and the battery's SOC
+depleted by exactly that amount, as if battery-sourced house power reached the house at 100%
+efficiency. In a real hybrid inverter, both PV and battery DC power pass through the *same* physical
+AC conversion stage to reach the house, so this was a genuine asymmetry: solar-sourced house power
+was modeled as costing ~3% to convert, battery-sourced house power was modeled as costing nothing.
+Asked directly — apply the same conversion loss to battery discharge, or leave it as a disclosed
+PV-only scope limitation — the installer chose to apply it, accepting the broader re-verification
+this required.
+
+## A73 — apply the inverter's real conversion loss to battery discharge too (installer's decision on Phase 8's open question)
+
+**Implemented**: `buildDayTimeline`'s discharge branch now treats `maxDischargeThisStepDc` (derived
+from the battery's own real max discharge current, a DC-side figure) as a DC-side ceiling, converts
+it to its AC-equivalent (`× SystemLosses.INVERTER_EFFICIENCY`) before comparing against the AC house
+demand, and — critically — the energy actually deducted from the battery's SOC
+(`batteryDischargeDcKw = batteryToHouseKw / INVERTER_EFFICIENCY`) is now larger than what the house
+receives, mirroring the same loss the PV path already paid. `batteryToHouseKw` itself deliberately
+stays an AC-facing figure (still exactly what's subtracted from house load, still exactly what A47's
+`energyImbalanceKw` load-balance check compares against `houseLoadKw`) — only the SOC bookkeeping and
+`batteryPowerKw` (now DC-side, directly comparable to `solarToBatteryKw`/`gridToBatteryKw`, both
+already DC-side quantities) changed. Verified the energy-balance invariant still reads exactly zero
+under the new math (a dedicated test, not just assumed).
+
+**A real, additional correctness improvement found while verifying downstream consumers**:
+`TechnicalReadout.kt`'s battery current calculation (`batteryPowerKw × 1000 / batteryVoltage`) now
+derives a more accurate discharge current, since it's dividing the real DC-side power instead of the
+smaller AC-delivered figure it used before — not a change made on purpose this round, a byproduct of
+`batteryPowerKw` becoming internally consistent.
+
+**Re-verified against every existing test that exercises actual battery discharge** (not just
+assumed unaffected): built a faithful Python port of the exact algorithm (irradiance curve, load
+shape, temperature derates, SOC tapering, grid-service limits) and ran every scenario in
+`RechargeFeasibilityTest`, `SystemCalculatorRechargeAwareSizingTest`, and
+`SystemCalculatorBatteryBackupSizingTest` through it. Result: `RechargeFeasibility.evaluate` (used by
+both files) always starts the battery at its own reserve floor and simulates a normal grid-connected
+day — with zero room to discharge below the floor at the start, and the day-shaped background load
+never exceeding available PV before the 2pm recharge-target check in any traced scenario, battery
+discharge never actually occurs before that check runs, so every one of those hand-traced numbers is
+completely unaffected — confirmed by the trace, not assumed from the absence of an obvious reason.
+`BackupEstimatorTest` — an actual outage starting at dusk with a full battery — is where this
+genuinely bites: its one exact hand-traced hours figure moved from 6.25h to 5.92h (the same real
+overnight load now depletes the battery ~5% faster in elapsed-time terms, matching the ~3%
+per-kWh-delivered efficiency loss compounding over the discharge window), updated with a fresh
+Python trace and a note explaining why. `SimulationEngineStatusReasonTest`/`SimulationWarningsTest`
+hand-construct `SimFrame` objects directly rather than running the engine, so they were never at risk
+regardless.
+
+**Files changed**: `SimulationEngine.kt` (the discharge-ceiling and SOC-deduction math),
+`SimFrame.kt` (doc comment clarifying the new AC-vs-DC distinction for `batteryToHouseKw`/
+`batteryPowerKw`), `BackupEstimatorTest.kt` (one re-traced value + explanatory note).
+
+**Tests**: new `SimulationEngineBatteryDischargeEfficiencyTest.kt` — a hand-traced single-frame,
+PV-free discharge scenario proving the real DC energy drawn from SOC now exceeds the AC power
+delivered by exactly the `1 / INVERTER_EFFICIENCY` factor (with an explicit regression guard against
+the old, wrong 100%-efficient figure), plus a direct check that A47's energy-balance invariant still
+holds exactly.

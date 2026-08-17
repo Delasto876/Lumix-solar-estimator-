@@ -234,8 +234,16 @@ object SimulationEngine {
                     val maxDischargeRateKw = config.batteryMaxDischargeKw *
                         BatteryPowerCurve.dischargeTaperFraction(socFraction, config.batteryDepthOfDischargeFraction)
                     val availableKwh = (batterySocKwh - minSocKwh).coerceAtLeast(0.0)
-                    val maxDischargeThisStep = min(maxDischargeRateKw, availableKwh / dt)
-                    batteryToHouse = min(remainingLoad, maxDischargeThisStep)
+                    val maxDischargeThisStepDc = min(maxDischargeRateKw, availableKwh / dt)
+                    // A73 (installer's explicit decision, following A69/A71/A72's own real-vs-
+                    // proxy pattern): battery-sourced house power passes through the same
+                    // inverter DC->AC conversion stage PV-sourced house power already pays
+                    // (SystemLosses.INVERTER_EFFICIENCY) — batteryToHouse is an AC-side figure
+                    // (it's subtracted from remainingLoad, an AC house-demand quantity), so its
+                    // ceiling here is the DC-side battery limit reduced by that same conversion
+                    // loss, not the DC-side limit used directly.
+                    val maxDischargeThisStepAc = maxDischargeThisStepDc * SystemLosses.INVERTER_EFFICIENCY
+                    batteryToHouse = min(remainingLoad, maxDischargeThisStepAc)
                     remainingLoad -= batteryToHouse
                 }
                 if (remainingLoad > FLOW_EPSILON) {
@@ -269,10 +277,14 @@ object SimulationEngine {
             }
 
             val chargeEnergyKwh = (solarToBattery + gridToBattery) * dt * config.batteryChargeEfficiency
-            val dischargeEnergyKwh = batteryToHouse * dt
+            // A73: batteryToHouse is AC-side (see the discharge-ceiling comment above) — the real
+            // DC energy drawn from the battery's own SOC is larger by the same inverter conversion
+            // loss, since the SOC is a DC-side quantity.
+            val batteryDischargeDcKw = batteryToHouse / SystemLosses.INVERTER_EFFICIENCY
+            val dischargeEnergyKwh = batteryDischargeDcKw * dt
             batterySocKwh = (batterySocKwh + chargeEnergyKwh - dischargeEnergyKwh).coerceIn(minSocKwh, maxSocKwh)
 
-            val batteryPowerKw = (solarToBattery + gridToBattery) - batteryToHouse
+            val batteryPowerKw = (solarToBattery + gridToBattery) - batteryDischargeDcKw
             val gridPowerKw = gridToHouse + gridToBattery
             // What the inverter's own inverting stage is actually carrying — house power sourced
             // from solar/battery, plus whatever's charging the battery. Grid-to-house power

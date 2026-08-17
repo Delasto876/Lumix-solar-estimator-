@@ -52,6 +52,15 @@ enum class SystemStatus(val label: String) {
  * excludes [gridToHouseKw] — a real hybrid inverter routes grid-sourced house power through an
  * internal bypass relay, not the inverter bridge itself, so it doesn't count against the
  * inverter's own continuous kW rating the way inverted solar/battery power does.
+ *
+ * A73: [batteryToHouseKw] is the AC-side figure — the power actually delivered to the house
+ * (what [houseLoadKw] is measured against, and what the energy-balance invariant in
+ * [SimulationEngine.energyImbalanceKw] checks). The real DC energy drawn from the battery's own
+ * SOC to produce it is *larger* by the same inverter DC→AC conversion loss
+ * ([SystemLosses.INVERTER_EFFICIENCY]) the PV→house path already pays — the same physical
+ * conversion stage handles both. [batteryPowerKw] reflects that real DC-side draw (not
+ * [batteryToHouseKw] directly), so it's directly comparable to [solarToBatteryKw]/[gridToBatteryKw]
+ * (also DC-side battery-terminal quantities) rather than mixing AC- and DC-side power in one field.
  */
 data class SimFrame(
     val hour: Double,
