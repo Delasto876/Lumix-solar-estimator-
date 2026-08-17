@@ -120,6 +120,22 @@ fun StepSystemReview(
                         .format(preview.batteryRequiredKwh, preview.totalBatteryKwh)
                 } else null
             ),
+            // A66 (spec Phase 3A/8/25 — MANUAL mode must show a distinct PASS/FAIL for "backup
+            // duration," not just nominal capacity): the check above compares nominal kWh against
+            // a flat requirement; this one compares the REAL simulated outage duration
+            // (`estimatedBackupHours`, an actual grid-disconnected day-simulation — A54) against
+            // the hours the installer actually asked for. A64 already computes
+            // `batteryBackupTargetMet` for exactly this comparison but it was never wired into this
+            // review screen — a system whose nominal kWh check above passes can still fail this one
+            // (e.g. its own DOD/discharge-power limits eat into the simulated runtime).
+            EngineeringCheck(
+                label = "Battery backup meets requested duration (simulated)",
+                pass = preview.batteryBackupTargetMet != false,
+                detail = if (preview.batteryBackupTargetMet == false) {
+                    "Simulated backup: %.1f h — %.0f h requested. %s"
+                        .format(preview.estimatedBackupHours, inputs.backupHours, preview.estimatedBackupReason)
+                } else null
+            ),
             EngineeringCheck(
                 label = "Battery power suitable for peak load",
                 pass = preview.totalBatteryKwh <= 0.0 || batteryMaxDischargeKw >= peakLoadKw - 0.05,

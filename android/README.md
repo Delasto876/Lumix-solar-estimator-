@@ -3670,3 +3670,58 @@ bug just as completely. Worth reconsidering if a similar drift is found again.
 no UI layout change (the display fix is a side effect of the corrected literal, not a new UI
 change), no calculation-logic change (the formula was already correct — only its input data was
 wrong).
+
+## A67 — Phase 3: fix the three sizing modes ("Lumix Solar Pro" spec, phase 67's own order)
+
+**Inspected**: re-read `StepSystemReview.kt` (the validation screen all three modes share),
+`StepQuoteMode.kt`, `Step5Backup.kt`, and `WizardViewModel`'s mode-specific step visibility against
+the spec's three explicit sub-sections — Manual (installer picks equipment, app validates without
+overriding, shows PASS/WARNING/FAIL for PV power/voltage/current, MPPT, battery capacity/power,
+inverter capacity, backup duration), Load-Based (installer enters loads, app calculates and picks
+the smallest electrically valid equipment — not just nearest wattage), Guided (explains each
+question, no manual appliance-hour entry).
+
+**Confirmed already correct, no fix needed**:
+- MANUAL mode already never overrides an installer's equipment choice — it flags an undersized pick
+  via `manualInverterWarning`/`manualBatteryWarning` and blocks proceeding until the installer
+  either changes the equipment or explicitly clicks "ACCEPT WITH WARNING" (pre-existing, A49).
+- LOAD-BASED mode's panel-count rounding matches the spec's own worked example exactly: for a
+  5.9kW requirement against 620W panels, `EquipmentSelectionEngine`'s search starts from
+  `ceil(5900/620) = ceil(9.516) = 10` panels — the spec's own "should evaluate 10 panels," not a
+  naive nearest-wattage pick — then validates real Voc/Vmp/Isc/MPPT, not wattage alone (A50/A63).
+- GUIDED mode already explains its questions — `StepQuoteMode` describes what each of the three
+  modes means before the installer picks one, and steps like `Step5Backup` show plain-language
+  text under each backup-coverage option (initially looked bare under this round's own coarse
+  grep search — reading the file directly showed the explanatory text is there, just not matched by
+  that regex — a reminder to verify by reading, not by pattern-matching).
+
+**Found and fixed a real gap**: MANUAL mode's spec explicitly lists "backup duration" as one of the
+PASS/WARNING/FAIL checks it must show. `StepSystemReview.kt`'s `checks` list (shared by all three
+modes) only had a *nominal-kWh* battery check ("is selected capacity >= a flat requirement") — the
+*simulated* check (does the real day-simulation's `estimatedBackupHours` actually reach what the
+installer requested) was computed by A64's `batteryBackupTargetMet` field but never wired into this
+screen at all. A system can pass the nominal check and still fail the simulated one (its own DOD
+floor or discharge-power limit can eat into real runtime in ways a flat kWh comparison can't see) —
+exactly the gap the installer's own spec's Phase 8/25 ("Do not display '12-hour backup'... show the
+real simulated hours and BACKUP TARGET NOT MET") is about, and it applies to Manual mode's equipment
+exactly the same way it applies to Guided/Load's.
+
+**Fixed**: added a new `EngineeringCheck` — "Battery backup meets requested duration (simulated)" —
+right after the existing nominal-capacity check, using the already-computed
+`preview.batteryBackupTargetMet`/`estimatedBackupHours`/`estimatedBackupReason` (no new
+calculation, just surfacing data that already existed since A64). Passes when there's no battery to
+check (mirrors the existing recharge-check's `!= false` convention), fails with the real simulated
+hours and the installer's requested hours side by side.
+
+**Files changed**: `ui/wizard/steps/StepSystemReview.kt` only (9 lines). No domain/calculation
+change, no database change, no new screens.
+
+**Tests performed**: verified the `remember` invalidation chain is correct (the new check reads
+`inputs.backupHours` inside a block already keyed on `preview`, which itself is keyed on `inputs` —
+no stale-value risk); confirmed no existing test asserts a fixed check count that this would break
+(none found — no dedicated UI test exists for this screen).
+
+**Remaining issues**: none found specific to the three modes beyond this. The broader System Review
+UI redesign (spec Phase 12/31/59 — "CALCULATED REQUIREMENT vs. SELECTED EQUIPMENT," per-string MPPT
+breakdown display, expandable warnings) is a larger, separate visual-design pass than this
+correctness-focused phase, and comes later in the installer's own 67-order (Phase 12).
