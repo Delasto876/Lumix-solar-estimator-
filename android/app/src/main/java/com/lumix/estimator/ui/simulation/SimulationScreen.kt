@@ -56,6 +56,7 @@ import com.lumix.estimator.domain.simulation.SimSystemConfig
 import com.lumix.estimator.domain.simulation.SimWarning
 import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.domain.simulation.SimulationWarnings
+import com.lumix.estimator.domain.simulation.SystemStatus
 import com.lumix.estimator.domain.simulation.WarningLevel
 import com.lumix.estimator.domain.simulation.TechnicalModel
 import com.lumix.estimator.domain.simulation.WeatherState
@@ -600,6 +601,20 @@ private fun OutageBanner() {
             Text("Home running on backup", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
         }
     }
+}
+
+/**
+ * A74 (spec Phase 11 — "fix power-flow animation"): moved from the now-deleted
+ * `HouseSimulationVisual.kt` (a superseded hand-drawn Canvas illustration, replaced by
+ * `EnergyFlowCanvas.kt`'s photoreal overlay — see README) — this one small helper was still
+ * live, used only here, so it moved rather than being deleted with the rest of that file.
+ */
+private fun statusColor(status: SystemStatus): Color = when (status) {
+    SystemStatus.POWER_LIMITED -> LumixColors.WarningRed
+    SystemStatus.GRID_POWERING_HOME, SystemStatus.BATTERY_PLUS_GRID, SystemStatus.GRID_CHARGING_BATTERY -> LumixColors.SolarAmber
+    SystemStatus.BATTERY_POWERING_HOME -> LumixColors.TechnicalCyan
+    SystemStatus.SOLAR_PLUS_BATTERY, SystemStatus.SOLAR_POWERING_HOME -> LumixColors.SolarYellow
+    SystemStatus.IDLE -> Color.Gray
 }
 
 /** One elegant statement of what the system is doing right now — not a pill competing with four others. */

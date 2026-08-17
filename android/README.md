@@ -4301,3 +4301,44 @@ recalibration, A36's overlap fix) — this round's contribution is re-confirming
 intact after the domain-layer changes made in Phases 5-8, not finding something newly broken.
 
 No code changes this round.
+
+## A74 — Phase 11: fix power-flow animation
+
+**Inspected**: `EnergyFlowResolver.resolve` (`EnergyFlow.kt` — maps a `SimFrame`'s already-resolved
+sub-flows onto the 4 visual `EnergyFlow` objects), `EnergyFlowPathManager.kt` (particle
+count/speed lookup tables, arc-length path interpolation), `EnergyFlowCanvas.kt`'s `ParticleOverlay`
+(the actual per-frame particle/line drawing, including its direction-to-phase-sign mapping and its
+fail-safe skip of any REVERSE flow on a non-bidirectional route), and `SolarSimulationPaths.kt`'s 4
+calibrated polylines (point ordering, `bidirectional` flags).
+
+**Checked specifically, not just glanced at**:
+- The battery flow's `when` block in `EnergyFlowResolver` checks `batteryChargeKw > EPSILON` before
+  `frame.batteryToHouseKw > EPSILON` — traced `SimulationEngine.buildDayTimeline`'s charge/discharge
+  branch ordering across SOL/SBU/UTI modes to confirm these two conditions can never both be true in
+  the same frame, so the check order never silently hides a real simultaneous charge+discharge state.
+- `particleCountFor`/`particleSpeedFor`'s breakpoint tables for off-by-one errors at exact breakpoint
+  values (e.g. `powerKw` = 0.5, 1.0) — hand-traced, correct.
+- `ParticleOverlay`'s `signedPhase` (negated for REVERSE, i.e. discharging) against
+  `SolarSimulationPaths.inverterToBatteryPath`'s actual point order (starts at the inverter, ends at
+  the battery) — confirmed FORWARD (charging) animates toward the battery and REVERSE (discharging)
+  correctly animates back toward the inverter, matching the real direction of power flow.
+- Every other route's color, chip placement, and one-way-only `bidirectional` flag.
+
+**Found**: no functional bug in the animation logic itself — it's already correct and well-calibrated
+from earlier rounds (A15, A21, A23, A34/A35, A36). The one real, previously-known issue in this area
+was `HouseSimulationVisual.kt`: a 336-line hand-drawn Compose `Canvas` house illustration, already
+documented in this README as superseded by the photoreal `EnergyFlowCanvas.kt` overlay and left in
+the tree unused "in case the earlier illustration is wanted back" — but never actually removed. Its
+presence meant the codebase carried two power-flow-animation implementations, one live and one
+dormant, which is exactly the kind of thing "fix power-flow animation" should clear up. Confirmed via
+grep that nothing else in `src/main` or `src/test` referenced it, except its one small `statusColor`
+helper, which `SimulationScreen.kt`'s `StatusStatement` composable still genuinely used.
+
+**Fixed**: deleted `HouseSimulationVisual.kt` outright, and moved `statusColor` into
+`SimulationScreen.kt` (its sole caller), immediately above `StatusStatement`.
+
+**Files changed**: `SimulationScreen.kt` (added the relocated `statusColor` function and its
+`SystemStatus` import), `HouseSimulationVisual.kt` (deleted).
+
+**Tests**: none needed updating — confirmed via grep that no test file referenced either
+`HouseSimulationVisual` or `statusColor`.
