@@ -4259,3 +4259,45 @@ No code changes this round — the honest finding is that "rebuilding the simula
 deterministic model" was already this app's actual architecture since A54, and this phase's own
 verification pass (reading the ViewModel and every simulation-adjacent screen directly, not
 inferring from prior rounds' doc comments) found nothing left to do.
+
+## Phase 10: fix simulation time/sky/slider/10x playback
+
+**Inspected**: `TimeSlider.kt` (`formatSimTime`, the scrub control itself), `TransportBar.kt` (the
+play/pause/speed control, including the 1x/2x/5x/10x chips), `SimulationViewModel.kt`'s `play()`
+loop (real-time-paced playback), `EnvironmentOverlays.kt` (`SunIndicator`/`CloudOverlay`/
+`SceneAtmosphereOverlay` — the "sky"), `EnergyFlowCanvas.kt`'s wiring of all three into one scene,
+`EnergyGraph.kt` (the scrubbable 24h curve), and `SimulationEngine.nextBatteryFullHour` (the
+slider's battery-full marker).
+
+**Checked specifically, not just glanced at**:
+- `formatSimTime`'s noon/midnight edge cases by hand-tracing both (`12:00 PM` at hour 12.0 exactly,
+  `12:00 AM` at hour 0.0 and at hour 24.0 via its own `.mod(24*60)`) — the classic off-by-one spot
+  for a 24h→12h converter, and it's correct.
+- Every clock/time display on the screen (the slider's own digital readout, the corner clock
+  overlay passed to `EnergyFlowCanvas`, `EnergyGraph`'s own `TIME` stat) reads from the identical
+  `state.currentHour`/`currentFrame.hour` — confirmed by tracing each call site's actual argument,
+  not assuming they agree because they're supposed to.
+- The sun marker's position (`daylightProgress`) and glow intensity (`irradianceFactor ×
+  weather.multiplier`), the cloud overlay's coverage, and the full-scene darkness wash
+  (`daylightFactor`) all read the engine's own real irradiance model for the frame actually being
+  displayed — no separately-invented visual curve anywhere in `EnvironmentOverlays.kt`.
+- `EnergyGraph`'s plotted Solar/Load/Grid/SOC curves are drawn directly from `timeline`'s real
+  `SimFrame` values (`f.pvKw`, `f.houseLoadKw`, `f.batterySocPercent`) — not a second, simplified
+  approximation of the day.
+- The `play()` loop measures real elapsed time between frames (`System.nanoTime()` deltas) rather
+  than assuming a fixed 16ms tick, so a dropped frame or brief UI stall doesn't desync playback
+  speed from wall-clock time — and re-reads `state.speed` fresh every tick, so changing speed
+  mid-playback (including to 10x) takes effect immediately, not on the next `play()` call.
+- Dragging the time slider or the energy graph while playing correctly pauses first
+  (`scrubTo` calls `pause()` before updating the hour), so playback and manual scrubbing can't
+  fight each other for control of `currentHour`.
+
+**Found**: no bug. Every one of these components already reads from the single real
+`SimulationEngine` timeline/model (the same one Phase 8/9 already verified is the one deterministic
+source of truth) with no independently-computed or stale duplicate anywhere in the time/sky/slider/
+playback stack. This area already received dedicated attention across several earlier rounds (A15
+Phase 5's "energy-flow animation correctness," A21's slider+10x-speed rebuild, A23's particle-path
+recalibration, A36's overlap fix) — this round's contribution is re-confirming that work is still
+intact after the domain-layer changes made in Phases 5-8, not finding something newly broken.
+
+No code changes this round.
