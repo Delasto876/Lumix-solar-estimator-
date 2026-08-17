@@ -1,5 +1,6 @@
 package com.lumix.estimator.domain.simulation
 
+import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.SystemMode
 import kotlinx.serialization.Serializable
@@ -11,6 +12,13 @@ import kotlin.math.min
  * and the simulation engine: every quantity the engine simulates against (PV, inverter,
  * battery capacity *and* its charge/discharge power limits) is read from here, not
  * re-derived or hardcoded separately inside [SimulationEngine].
+ *
+ * [siteLatitude]/[siteLongitude]/[roofAzimuthDegrees]/[roofPitchDegrees] are only present when
+ * the quote came from Solar Site's "Use This Roof" (i.e. [QuoteInputs.roofConstraint] was set).
+ * All four are null otherwise, and the simulation falls back to its original generic,
+ * location-agnostic solar model — Solar Site data is an enhancement, never a requirement. Read
+ * from the SAVED [QuoteInputs] blob tied to this exact quote (never live/current wizard state),
+ * so this is just as reproducible as every other frozen-at-calculation-time field on this class.
  */
 @Serializable
 data class SimSystemConfig(
@@ -61,10 +69,20 @@ data class SimSystemConfig(
      * [com.lumix.estimator.domain.simulation.RechargeFeasibility]/[BackupEstimator], which read
      * this field directly to decide whether to generate a real month-specific weather curve.
      */
-    val installMonth: Int? = null
+    val installMonth: Int? = null,
+    /** A81 (Phase 18, restored): see this class's own doc for what "site-aware" means here. */
+    val siteLatitude: Double? = null,
+    val siteLongitude: Double? = null,
+    val roofAzimuthDegrees: Double? = null,
+    val roofPitchDegrees: Double? = null
 ) {
+    /** True only when every field needed for a site-aware solar position model is present. */
+    val isSiteAware: Boolean
+        get() = siteLatitude != null && siteLongitude != null && roofAzimuthDegrees != null && roofPitchDegrees != null
+
     companion object {
-        fun from(result: QuoteResult): SimSystemConfig {
+        fun from(result: QuoteResult, inputs: QuoteInputs): SimSystemConfig {
+            val constraint = inputs.roofConstraint
             val batteryCapacityKwh = result.totalBatteryKwh
             val inverterCeilingKw = result.inverterKw.coerceAtLeast(0.1)
             // A41/A42: real per-model charge/discharge current is resolved ONCE, at quote
@@ -106,7 +124,11 @@ data class SimSystemConfig(
                 batteryDepthOfDischargeFraction = SimulationEngine.BATTERY_MIN_SOC_FRACTION,
                 maxPvInputKw = maxPvInputKw,
                 pshHours = pshHours,
-                installMonth = result.designInstallMonth
+                installMonth = result.designInstallMonth,
+                siteLatitude = constraint?.latitude,
+                siteLongitude = constraint?.longitude,
+                roofAzimuthDegrees = constraint?.azimuthDegrees,
+                roofPitchDegrees = constraint?.pitchDegrees
             )
         }
     }

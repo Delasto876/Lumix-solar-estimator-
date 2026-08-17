@@ -4843,3 +4843,112 @@ month, existing hand-traced numbers unchanged by the `durationHours=30` extensio
 config generates a real reproducible curve with correct sunrise/sunset checkpoints) and
 `BackupEstimatorTest.kt` (scenario has no effect without a month, a cloudier scenario never
 outlasts typical for the same month-aware system).
+
+## A81 — Phase 18: map/site survey foundation (Solar Site, rebuilt)
+
+The 67-order's Phase 18 is "Map/site survey foundation" — Google Maps satellite roof tracing,
+roof-plane geometry, panel layout/count, and feeding that real geometric fit back into the
+estimator as a roof constraint (the original spec's §33-36).
+
+**A genuine conflict with existing code, surfaced rather than silently resolved either way.**
+This exact feature — "Solar Site" — was already built in full across 8 prior rounds (Solar Site
+Phases 1-8: roof geometry engine, panel-packing optimizer, Google Maps roof tracing, compass/GPS,
+roof analysis UI, estimator integration, digital-twin wiring) and then **explicitly, permanently
+removed**: A17 swapped Google Maps for a keyless OpenStreetMap+Esri map (API key friction), A18
+removed the map UI entirely "deferred to a future upgrade," and A20 removed the whole feature —
+tab, screens, domain fields, every integration point — with its own note: "the plan changed to not
+bringing Solar Site back." Per the spec's own instruction for exactly this situation ("when you
+find a conflict between existing code and this specification, do not silently choose one"), this
+was flagged to the installer directly rather than either skipping Phase 18 or silently rebuilding
+something already deliberately torn out. The installer chose: rebuild it, with the Google Maps SDK
+(not the keyless OSM fallback A17 had switched to).
+
+**Restored from git history, not rewritten from scratch.** The pre-A17 commit (the last one with
+the original Google Maps-based implementation, before OSM even entered the picture) still had
+every file this feature needs — restored verbatim: the `site/` package (roof geometry engine,
+panel-packing optimizer, roof score, map screen, manual entry, site detail, sun-path/monthly-PSH
+charts — 22 files), `solar/` (solar position calculator, irradiance model, clear-sky PSH
+estimator, resource provider, path sampler — 6 files), `sensors/` (compass manager/math),
+`location/` (device GPS), `network/` (connectivity observer) — 33 files, ~2,850 lines, all
+previously built, hand-verified, and reported on in their own original rounds rather than
+regenerated blind this round.
+
+**Reintegrated against six rounds of intervening evolution, not pasted back verbatim.** Every
+integration touch-point A20 surgically removed had to be re-applied against what those files
+actually look like *today* (A69-A80 rewrote large parts of the simulation/sizing engine since):
+- `QuoteInputs.roofConstraint`/`RoofConstraint` (restored) — the installer's confirmed roof-fit
+  result, carried from Solar Site into a quote.
+- `SystemCalculator.calculate()` — the roof-cap block (rounds the panel count DOWN to what the
+  roof can hold, never up) reinserted at the same point in the panel-sizing pipeline, now sitting
+  after A63's recharge-aware panel-count refinement rather than before it existed.
+- `QuoteResult.energyOptimalPanelCount`/`energyOptimalPvKw`/`isRoofConstrained` (restored) —
+  what the array would have been from usage alone vs. what the roof actually allows.
+- `SimSystemConfig.from(result, inputs)` — regained its second `inputs: QuoteInputs` parameter
+  (both current call sites updated) so `siteLatitude`/`siteLongitude`/`roofAzimuthDegrees`/
+  `roofPitchDegrees`/`isSiteAware` can be derived from the SAVED `QuoteInputs.roofConstraint` —
+  exactly as reproducible as every other frozen-at-calculation-time field on this class, since the
+  saved `QuoteInputs` blob (not live wizard state) is what's actually read.
+- `SimulationEngine.sitePlaneOfArrayFactor`/`sitePosition` (restored) — a real per-instant roof-
+  orientation correction (Duffie & Beckman tilted-surface geometry) multiplied into the existing
+  `irradianceFraction` alongside A80's `cloudFactor`/`pshScale`, so a poorly-oriented roof now
+  shows genuinely reduced/asymmetric output in the exact same simulation Phase 17 rebuilt, not a
+  separate one. **Naming collision caught and fixed**: `solar.SolarPosition` (this restored file's
+  real lat/long/instant elevation-azimuth data class) collides by simple name with A80's new
+  `domain.simulation.SolarPosition` (month/day-length model) in the same file — resolved with an
+  import alias (`SiteSolarPosition`) rather than merging two genuinely different concepts under
+  time pressure; see `SimulationEngine.kt`'s own doc for why they coexist.
+- `ui/simulation/SimulationScreen.kt`'s "Sun & Roof" card, `ui/results/ResultsScreen.kt`'s
+  roof-constraint banner, `pdf/QuotePdfGenerator.kt`'s matching PDF block, and
+  `ui/wizard/WizardViewModel.kt`'s `startWithRoofConstraint` — all restored to their original
+  logic, each re-checked against today's actual surrounding code (imports, available state
+  fields, current section layout) rather than assumed unchanged.
+
+**Deliberately NOT re-added as a 6th bottom-nav tab — a judgment call, disclosed rather than
+silently made.** The original design put Solar Site on the bottom nav as a full tab. A16's own
+fix in this same codebase exists specifically because 6 tabs clipped their labels on
+`FloatingBottomNav` (still today's exact same even-width-per-tab layout, no scroll/overflow
+handling). Re-adding a 6th tab risked reintroducing that exact regression. Instead, `Estimate` tab
+(`EstimateLandingScreen.kt`) gained a new "Have a roof to trace?" card with an "Open Solar Site"
+button, leading to the same `site/`/`site/map`/`site/manual`/`site/detail` routes (all pushed, not
+tabs) the original build used.
+
+**Rebuilt with the Google Maps SDK, per the installer's explicit choice — not the OSM fallback.**
+`app/build.gradle.kts` regained `com.google.maps.android:maps-compose`,
+`com.google.android.gms:play-services-maps`, `play-services-location`, and the
+`local.properties`-sourced `MAPS_API_KEY` → `manifestPlaceholders` wiring; `AndroidManifest.xml`
+regained the `com.google.android.geo.API_KEY` meta-data tag and location/network permissions. Left
+blank (the default, since `local.properties` is git-ignored and never committed), the app still
+builds and runs — only the map tiles themselves won't render; manual site entry needs no key at
+all. **This reintroduces the exact API-key setup step A17 removed** — a real, disclosed trade-off
+of the installer's own explicit choice, not an oversight.
+
+**Files changed**: `app/build.gradle.kts`, `AndroidManifest.xml`, `LumixApp.kt` (`siteRepository`),
+`domain/QuoteInputs.kt` (`RoofConstraint`, `roofConstraint`), `domain/QuoteResult.kt`
+(`energyOptimalPanelCount`/`energyOptimalPvKw`/`isRoofConstrained`), `domain/SystemCalculator.kt`
+(roof-cap block), `domain/simulation/SimSystemConfig.kt` (site fields, `isSiteAware`,
+`from(result, inputs)`), `domain/simulation/SimulationEngine.kt` (`sitePlaneOfArrayFactor`/
+`sitePosition`, aliased `SolarPosition` import, `siteFactor` in `buildDayTimeline`),
+`pdf/QuotePdfGenerator.kt` (roof-constraint PDF block), `ui/results/ResultsScreen.kt`
+(`RoofConstraintBanner`), `ui/simulation/SimulationScreen.kt`/`SimulationViewModel.kt` (Sun & Roof
+card, updated `SimSystemConfig.from` call), `ui/wizard/WizardViewModel.kt`
+(`startWithRoofConstraint`), `ui/estimate/EstimateLandingScreen.kt` (new Solar Site entry card),
+`ui/nav/LumixNavHost.kt` (site routes, `siteViewModel`); new (restored) packages `site/` (22
+files), `solar/` (6 files), `sensors/`, `location/`, `network/` (33 files total).
+
+**Tests**: new `RoofConstraintTest.kt` — no constraint leaves `panelCount`/`energyOptimalPanelCount`
+equal, a below-count roof cap reduces `panelCount` and rounds down to even (never up), an
+even/at-or-above cap behaves exactly as expected, `SimSystemConfig.isSiteAware` is true only with a
+full azimuth+pitch roof constraint and false otherwise (including a constraint with no confirmed
+azimuth/pitch yet), and `sitePlaneOfArrayFactor` matches the algebraic identity `sin(elevation)`
+for a flat roof (date-independent, not flaky) and is exactly zero below the horizon.
+
+**Audited and deliberately NOT attempted, disclosed rather than silently skipped**: the pre-A17
+map screen used osmdroid/Esri tile sources; those are gone now that Google Maps SDK is back in —
+no dual-provider toggle was built, since the installer's choice was Google Maps specifically, not
+"support both." A real Google Maps API key still needs to be supplied by the installer in
+`local.properties` for map tiles to render — not something this sandbox can obtain or verify.
+`solar.SolarPosition`/`SolarPositionCalculator`'s real elevation/azimuth model and A80's
+`domain.simulation.SolarPosition`'s month/day-length model remain two separate, non-duplicate
+concerns living in the same simulation engine (aliased, not merged) — a future round could
+consider whether Solar Site's per-parish `latitude`/`longitude` should also inform A80's monthly
+climatology model, but that's a genuinely separate design question from restoring what existed.

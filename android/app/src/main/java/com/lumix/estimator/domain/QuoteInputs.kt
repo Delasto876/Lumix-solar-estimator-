@@ -173,6 +173,32 @@ fun defaultAppliances(): Map<ApplianceType, ApplianceLoad> = ApplianceType.entri
     if (type == ApplianceType.FRIDGE) ApplianceLoad(qty = 1) else ApplianceLoad()
 }
 
+/**
+ * A81 (Phase 18): carries a Solar Site roof plane's physical panel-fit result into the
+ * estimator, so the recommended system can be capped at what the roof can actually hold rather
+ * than only what the electricity usage calls for. [maxPanelCount] comes from
+ * `PanelLayoutOptimizer` — real geometric placement, not `usableArea / panelArea`.
+ *
+ * [latitude]/[longitude] (the site's location, carried over so the digital-twin simulation can
+ * compute real sun position later without a separate lookup) default to 0.0 for quotes saved
+ * before these fields existed — harmless, since [azimuthDegrees]/[pitchDegrees] being non-null
+ * is what actually gates the site-aware simulation path, not the coordinates alone.
+ */
+@Serializable
+data class RoofConstraint(
+    val sourceSiteId: String,
+    val sourceRoofPlaneId: String,
+    val roofLabel: String,
+    val maxPanelCount: Int,
+    val panelWattage: Int,
+    val azimuthDegrees: Double?,
+    val pitchDegrees: Double?,
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0
+) {
+    val maxCapacityKw: Double get() = maxPanelCount * panelWattage / 1000.0
+}
+
 @Serializable
 data class QuoteInputs(
     val quoteMode: QuoteMode = QuoteMode.GUIDED,
@@ -216,6 +242,9 @@ data class QuoteInputs(
      * .JamaicaClimatology]'s own docs for what "that month's real conditions" actually means here.
      */
     val installMonth: Int? = null,
+
+    /** A81 (Phase 18, restored): set only via a Solar Site "Use This Roof" flow — see [RoofConstraint]'s own doc. */
+    val roofConstraint: RoofConstraint? = null,
 
     val backupHoursPreset: Int? = 12,
     val backupHoursCustom: Double = 6.0,

@@ -1,5 +1,17 @@
 package com.lumix.estimator.domain.simulation
 
+import com.lumix.estimator.solar.SolarIrradianceModel
+// A81 (Phase 18, restored): aliased — this file's own package already declares a same-named
+// `SolarPosition` (A80's month/day-length sunrise-sunset model). This is a different, older
+// concept (real elevation/azimuth for a given lat/long/instant, used only for roof plane-of-
+// array geometry) that predates A80's class and was never merged with it — see
+// sitePlaneOfArrayFactor's own doc for why they coexist rather than being unified in this round.
+import com.lumix.estimator.solar.SolarPosition as SiteSolarPosition
+import com.lumix.estimator.solar.SolarPositionCalculator
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
 import kotlin.math.PI
 import kotlin.math.min
 import kotlin.math.pow
@@ -62,6 +74,12 @@ object SimulationEngine {
     const val GRID_SERVICE_VOLTAGE = 220.0
     const val DEFAULT_GRID_SERVICE_AMPS = 30.0
 
+    // A81 (Phase 18, restored): Jamaica has no DST, so a fixed UTC offset stands in for a full
+    // timezone lookup — consistent with the rest of this Jamaica-focused app (see
+    // solar/SolarPositionCalculator verification, which uses the same offset).
+    private val JAMAICA_ZONE = ZoneOffset.of("-05:00")
+    private val solarPositionCalculator = SolarPositionCalculator()
+
     // Typical WEEKDAY residential demand shape (higher morning + evening, lower overnight/
     // midday — the working household is mostly out of the house 8am-5pm, per section 18).
     // Normalized by its own mean, so it only shapes the curve — total daily energy still
@@ -99,6 +117,42 @@ object SimulationEngine {
         val span = sunsetHour - sunriseHour
         val x = (h - sunriseHour) / span
         return sin(PI * x).pow(1.2)
+    }
+
+    /**
+     * A81 (Phase 18, restored): multiplicative correction on top of [irradianceFactor]'s generic
+     * bell curve, based on the real sun position for today's date at this hour vs. the roof's
+     * actual azimuth/pitch. A well-oriented (south-facing, latitude-tilt) roof peaks near 1.0 at
+     * solar noon — matching the generic model's own peak — so it isn't penalized relative to a
+     * site-unaware quote, while a poorly-oriented roof shows genuinely reduced/asymmetric output.
+     *
+     * Uses [LocalDate.now] rather than a fixed reference date, since this is a live digital twin
+     * meant to reflect the actual current day. [JAMAICA_ZONE] stands in for a real timezone
+     * lookup, consistent with the rest of this Jamaica-focused app.
+     */
+    fun sitePlaneOfArrayFactor(
+        hour: Double,
+        latitude: Double,
+        longitude: Double,
+        roofAzimuthDegrees: Double,
+        roofPitchDegrees: Double
+    ): Double {
+        val position = sitePosition(hour, latitude, longitude)
+        return SolarIrradianceModel.planeOfArrayFactor(
+            sunAzimuthDegrees = position.azimuthDegrees,
+            sunElevationDegrees = position.elevationDegrees,
+            roofAzimuthDegrees = roofAzimuthDegrees,
+            roofPitchDegrees = roofPitchDegrees
+        )
+    }
+
+    /** The real sun position, for today's date, at the given simulated hour and location. */
+    fun sitePosition(hour: Double, latitude: Double, longitude: Double): SiteSolarPosition {
+        val h = hour.mod(24.0)
+        val wholeHour = h.toInt().coerceIn(0, 23)
+        val minute = ((h - wholeHour) * 60).toInt().coerceIn(0, 59)
+        val dateTime = ZonedDateTime.of(LocalDate.now(), LocalTime.of(wholeHour, minute), JAMAICA_ZONE)
+        return solarPositionCalculator.calculate(latitude, longitude, dateTime)
     }
 
     /** 0f at sunrise, 1f at sunset; null outside daylight hours. For positioning a sun marker. */
@@ -194,7 +248,19 @@ object SimulationEngine {
             // A80: weatherCurve (per-timestep, opt-in) replaces the flat cloudMultiplier when
             // supplied — see its own parameter doc for the exact backward-compat guarantee.
             val cloudFactor = weatherCurve?.factorAt(hour) ?: cloudMultiplier
-            val irradianceFraction = irradianceFactor(hour, sunriseHour, sunsetHour) * cloudFactor * pshScale
+            // A81 (Phase 18, restored): a real roof-orientation correction when this config came
+            // from Solar Site's "Use This Roof" — 1.0 (no correction) otherwise, so a site-unaware
+            // quote's simulation is completely unaffected by this factor's presence.
+            val siteFactor = if (config.isSiteAware) {
+                sitePlaneOfArrayFactor(
+                    hour = hour,
+                    latitude = config.siteLatitude!!,
+                    longitude = config.siteLongitude!!,
+                    roofAzimuthDegrees = config.roofAzimuthDegrees!!,
+                    roofPitchDegrees = config.roofPitchDegrees!!
+                )
+            } else 1.0
+            val irradianceFraction = irradianceFactor(hour, sunriseHour, sunsetHour) * cloudFactor * pshScale * siteFactor
             // A69: capped at the inverter's real PV DC input ceiling (config.maxPvInputKw), NOT
             // its AC output rating (config.inverterKw) — a real hybrid inverter's DC/MPPT stage
             // typically accepts meaningfully more than its own AC rating (see

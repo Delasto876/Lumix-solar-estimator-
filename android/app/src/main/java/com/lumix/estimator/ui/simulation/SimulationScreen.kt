@@ -60,6 +60,7 @@ import com.lumix.estimator.domain.simulation.SystemStatus
 import com.lumix.estimator.domain.simulation.WarningLevel
 import com.lumix.estimator.domain.simulation.TechnicalModel
 import com.lumix.estimator.domain.simulation.applianceDailyEnergyByCategoryKwh
+import com.lumix.estimator.sensors.CompassMath
 import com.lumix.estimator.ui.components.AnimatedCounterText
 import com.lumix.estimator.ui.components.RecommendationCard
 import com.lumix.estimator.ui.components.SectionCard
@@ -164,6 +165,20 @@ fun SimulationScreen(
                         demandKw = frame.inverterLoadKw,
                         inverterKw = config.inverterKw,
                         onReviewLoads = { showAppliances = true }
+                    )
+                }
+            }
+
+            if (config.isSiteAware) {
+                item {
+                    val sunPosition = remember(frame.hour, config) {
+                        SimulationEngine.sitePosition(frame.hour, config.siteLatitude!!, config.siteLongitude!!)
+                    }
+                    SunAndRoofCard(
+                        sunAzimuthDegrees = sunPosition.azimuthDegrees,
+                        sunElevationDegrees = sunPosition.elevationDegrees,
+                        roofAzimuthDegrees = config.roofAzimuthDegrees!!,
+                        roofPitchDegrees = config.roofPitchDegrees!!
                     )
                 }
             }
@@ -685,6 +700,53 @@ private fun LivePowerRow(frame: SimFrame) {
                     color = palette.textSecondary
                 )
             }
+        }
+    }
+}
+
+/**
+ * A81 (Phase 18, restored): shown only for quotes built from a Solar Site "Use This Roof" flow
+ * ([SimSystemConfig.isSiteAware]). Sun position updates live as the time dial scrubs, using
+ * today's real date — this is the live-compass idea from Solar Site, brought into the digital twin.
+ */
+@Composable
+private fun SunAndRoofCard(
+    sunAzimuthDegrees: Double,
+    sunElevationDegrees: Double,
+    roofAzimuthDegrees: Double,
+    roofPitchDegrees: Double
+) {
+    val palette = LocalLumixPalette.current
+    SectionCard(title = "Sun & Roof") {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            SunRoofStat(
+                label = "SUN",
+                value = if (sunElevationDegrees > 0) {
+                    "${sunAzimuthDegrees.toInt()}° ${CompassMath.compassLabel(sunAzimuthDegrees)}"
+                } else "Below horizon",
+                sub = if (sunElevationDegrees > 0) "${sunElevationDegrees.toInt()}° elevation" else null,
+                color = palette.solarYellowText,
+                modifier = Modifier.weight(1f)
+            )
+            SunRoofStat(
+                label = "ROOF FACES",
+                value = "${roofAzimuthDegrees.toInt()}° ${CompassMath.compassLabel(roofAzimuthDegrees)}",
+                sub = "${roofPitchDegrees.toInt()}° pitch",
+                color = palette.textPrimary,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SunRoofStat(label: String, value: String, sub: String?, color: Color, modifier: Modifier = Modifier) {
+    val palette = LocalLumixPalette.current
+    Column(modifier = modifier) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = color)
+        if (sub != null) {
+            Text(sub, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
         }
     }
 }

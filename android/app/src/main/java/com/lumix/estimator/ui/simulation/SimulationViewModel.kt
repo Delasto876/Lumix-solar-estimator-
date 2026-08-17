@@ -97,7 +97,7 @@ class SimulationViewModel(
         _state.value = SimulationUiState(loading = true)
         viewModelScope.launch {
             val saved = quoteRepository.getSavedQuote(quoteId) ?: return@launch
-            val config = SimSystemConfig.from(saved.result)
+            val config = SimSystemConfig.from(saved.result, saved.inputs)
             val appliances = defaultApplianceStates(saved.inputs)
             val gridConnected = config.gridConnectable
             val technicalMode = settingsRepository.defaultTechnicalMode.first()

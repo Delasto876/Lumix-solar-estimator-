@@ -22,6 +22,12 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.lumix.estimator.LumixApp
+import com.lumix.estimator.domain.RoofConstraint
+import com.lumix.estimator.site.ManualSiteScreen
+import com.lumix.estimator.site.SiteDetailScreen
+import com.lumix.estimator.site.SolarSiteEntryScreen
+import com.lumix.estimator.site.SolarSiteViewModel
+import com.lumix.estimator.site.map.SolarSiteMapScreen
 import com.lumix.estimator.ui.components.FloatingBottomNav
 import com.lumix.estimator.ui.components.NavTab
 import com.lumix.estimator.ui.estimate.EstimateLandingScreen
@@ -45,6 +51,12 @@ private const val ROUTE_SIMULATION = "simulation/{quoteId}"
 private const val ROUTE_SYSTEMS = "systems"
 private const val ROUTE_SAVINGS = "savings"
 private const val ROUTE_SETTINGS = "settings"
+// A81 (Phase 18, restored): not bottom-nav tabs (see EstimateLandingScreen's own doc for why) —
+// pushed routes reached from the Estimate tab's "Open Solar Site" entry instead.
+private const val ROUTE_SITE = "site"
+private const val ROUTE_SITE_MAP = "site/map"
+private const val ROUTE_SITE_MANUAL = "site/manual"
+private const val ROUTE_SITE_DETAIL = "site/detail/{siteId}"
 
 private val tabs = listOf(
     NavTab(ROUTE_HOME, "Home", Icons.Default.Home),
@@ -60,6 +72,9 @@ fun LumixNavHost(app: LumixApp) {
     val navController = rememberNavController()
     val wizardViewModel: WizardViewModel = viewModel(
         factory = WizardViewModel.factory(app.quoteRepository, app.priceRepository)
+    )
+    val siteViewModel: SolarSiteViewModel = viewModel(
+        factory = SolarSiteViewModel.factory(app.siteRepository)
     )
 
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -118,7 +133,69 @@ fun LumixNavHost(app: LumixApp) {
                     onStartQuote = {
                         wizardViewModel.reset()
                         navController.navigate(ROUTE_WIZARD)
-                    }
+                    },
+                    onOpenSite = { navController.navigate(ROUTE_SITE) }
+                )
+            }
+
+            composable(ROUTE_SITE) {
+                SolarSiteEntryScreen(
+                    viewModel = siteViewModel,
+                    onOpenMap = {
+                        siteViewModel.startNewSite()
+                        navController.navigate(ROUTE_SITE_MAP)
+                    },
+                    onOpenManual = {
+                        siteViewModel.startNewSite()
+                        navController.navigate(ROUTE_SITE_MANUAL)
+                    },
+                    onOpenSite = { id -> navController.navigate("site/detail/$id") }
+                )
+            }
+
+            composable(ROUTE_SITE_MAP) {
+                SolarSiteMapScreen(
+                    viewModel = siteViewModel,
+                    onSaved = { id -> navController.navigate("site/detail/$id") { popUpTo(ROUTE_SITE) } },
+                    onBack = { navController.popBackStack() },
+                    onSwitchToManual = { navController.navigate(ROUTE_SITE_MANUAL) { popUpTo(ROUTE_SITE) } }
+                )
+            }
+
+            composable(ROUTE_SITE_MANUAL) {
+                ManualSiteScreen(
+                    viewModel = siteViewModel,
+                    onSaved = { id -> navController.navigate("site/detail/$id") { popUpTo(ROUTE_SITE) } },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(
+                ROUTE_SITE_DETAIL,
+                arguments = listOf(navArgument("siteId") { type = NavType.StringType })
+            ) { entry ->
+                val siteId = entry.arguments?.getString("siteId") ?: ""
+                SiteDetailScreen(
+                    viewModel = siteViewModel,
+                    siteId = siteId,
+                    onUseRoof = { plane ->
+                        val site = siteViewModel.getSite(siteId)
+                        wizardViewModel.startWithRoofConstraint(
+                            RoofConstraint(
+                                sourceSiteId = siteId,
+                                sourceRoofPlaneId = plane.id,
+                                roofLabel = plane.label,
+                                maxPanelCount = plane.panelLayout?.panelCount ?: 0,
+                                panelWattage = plane.panelLayout?.panelWattage?.toInt() ?: 0,
+                                azimuthDegrees = plane.azimuthDegrees ?: plane.suggestedAzimuthDegrees,
+                                pitchDegrees = plane.pitchDegrees,
+                                latitude = site?.latitude ?: 0.0,
+                                longitude = site?.longitude ?: 0.0
+                            )
+                        )
+                        navController.navigate(ROUTE_WIZARD)
+                    },
+                    onBack = { navController.popBackStack() }
                 )
             }
 

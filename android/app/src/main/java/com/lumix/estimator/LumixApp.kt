@@ -5,6 +5,7 @@ import com.lumix.estimator.data.AppDatabase
 import com.lumix.estimator.data.PriceRepository
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SettingsRepository
+import com.lumix.estimator.site.SiteRepository
 
 class LumixApp : Application() {
     lateinit var quoteRepository: QuoteRepository
@@ -13,6 +14,9 @@ class LumixApp : Application() {
         private set
     lateinit var settingsRepository: SettingsRepository
         private set
+    /** A81 (Phase 18): Solar Site's own saved sites/roof-planes — restored alongside the rest of that feature. */
+    lateinit var siteRepository: SiteRepository
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -20,5 +24,6 @@ class LumixApp : Application() {
         quoteRepository = QuoteRepository(db.quoteDao())
         priceRepository = PriceRepository(this)
         settingsRepository = SettingsRepository(this)
+        siteRepository = SiteRepository()
     }
 }
