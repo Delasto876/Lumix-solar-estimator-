@@ -64,6 +64,19 @@ data class QuoteResult(
      */
     val batteryMaxChargeKw: Double? = null,
     val batteryMaxDischargeKw: Double? = null,
+    /**
+     * A69: the matched real inverter's max PV DC input power (from [EquipmentSpecs], resolved
+     * once at calculation time and frozen here — same reproducibility rationale as
+     * [batteryMaxChargeKw]) — a real hybrid inverter's PV DC input stage often accepts
+     * meaningfully more than its own continuous AC output rating ([inverterKw]), specifically to
+     * allow economical DC-side oversizing. Before this field existed, the simulation capped PV
+     * production at [inverterKw] directly (the AC-side rating), understating legitimate solar-noon
+     * output for exactly the deliberately-oversized designs where the extra DC headroom matters
+     * most. Null when no confirmed spec matched this inverter at calculation time (falls back to
+     * the same generic ratio [EquipmentSelectionEngine] itself falls back to) or for quotes saved
+     * before this field existed.
+     */
+    val inverterMaxPvKw: Double? = null,
 
     /**
      * A49: the engineering requirement GUIDED/LOAD's [EquipmentSelectionEngine] sized equipment

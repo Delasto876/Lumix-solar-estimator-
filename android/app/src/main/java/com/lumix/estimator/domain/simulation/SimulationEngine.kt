@@ -131,7 +131,13 @@ object SimulationEngine {
             val hour = startHour + (i * resolutionMinutes) / 60.0
 
             val irradianceFraction = irradianceFactor(hour) * cloudMultiplier
-            val potentialPv = (irradianceFraction * config.pvCapacityKw).coerceIn(0.0, config.inverterKw)
+            // A69: capped at the inverter's real PV DC input ceiling (config.maxPvInputKw), NOT
+            // its AC output rating (config.inverterKw) — a real hybrid inverter's DC/MPPT stage
+            // typically accepts meaningfully more than its own AC rating (see
+            // SimSystemConfig.maxPvInputKw's own doc). The inverter's overall AC-side throughput
+            // is a separate, already-modeled concern (SimFrame.inverterLoadKw, warned on by
+            // SimulationWarnings when it exceeds inverterKw — A36 — rather than silently clamped).
+            val potentialPv = (irradianceFraction * config.pvCapacityKw).coerceIn(0.0, config.maxPvInputKw)
 
             // Real-world losses, modeled as separate itemized factors rather than one blended
             // derate: panel temperature (rises with irradiance/ambient heat, cutting output —
@@ -140,7 +146,7 @@ object SimulationEngine {
             val cellTempC = SystemLosses.cellTemperatureC(ambientTempC, irradianceFraction)
             val temperatureDerate = SystemLosses.temperatureDerate(cellTempC)
             val pv = (irradianceFraction * config.pvCapacityKw * temperatureDerate * SystemLosses.fixedSystemEfficiency)
-                .coerceIn(0.0, config.inverterKw)
+                .coerceIn(0.0, config.maxPvInputKw)
 
             val load = ((loadFactor(hour, dayType) * backgroundPerHourKw + applianceLoadKw + totalApplianceLoadKwAt(applianceStates, hour, dayType)) * loadMultiplier)
                 .coerceAtLeast(0.0)

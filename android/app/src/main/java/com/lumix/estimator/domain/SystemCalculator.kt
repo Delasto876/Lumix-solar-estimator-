@@ -887,6 +887,9 @@ object SystemCalculator {
         // equipment catalog when a saved quote's simulation is opened later. See
         // QuoteResult.batteryMaxChargeKw's own doc for why this matters for reproducibility.
         val (batteryMaxChargeKw, batteryMaxDischargeKw) = resolvedBatteryPowerKw(chosenBattery, totalBatteryKwh, inverter.kw)
+        // A69: same reproducibility rationale, for the inverter's real max PV DC input power — see
+        // QuoteResult.inverterMaxPvKw's own doc.
+        val inverterMaxPvKw = EquipmentSpecs.inverterSpecFor(inverter.kw, inverter.name)?.maxPvW?.let { it / 1000.0 }
 
         val result = QuoteResult(
             effectiveSystemMode = effectiveSystemMode,
@@ -917,6 +920,7 @@ object SystemCalculator {
             backupCapacityWarningKw = backupCapacityWarningKw,
             batteryMaxChargeKw = batteryMaxChargeKw,
             batteryMaxDischargeKw = batteryMaxDischargeKw,
+            inverterMaxPvKw = inverterMaxPvKw,
             requiredPvKw = requiredPvKw,
             requiredInverterKw = requiredInverterKw,
             requiredBatteryUsableKwh = requiredBatteryUsableKwh,

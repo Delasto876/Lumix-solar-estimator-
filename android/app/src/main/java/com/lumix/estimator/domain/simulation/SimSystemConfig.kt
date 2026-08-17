@@ -32,7 +32,19 @@ data class SimSystemConfig(
     /** Round-trip charge efficiency (energy actually stored per kWh pushed into the battery). */
     val batteryChargeEfficiency: Double,
     /** Depth-of-discharge reserve floor as a 0..1 fraction of capacity (e.g. 0.20 = never below 20%). */
-    val batteryDepthOfDischargeFraction: Double
+    val batteryDepthOfDischargeFraction: Double,
+    /**
+     * A69: the inverter's real PV DC input ceiling — what actually caps [SimFrame.pvKw]/
+     * [SimFrame.potentialPvKw] each frame. Deliberately NOT [inverterKw] (the continuous AC
+     * output rating): a real hybrid inverter's DC/MPPT input stage typically accepts meaningfully
+     * more than its own AC rating, specifically to allow economical DC-side oversizing — capping
+     * PV production at the AC rating instead understated legitimate solar-noon output for exactly
+     * the deliberately-oversized designs where the extra DC headroom is the point. Defaults to
+     * `inverterKw * 1.3` (the same fallback ratio [EquipmentSelectionEngine] itself already falls
+     * back to when no confirmed spec match exists) so every existing caller that doesn't set this
+     * explicitly keeps a sensible, inverter-relative ceiling rather than an unconstrained one.
+     */
+    val maxPvInputKw: Double = inverterKw * 1.3
 ) {
     companion object {
         fun from(result: QuoteResult): SimSystemConfig {
@@ -51,6 +63,9 @@ data class SimSystemConfig(
                 ?: min(batteryCapacityKwh * 0.5, inverterCeilingKw)
             val batteryMaxDischargeKw = result.batteryMaxDischargeKw
                 ?: min(batteryCapacityKwh * 0.5, inverterCeilingKw)
+            // A69: same reproducibility rationale as batteryMaxChargeKw above — see
+            // QuoteResult.inverterMaxPvKw's own doc.
+            val maxPvInputKw = result.inverterMaxPvKw ?: (inverterCeilingKw * 1.3)
             return SimSystemConfig(
                 pvCapacityKw = result.pvKw,
                 panelCount = result.panelCount,
@@ -66,7 +81,8 @@ data class SimSystemConfig(
                 batteryMaxChargeKw = batteryMaxChargeKw,
                 batteryMaxDischargeKw = batteryMaxDischargeKw,
                 batteryChargeEfficiency = 0.95,
-                batteryDepthOfDischargeFraction = SimulationEngine.BATTERY_MIN_SOC_FRACTION
+                batteryDepthOfDischargeFraction = SimulationEngine.BATTERY_MIN_SOC_FRACTION,
+                maxPvInputKw = maxPvInputKw
             )
         }
     }

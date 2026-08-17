@@ -3800,3 +3800,77 @@ app's schedules are deliberately deterministic "typical day" assumptions, the sa
 solar-sizing methodologies use; a genuine Monte Carlo layer would be a large methodology change of
 questionable value for a design/sizing tool, not something to build without being asked for it
 specifically.
+
+## A69 — Phase 5: fix PV engineering calculations ("Lumix Solar Pro" spec, phase 67's own order)
+
+**Inspected**: hand-traced `irradianceFactor`'s exact curve shape (via an independent Python port)
+against the spec's own described production curve (early-morning low, 8-10am rapid rise, 10am-3pm
+high broad plateau, 3-5pm decline, sunset zero) — confirmed a near-exact match numerically (0.038 at
+6am, 0.49→0.88 across 8-10am, peaking at 0.997 at solar noon, declining to 0.14 by 5pm, exactly 0.0
+at sunset). Re-verified `PvElectricalModel`'s voltage model directly from source: PV voltage is
+gated on `potentialPvKw > 0.01` (irradiance-driven, not delivered power) — correctly zero at night,
+correctly *not* collapsing to zero during curtailment (full battery, low load, but still sunny),
+correctly temperature-corrected from real panel datasheet coefficients. Both were already right
+(A53's own prior work) — no fix needed for either.
+
+**Found and fixed a real bug**: PV production was capped at `config.inverterKw` — the inverter's
+*continuous AC output rating* — everywhere the simulation computed `potentialPvKw`/`pvKw`. A real
+hybrid inverter's PV DC input stage typically accepts meaningfully *more* than its AC rating
+(this catalog's own Growatt SPH 10000TL-HU-US, already in the equipment database, is a real
+example: 15,000W max PV input against a 10kW continuous AC rating) — that headroom is specifically
+what lets a DC-oversized design work at all. And DC oversizing is realistic here, not a corner
+case: GUIDED/LOAD panel sizing is driven by *daily energy need* (`designDailyKwh / psh`) while
+inverter sizing is driven by *peak instantaneous load* (`peakWatts × 1.25`) — two independent
+figures computed from different inputs, so `pvKw > inverterKw` happens routinely for a
+high-daily-energy, modest-peak-load household. Any such design had its legitimate solar-noon
+production silently understated by the old AC-side clamp — a direct violation of the spec's own
+"MOST IMPORTANT REQUIREMENT" (Phase 66): the simulation must model exactly the system the installer
+designed, "no hard-coded substitute values."
+
+**Fixed**: new `QuoteResult.inverterMaxPvKw` (the matched inverter's real max PV DC input power,
+resolved once at calculation time from `EquipmentSpecs` — the same reproducibility pattern already
+established for `batteryMaxChargeKw`/`batteryMaxDischargeKw`, A41/A42) and
+`SimSystemConfig.maxPvInputKw` (defaults to `inverterKw × 1.3` — the same fallback ratio
+`EquipmentSelectionEngine` itself already falls back to when no confirmed spec match exists, so
+every existing caller that doesn't set this explicitly keeps a sensible ceiling rather than an
+unconstrained one). `SimulationEngine.buildDayTimeline`'s two PV clamps now use this instead of
+`inverterKw`. The inverter's overall AC-side *throughput* — how much combined solar+battery+grid
+power the inverting stage is actually carrying — remains a genuinely separate, already-correctly-
+modeled concern: `SimFrame.inverterLoadKw` is warned on by `SimulationWarnings` when it exceeds
+`inverterKw` (A36's own "warning instead of silent capping" philosophy), not re-clamped here. This
+is the deliberately correct layering: the DC/MPPT stage and the AC inverting stage are two
+different hardware limits in a real inverter, and now they're modeled as two different limits here
+too, instead of one figure incorrectly doing both jobs.
+
+**Files changed**: `QuoteResult.kt` (new field), `SystemCalculator.kt` (resolves it once, mirroring
+`resolvedBatteryPowerKw`'s own pattern), `SimSystemConfig.kt` (new field + `.from()` wiring),
+`SimulationEngine.kt` (two clamp sites). No database schema change (a JSON-serialized field with a
+default, same encoding pattern as every other resolved-equipment figure already added this way).
+
+**Tests**: new `PvOutputLimitTest.kt` — a DC-oversized array (12kW PV / 10kW inverter / 15kW real
+ceiling) now correctly produces above the old AC-side clamp at solar noon (hand-traced to
+11.97kW, not capped at 10kW); a wildly oversized array (20kW) still correctly clamps at the real
+15kW ceiling, not left unbounded; an ordinary (not DC-oversized) design is unaffected, a direct
+regression guard; the `1.3×` fallback default is exercised explicitly. Confirmed no existing test
+constructs a `SimSystemConfig`/asserts an exact `potentialPvKw` in a way this change could affect —
+every existing PV-related test either uses `pvCapacityKw` well under `inverterKw` (unaffected
+either way) or hand-constructs `SimFrame`/synthetic values directly rather than exercising
+`buildDayTimeline`'s own clamp logic.
+
+**A genuine open question, not resolved this round — needs the installer's judgment call, not a
+silent pick**: `irradianceFactor`'s curve shape is fixed (peak always 1.0 at solar noon,
+independent of the installer's entered site-specific PSH). Its own daily-energy integral — hand-
+computed this round — implies roughly 7.2 "effective full-sun hours" worth of production before
+temperature/system-loss derates, versus the app's PSH default of 5.5h (a weather-averaged,
+site-specific figure the wizard's own sizing formula divides by). This means: a site sized with a
+weaker PSH (a bigger array, to compensate for a worse solar resource) simulates its production
+using the exact same fixed curve as a site sized with a stronger PSH — the simulation's own daily
+energy yield doesn't vary with the parish-specific PSH value the installer actually entered, only
+with the resulting array size. Two readings are both defensible: (1) this is a real gap — the
+simulation should scale its curve to the site's actual entered PSH, so a poor-resource site visibly
+produces less in the simulation, not just gets a bigger array to compensate; or (2) this is an
+intentional simplification — the simulation shows a representative clear-sky day (already
+adjustable via the existing cloud/weather control) for visualization, while PSH's job is purely
+sizing-time capacity planning, a different concern by design. Flagged for the installer to decide
+before any implementation — this would touch every simulated number for every quote, not a narrow
+fix like the one above.
