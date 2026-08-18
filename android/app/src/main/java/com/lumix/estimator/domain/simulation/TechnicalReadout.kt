@@ -98,7 +98,14 @@ object TechnicalModel {
         } else 0.0
         val batteryCurrent = if (batteryVoltage > 0) (frame.batteryPowerKw * 1000.0) / batteryVoltage else 0.0
 
-        val inverterOutputKw = (frame.houseLoadKw - frame.unmetLoadKw).coerceAtLeast(0.0) + frame.solarToBatteryKw + frame.gridToBatteryKw
+        // 2026-08-18 audit fix: this used to re-derive "inverter output" from houseLoadKw minus
+        // unmet load, which (in UTI mode, with the grid serving the house directly) double-counts
+        // power that never actually passes through the inverter. [SimFrame.inverterLoadKw] is
+        // already the one authoritative AC-side-throughput figure — the same value
+        // SimulationWarnings compares against inverterKw for the 80/90/100% overload alerts — so
+        // reading it directly here means the Technical panel and the overload warning can never
+        // disagree about what "inverter output" means.
+        val inverterOutputKw = frame.inverterLoadKw
 
         val gridActive = config.gridConnectable
         val gridTotalKw = frame.gridToHouseKw + frame.gridToBatteryKw

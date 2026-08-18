@@ -6114,3 +6114,140 @@ Android's standard per-density adaptive-icon/legacy-icon size table; grepped for
 hardcoded "98,000"/"Lumix Solar Estimator" references (none found beyond the two already fixed).
 Visually verified the generated icon by rendering it to PNG and inspecting it directly, at both
 full resolution and at actual xxxhdpi launcher size (48dp), before wiring it in.
+
+## A93 — full-app audit: estimate→quote→simulate data continuity + physics/math correctness
+
+"do a inspection on the app and report or fix any issues relevant, make sure the app works
+together seamlessly from estimate to quote to simulate working with the same data, and the
+logics, physics and math's actually make sense mimicking real world situation and simulation
+without any bug or inconsistencies across the board." No specific bug was reported this round —
+this was a self-directed audit.
+
+### Methodology
+Four parallel, read-only background agents, each scoped to a different seam of the app, since no
+single pass could hold this codebase's full domain layer, simulation engine, and UI wiring in
+view at once:
+- **Agent A** — wizard → `SystemCalculator` data continuity across GUIDED/LOAD/MANUAL (does every
+  mode really converge on one reviewable system, or does something drift/get dropped).
+- **Agent B** — saved quote → live `SimulationEngine` continuity via `SimSystemConfig` (does a
+  simulation ever silently disagree with what was actually quoted).
+- **Agent C** — equipment selection physics (inverter sizing, surge headroom, battery sizing —
+  does every mode enforce the same real electrical constraints).
+- **Agent D** — simulation energy/power math (conservation, units, sign errors, double-counting,
+  dead/unused domain data).
+
+Each agent reported findings as file:line + a concrete failure scenario + a confidence rating
+(CONFIRMED vs. PLAUSIBLE), explicitly instructed to separate genuine bugs from this codebase's
+many already-disclosed, intentional approximations (of which there are a lot — see A53, A64, A80,
+A87's own honesty sections). 13 findings came back; the 7 CONFIRMED, clearly-scoped ones are fixed
+below. The remaining 6 PLAUSIBLE/lower-priority findings are reported, not fixed, at the end.
+
+### Fixed
+
+**1. Roof panel cap compared a raw panel count against a count implied by a different panel's
+wattage.** `RoofConstraint.maxPanelCount` is the roof's carrying capacity computed for whatever
+panel wattage was assumed *at survey time* (Solar Site's own packing optimizer). `SystemCalculator`
+was then comparing that raw count directly against whatever panel the installer/wizard actually
+picked afterward — so surveying a roof against a 400W panel (`maxPanelCount = 20`, i.e. an 8kWp
+roof) and then choosing a 700W panel let 20 of the *bigger* panels through (14kWp on an 8kWp roof),
+because the code only ever compared counts, never re-derived a cap for the panel actually in play.
+Fixed by capping via the roof's implied kWp ceiling (`maxCapacityKw`, already a computed property
+on `RoofConstraint`) converted back into a count of whichever panel was actually selected, rounded
+down to an even count. This is a physically sound proxy (panel area scales with rated wattage for
+real PV panels) but not exact roof geometry — a future round wanting an exact re-pack would need
+`RoofConstraint` to carry the roof's raw usable area, a bigger plumbing change deliberately not
+done here. `RoofConstraintTest.kt` gained a regression test for the mismatched-panel case; every
+existing test in that file was hand-verified unaffected (they all use the same 595W panel the roof
+was already surveyed against, where the old and new formulas agree exactly).
+
+**2. `TechnicalReadout.inverterOutputKw` used a different formula than the simulation's own
+authoritative inverter-load figure.** It was recomputing
+`(houseLoadKw - unmetLoadKw) + solarToBatteryKw + gridToBatteryKw` instead of reading
+`SimFrame.inverterLoadKw` — the field `SimulationWarnings`' own 80/90/100% overload thresholds are
+computed from, and whose doc comment already says it's deliberately "the power actually passing
+through the inverter's inverting stage this frame" (excluding UTI-mode grid-to-house power that
+bypasses the inverter entirely). The two formulas can disagree, which meant the technical readout
+UI and the overload-warning system could show inconsistent numbers for the same instant. Fixed by
+reading `frame.inverterLoadKw` directly — one number, one source of truth.
+
+**3. MANUAL mode's "let the system choose an inverter" fallback skipped the real selection
+engine.** GUIDED and LOAD both go through `EquipmentSelectionEngine.selectBestInverter`, which
+enforces both a continuous-kW floor *and* a surge-tolerance check (inverter kW × 2.0 ≥ required
+surge kW). MANUAL's auto-pick path used older, simpler logic that only checked the continuous
+floor — so a MANUAL quote that asked the system to auto-pick could receive an inverter undersized
+for startup surge in a way GUIDED/LOAD never would, silently, with no warning. Fixed by routing
+MANUAL's auto-pick through the same `selectBestInverter` call GUIDED/LOAD already use.
+
+**4. MANUAL+HYBRID's battery-undersized warning compared the installer's pick against a formula
+already known to be inaccurate.** A64 replaced GUIDED/LOAD's flat
+`criticalDailyKwh * (backupHours/24) / DOD` battery formula with `sizeHybridBatteryForBackup` — a
+real overnight-load-curve simulation — specifically because the flat formula was the subject of an
+installer bug report about inaccurate sizing. That replacement was never applied to MANUAL mode's
+own "is what you picked big enough" warning check, which kept using the old flat formula. Fixed by
+calling `sizeHybridBatteryForBackup` for the warning-threshold figure only — deliberately *not*
+touching `chosenBattery`/`totalBatteryKwh`/`batteryModuleCount`, which stay exactly what the
+installer entered. MANUAL mode's entire purpose (installer control) is preserved; only the "are
+you sure that's enough" math is now accurate.
+
+**5. MANUAL+OFFGRID's 4-panel hardware cap only fired for one specific panel wattage.** This
+catalog's off-grid inverter tier (3/3.2kW units) is scoped to small stand-alone arrays and capped
+at 4 panels — but the cap's condition (`panelW <= Catalog.panelWattages.first()`) only matched the
+smallest catalog wattage (595W); picking any bigger real panel bypassed the cap entirely, letting
+MANUAL configure an off-grid array (e.g. 20×700W ≈ 14kWp) far beyond what this catalog's off-grid
+hardware was ever sized for. Fixed by making the cap unconditional for off-grid, regardless of
+which panel wattage was chosen. New file `SystemCalculatorOffgridPanelCapTest.kt` covers the
+already-working case, the previously-bypassed case, and the already-under-cap case.
+
+**6. `JamaicaClimatology.MonthProfile.solarResourceFactor` was fully defined, documented, and
+unit-tested — but never actually read by the simulation engine.** Its own doc says it "combines
+multiplicatively with the site's per-parish annual PSH estimate — this table supplies the seasonal
+shape," but `SimulationEngine.buildDayTimeline`'s `pshScale` calculation never multiplied it in, so
+no simulation ever showed the seasonal PV variation the table describes — the only seasonal signal
+that ever reached a simulation was `cloudinessBaseline` (via the weather curve). Fixed by wiring
+`solarResourceFactor` into `pshScale`. Purely additive: `installMonth == null` resolves to
+`JamaicaClimatology.ANNUAL_AVERAGE`, whose factor is exactly `1.0`, so every existing caller that
+never sets an install month sees byte-identical output — the same no-op guarantee `installMonth`'s
+own original doc already makes. New `SolarResourceFactorWiringTest.kt` verifies an October run's
+midday PV against an annual-average run, correctly isolating the new seasonal-factor effect from
+`installMonth`'s *other*, pre-existing effect on the same formula (real month-specific day length
+via `SolarPosition.sunTimesForMonth` changes `effectiveCurveSunHours` too, so the test computes the
+full expected ratio rather than asserting the seasonal factor alone).
+
+**7. `SiteDetailScreen` read a saved site from a non-reactive synchronous cache.**
+`viewModel.getSite(id)` returns a plain snapshot that's only populated once the ViewModel's own
+Room `Flow` collection has emitted at least once. On a cold app start restored directly to this
+screen (e.g. the OS killed the process and the user returned via Recents), reading it as a one-shot
+function call could return `null` before that first emission arrives — and because nothing this
+screen read was reactive, it would never recompose once the real data showed up, permanently
+showing "Site not found." Fixed by deriving the site from the already-reactive `savedSites`
+`StateFlow` via `collectAsState()`, same pattern `SolarSiteEntryScreen`'s own list already uses.
+
+### Reported, not fixed (lower priority / larger scope)
+- `InspectPanel.kt` re-reads the *live* equipment catalog for its detail sheets rather than the
+  specs frozen at quote time — display-only staleness if the catalog changes after a quote was
+  saved, not a calculation bug.
+- MANUAL mode's battery gets a generic name (`"Hybrid LiFePO4 mix"`) that never resolves to a real
+  catalog spec for `resolvedBatteryPowerKw` — affects display precision, not the sizing math fixed
+  above.
+- `SimulationEngine.kt` applies solar-charging and grid-charging efficiency losses in a way that
+  isn't perfectly symmetric — flagged PLAUSIBLE, not confirmed as a real double-count, needs a
+  closer trace before touching.
+- `BATTERY_DOD` (0.8, appropriate for the LiFePO4 batteries this catalog actually stocks) is
+  applied uniformly to OFFGRID's smaller lead-acid/AGM-class battery sizing too — real lead-acid is
+  conventionally sized closer to 50% DOD. A chemistry-specific constant would be more accurate but
+  wasn't added this round since OFFGRID's battery tier is already capped small.
+- `BackupEstimator`'s multi-day (72h) backup search replays the same single day's weather pattern
+  for every simulated day rather than varying it — a known simplification, not new this round.
+- `batteryChargeEfficiency = 0.95` is hardcoded independently in four separate files rather than
+  one shared constant — fragile against future drift, not currently causing any actual
+  inconsistency.
+
+### Tests / verification
+No real compile (standing sandbox limitation). Brace/paren balance verified on every touched file
+(`SystemCalculator.kt`, `TechnicalReadout.kt`, `SimulationEngine.kt`, `SiteDetailScreen.kt`,
+`RoofConstraintTest.kt`, and the two new test files). Grepped every existing test file that
+references the changed functions/fields (`EquipmentSelectionEngineTest.kt`,
+`JamaicaClimatologyTest.kt`, `SystemCalculatorBatteryBackupSizingTest.kt`,
+`McpToolRegistryTest.kt`) and hand-confirmed each is either testing the shared function directly
+(unaffected by a new call site routing through it) or asserting a relative/self-consistent
+comparison rather than a hardcoded absolute value (unaffected by the formula change itself).

@@ -13,6 +13,7 @@ import com.lumix.estimator.domain.simulation.WeatherEngine
 import com.lumix.estimator.domain.simulation.WeatherScenario
 import com.lumix.estimator.domain.pricing.MaterialTakeoffEngine
 import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -587,8 +588,16 @@ object SystemCalculator {
                 }
             }
             if (chosenInverter == null) {
+                // 2026-08-18 audit fix: MANUAL's own "let system choose inverter" fallback used to
+                // pick by continuous kW alone, skipping the surge-tolerance check
+                // EquipmentSelectionEngine.selectBestInverter already enforces for GUIDED/LOAD (a
+                // unit that covers the continuous load but not a worst-case motor/compressor
+                // startup surge). Reusing the same engine here means "let the system choose" means
+                // the same thing regardless of which mode asked for it.
                 val pool = Catalog.poolFor(effectiveSystemMode)
-                chosenInverter = pool.firstOrNull { it.kw >= requiredInverterKw } ?: pool.last()
+                val autoChoice = EquipmentSelectionEngine.selectBestInverter(requiredInverterKw, worstCaseSurgeKw(input), pool)
+                chosenInverter = autoChoice.option
+                inverterSelectionReason = autoChoice.reason
             }
 
             panelW = if (input.manualPanelWatts > 0) input.manualPanelWatts else Catalog.panelWattages.first()
@@ -613,6 +622,19 @@ object SystemCalculator {
                         val avgKwh = totalBatteryKwh / batteryModuleCount
                         chosenBattery = BatteryOption("Hybrid LiFePO4 mix", avgKwh) { 0.0 }
                     }
+                    // 2026-08-18 audit fix: manualBatteryWarning (below) used to compare the
+                    // installer's own pick against the pre-A64 flat
+                    // criticalDailyKwh*(backupHours/24)/BATTERY_DOD estimate — the exact formula
+                    // sizeHybridBatteryForBackup's own doc says was replaced for GUIDED/LOAD
+                    // because it disagreed with what the real overnight-load simulation actually
+                    // requires (the installer's own "~17kWh needed, 15kWh selected" bug report).
+                    // Runs that same real simulation here too, purely to get an accurate
+                    // "required" figure for the warning check — does NOT touch totalBatteryKwh/
+                    // chosenBattery/batteryModuleCount above, which stay exactly what the
+                    // installer picked.
+                    val sizing = sizeHybridBatteryForBackup(input, designDailyKwh, chosenInverter!!.kw, chosenInverter!!.name)
+                    requiredBatteryUsableKwh = sizing.requiredUsableKwh
+                    batteryRequiredKwh = sizing.requiredUsableKwh / BATTERY_DOD
                 }
                 SystemMode.OFFGRID -> {
                     totalBatteryKwh = input.manualAgmCount * Catalog.offgridModuleKwh
@@ -667,7 +689,16 @@ object SystemCalculator {
                 }
             }
 
-            if (effectiveSystemMode == SystemMode.OFFGRID && panelW <= Catalog.panelWattages.first()) {
+            // 2026-08-18 audit fix: this cap used to only fire when panelW equaled the smallest
+            // catalog wattage (595W) — the exact wattage GUIDED/LOAD always force off-grid to (see
+            // that branch's own "small stand-alone arrays" scope-note doc). MANUAL mode lets the
+            // installer pick any of the five catalog wattages for an off-grid array, so picking
+            // anything BIGGER than 595W bypassed the cap entirely — an installer could configure
+            // an arbitrarily large off-grid array this catalog's off-grid inverter tier (3-3.2kW
+            // units) was never scoped to serve. The scope boundary is about off-grid systems in
+            // general, not specifically the smallest panel — apply it unconditionally, same as
+            // GUIDED/LOAD.
+            if (effectiveSystemMode == SystemMode.OFFGRID) {
                 panelCount = min(panelCount, 4)
             }
         }
@@ -677,10 +708,26 @@ object SystemCalculator {
         // Rounds the cap DOWN to even rather than reusing enforceEvenPanels (which rounds up) —
         // exceeding the roof's actual capacity to satisfy the even-row convention would violate
         // the "never overclaim what fits" guarantee the panel-packing engine provides.
+        //
+        // 2026-08-18 audit fix: [constraint.maxPanelCount] was computed by Solar Site's real
+        // panel-packing geometry for a SPECIFIC panel footprint ([constraint.panelWattage] —
+        // whatever size the installer typed/assumed when tracing the roof, not necessarily a real
+        // catalog SKU), but the electrical sizing above can select a DIFFERENT, larger real panel
+        // (up to 720W vs. a roof survey done against, say, a 600W assumption — a ~20% bigger
+        // physical footprint per panel). Capping by raw panel COUNT alone silently let a
+        // larger-footprint selection through under the smaller-panel count ceiling, overclaiming
+        // what the mapped roof can actually hold. [RoofConstraint] doesn't carry the roof's raw
+        // polygon/usable-area (only the panel-count result for its own assumed panel), so an exact
+        // re-pack against the real selected panel isn't possible here without a bigger plumbing
+        // change — capping by the roof's implied kWp ceiling ([constraint.maxCapacityKw], area
+        // being roughly proportional to wattage for real panels) converted to a count of the
+        // ACTUALLY selected panel is a close, conservative proxy and a real fix for the count-only
+        // comparison, not just a cosmetic change.
         val energyOptimalPanelCount = panelCount
         input.roofConstraint?.let { constraint ->
-            if (constraint.maxPanelCount < panelCount) {
-                panelCount = if (constraint.maxPanelCount % 2 == 1) constraint.maxPanelCount - 1 else constraint.maxPanelCount
+            val maxCountForSelectedPanel = floor((constraint.maxCapacityKw * 1000.0) / panelW).toInt()
+            if (maxCountForSelectedPanel < panelCount) {
+                panelCount = if (maxCountForSelectedPanel % 2 == 1) maxCountForSelectedPanel - 1 else maxCountForSelectedPanel
                 panelCount = max(0, panelCount)
             }
         }

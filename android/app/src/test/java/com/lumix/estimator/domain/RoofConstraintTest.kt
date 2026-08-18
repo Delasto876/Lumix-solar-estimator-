@@ -73,6 +73,28 @@ class RoofConstraintTest {
     }
 
     @Test
+    fun `a roof surveyed against a smaller panel caps count by kWp, not raw count, when a bigger panel is actually selected`() {
+        // 2026-08-18 audit fix: the roof was traced assuming 20 x 595W panels fit (11.9 kWp).
+        // The installer then explicitly selects real 700W panels (manualPanelWatts) for the
+        // actual system — a bigger physical footprint per panel than the roof survey assumed.
+        // The count-only cap (pre-fix) would have let all 20 x 700W panels through (14.0 kWp,
+        // overclaiming the mapped roof's real capacity); the kWp-based cap must instead limit to
+        // floor(11.9 kWp * 1000 / 700W) = 17 panels, rounded down to 16 (even).
+        val inputs = QuoteInputs(
+            quoteMode = QuoteMode.MANUAL,
+            systemMode = SystemMode.HYBRID,
+            manualModeType = ManualModeType.PANEL_LED,
+            manualPanelCount = 20,
+            manualPanelWatts = 700,
+            roofConstraint = constraintFor(maxPanelCount = 20)
+        )
+        val result = SystemCalculator.calculate(inputs, PriceList.DEFAULT)
+        assertEquals(16, result.panelCount)
+        assertTrue(result.isRoofConstrained)
+        assertEquals(16 * 700 / 1000.0, result.pvKw, 0.001)
+    }
+
+    @Test
     fun `SimSystemConfig is site-aware only when built from an input carrying a full roof constraint`() {
         val plain = SystemCalculator.calculate(manualPanelLedInputs(10), PriceList.DEFAULT)
         val plainConfig = SimSystemConfig.from(plain, manualPanelLedInputs(10))

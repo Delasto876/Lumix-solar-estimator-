@@ -237,7 +237,15 @@ object SimulationEngine {
         // implied sun-hours when installMonth is set, instead of always assuming the fixed 12.0h
         // reference window — see CURVE_SHAPE_INTEGRAL's own doc.
         val effectiveCurveSunHours = if (sunTimes != null) sunTimes.dayLengthHours * CURVE_SHAPE_INTEGRAL else REFERENCE_CURVE_PSH_HOURS
-        val pshScale = config.pshHours / effectiveCurveSunHours
+        // 2026-08-18 audit fix: JamaicaClimatology.MonthProfile.solarResourceFactor was defined,
+        // documented ("combines multiplicatively with SolarResource's per-parish annual PSH
+        // estimate — this table supplies the seasonal shape"), and unit-tested, but never actually
+        // read by this engine — the only seasonal variation a simulation ever showed came from
+        // cloudinessBaseline (wired into weatherCurve below). installMonth == null resolves to
+        // JamaicaClimatology.ANNUAL_AVERAGE, whose solarResourceFactor is exactly 1.0, so this is
+        // additive: every existing caller that never set an install month sees byte-identical
+        // pshScale to before this line, same guarantee installMonth's own doc above already makes.
+        val pshScale = config.pshHours / effectiveCurveSunHours * JamaicaClimatology.profileFor(installMonth).solarResourceFactor
 
         val steps = ((durationHours * 60) / resolutionMinutes).toInt()
         val frames = ArrayList<SimFrame>(steps + 1)

@@ -15,6 +15,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -34,7 +36,16 @@ fun SiteDetailScreen(
     onBack: () -> Unit
 ) {
     val palette = LocalLumixPalette.current
-    val site = viewModel.getSite(siteId)
+    // 2026-08-18 audit fix: viewModel.getSite(id) reads a synchronous, non-reactive cache that's
+    // only populated once the ViewModel's own Room Flow collection has emitted at least once —
+    // on a cold app start restored directly to this screen (e.g. after Android kills the process
+    // and the user returns via Recents), reading it here as a plain function call could return
+    // null before that first emission arrives, and — because nothing this composable reads was
+    // reactive — the screen would recompose. Deriving from the already-reactive savedSites
+    // StateFlow instead means this screen updates the instant the real data arrives, same as
+    // SolarSiteEntryScreen's own list already does.
+    val savedSites by viewModel.savedSites.collectAsState()
+    val site = savedSites.find { it.id == siteId }
 
     Scaffold(
         topBar = {
