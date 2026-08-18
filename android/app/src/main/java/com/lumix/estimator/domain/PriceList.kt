@@ -4,44 +4,49 @@ import kotlinx.serialization.Serializable
 
 /**
  * A51: prices for the new real, named equipment models ([Catalog], backed by [EquipmentSpecs])
- * are placeholder values — "just put some random price, I will update the prices in settings
- * when created" (2026-08-13). Every field below is editable in Settings ([PriceFields]); nothing
- * here should be read as an actual quoted JMD figure until the project owner fills it in.
+ * started out as placeholder values — "just put some random price, I will update the prices in
+ * settings when created" (2026-08-13). 2026-08-18 ("for any inverter or component that doesn't
+ * have a price leave blank with option to edit and enter price") replaced every one of those
+ * still-unpriced placeholders with a real `Double? = null` — the exact rule the A89 master prompt
+ * itself already stated twice ("NEVER INVENT A PRICE. A BLANK PRICE MUST ALWAYS REMAIN BLANK
+ * UNTIL THE INSTALLER ENTERS IT. ESPECIALLY FOR INVERTERS") but had only actually been applied to
+ * [deliveryTollJmd] before this round. See [PriceFields.nullableAll] for the Settings-editable
+ * blank/enter-a-price UI these now render through.
  */
 @Serializable
 data class PriceList(
-    // A89/Ph21: Deye 6k, LuxPower 12k/13k and SRNE 6k/8k/10k below now carry the price-list
+    // A89/Ph21: Deye 6k, LuxPower 12k/13k and SRNE 6k/8k/10k below carry the price-list
     // spreadsheet's real JMD figures (Solar_Installer_Price_List_Template_2.xlsx) as their
     // defaults — see the matching EquipmentSpecs.kt model-string reconciliation ("USE THE LATEST
-    // ONE WITH THE LATEST PRICE"). Every other field in this file is still the pre-existing
-    // placeholder pattern from A51's own doc above until real prices for those items arrive.
+    // ONE WITH THE LATEST PRICE"). Every other inverter/battery/misc field below is nullable —
+    // no real price has ever been given for these — and starts blank, per this file's own top doc.
     val inverterDeye6k: Double = 230000.0,
-    val inverterDeye8k: Double = 340000.0,
-    val inverterGrowatt10k: Double = 420000.0,
+    val inverterDeye8k: Double? = null,
+    val inverterGrowatt10k: Double? = null,
     val inverterLuxpowerLxpLb12k: Double = 300000.0,
     val inverterLuxpowerGenLb13k: Double = 340000.0,
 
-    // MANUAL-only (partially verified / needs verification) inverters — same placeholder pattern.
-    val inverterLuxpowerGenLb6k: Double = 260000.0,
-    val inverterLuxpowerGenLb8k: Double = 340000.0,
-    val inverterLuxpowerGenLb10k: Double = 420000.0,
+    // MANUAL-only (partially verified / needs verification) inverters — no real price given yet.
+    val inverterLuxpowerGenLb6k: Double? = null,
+    val inverterLuxpowerGenLb8k: Double? = null,
+    val inverterLuxpowerGenLb10k: Double? = null,
     val inverterSrneHesp4to6_5k: Double = 190000.0,
     val inverterSrneHesp8k: Double = 275000.0,
     val inverterSrneHesp10k: Double = 300000.0,
-    val inverterSrneHesp12k: Double = 500000.0,
-    val inverterGrowattSph8k: Double = 340000.0,
+    val inverterSrneHesp12k: Double? = null,
+    val inverterGrowattSph8k: Double? = null,
 
-    val inverterGridTie15k: Double = 450000.0,
+    val inverterGridTie15k: Double? = null,
 
-    val inverterOffgrid3k72: Double = 72000.0,
-    val inverterOffgrid3k78: Double = 78000.0,
-    val inverterOffgrid3_2kPowmr: Double = 100000.0,
-    val chargeController80A: Double = 35000.0,
+    val inverterOffgrid3k72: Double? = null,
+    val inverterOffgrid3k78: Double? = null,
+    val inverterOffgrid3_2kPowmr: Double? = null,
+    val chargeController80A: Double? = null,
 
-    // A89/Ph21: 5/10/15/16 kWh prices now match the price-list spreadsheet's BAT-5/10/15/16 rows
-    // (JMD 155,000/290,000/310,000/325,000). No spreadsheet row exists for 20 kWh — batteryLFP20k
-    // below stays the pre-existing placeholder, per this round's scope decision not to touch
-    // fields the new spreadsheet simply doesn't mention.
+    // A89/Ph21: 5/10/15/16 kWh prices match the price-list spreadsheet's BAT-5/10/15/16 rows
+    // (JMD 155,000/290,000/310,000/325,000). No spreadsheet row exists for 20 kWh, a custom-per-kWh
+    // rate, or the AGM class below — no real price has been given for any of those three, so they
+    // stay blank rather than carry a guessed figure.
     val batteryLFP5k: Double = 155000.0,
     val batteryLFP10k: Double = 290000.0,
     val batteryLFP15k: Double = 310000.0,
@@ -50,11 +55,11 @@ data class PriceList(
     // MANUAL-only nominal-capacity classes (same "class label, not a matched real product" costing
     // pattern the existing 5/10/15 fields already use — see Catalog.kt's own doc on this).
     val batteryLFP16k: Double = 325000.0,
-    val batteryLFP20k: Double = 680000.0,
-    /** Placeholder $/kWh rate for MANUAL mode's custom battery-capacity field — installer enters any kWh figure and a count; cost = kWh x count x this rate. */
-    val batteryLFPCustomPerKwh: Double = 34000.0,
+    val batteryLFP20k: Double? = null,
+    /** $/kWh rate for MANUAL mode's custom battery-capacity field — installer enters any kWh figure and a count; cost = kWh x count x this rate. No real rate given yet. */
+    val batteryLFPCustomPerKwh: Double? = null,
 
-    val batteryAGM12V: Double = 45000.0,
+    val batteryAGM12V: Double? = null,
 
     // A89/Ph21: panel prices now match the price-list spreadsheet's Panels sheet exactly
     // (P595/P615/P620/P700/P720 rows).
@@ -83,8 +88,8 @@ data class PriceList(
     // red/black(/ground) material lines at the same per-ft rate rather than duplicating fields.
     val pvWirePerFt: Double = 100.0,
     val ac10mmPerFt: Double = 100.0,
-    /** Off-grid-only AC wiring — no spreadsheet counterpart (out of this round's scope), unchanged from its pre-existing placeholder; [MaterialTakeoffEngine] keeps off-grid's own AC wire path separate from the spreadsheet-driven hybrid/grid-tie bundle above. */
-    val ac6mmPerFt: Double = 100.0,
+    /** Off-grid-only AC wiring — no spreadsheet counterpart, and no real rate given yet, so this stays blank rather than carry a guessed figure; [MaterialTakeoffEngine] keeps off-grid's own AC wire path separate from the spreadsheet-driven hybrid/grid-tie bundle above. */
+    val ac6mmPerFt: Double? = null,
 
     // A89/Ph21: DC string protection (breaker/fuse by amperage tier) and PV combiner/DIN
     // selection — new, from the spreadsheet's Protection rows. Selected by
@@ -146,9 +151,10 @@ data class PriceList(
     val deliveryBaseChargeJmd: Double = 18000.0,
     val deliveryBaselineDistanceKm: Double = 28.0,
     /**
-     * The ONE genuinely nullable price in this file (spreadsheet's own DEL-TOLL row is blank —
-     * "use current official rate"). Null means exactly what the master prompt requires: any quote
-     * whose route crosses a toll cannot be finalized until the installer enters this — see
+     * The first genuinely nullable price in this file, and the pattern every other nullable field
+     * below now follows (spreadsheet's own DEL-TOLL row is blank — "use current official rate").
+     * Null means exactly what the master prompt requires: any quote whose route crosses a toll
+     * cannot be finalized until the installer enters this — see
      * [QuoteResult.missingPriceItems]/[QuoteResult.canFinalize]. Never defaulted to 0 or any
      * invented figure.
      */
@@ -197,37 +203,38 @@ data class PriceFieldSpec(
     val suffix: String = "J$"
 )
 
+/**
+ * 2026-08-18 ("leave blank with option to edit and enter price"): the nullable counterpart of
+ * [PriceFieldSpec], for every price this file has no real figure for yet. [get] returns null when
+ * blank; the Settings UI ([com.lumix.estimator.ui.settings.SettingsScreen]) renders that as an
+ * empty, editable field rather than a guessed "0" — and [SystemCalculator]'s existing
+ * [QuoteResult.missingPriceItems]/[MaterialLine.hasPrice] machinery (built in A89 for
+ * [PriceList.deliveryTollJmd], the first field this pattern was used for) already treats a null
+ * price as "flag this quote, don't invent a cost" with no further wiring needed here.
+ */
+data class NullablePriceFieldSpec(
+    val key: String,
+    val label: String,
+    val group: String,
+    val get: (PriceList) -> Double?,
+    val set: (PriceList, Double?) -> PriceList,
+    val suffix: String = "J$"
+)
+
 object PriceFields {
     val all: List<PriceFieldSpec> = listOf(
         PriceFieldSpec("inverterDeye6k", "Deye SUN-6K-SG02LP2-US (needs verification)", "Hybrid Inverters (Verified)", { it.inverterDeye6k }, { p, v -> p.copy(inverterDeye6k = v) }),
-        PriceFieldSpec("inverterDeye8k", "Deye SUN-8K-SG01LP1-US", "Hybrid Inverters (Verified)", { it.inverterDeye8k }, { p, v -> p.copy(inverterDeye8k = v) }),
-        PriceFieldSpec("inverterGrowatt10k", "Growatt SPH 10000TL-HU-US", "Hybrid Inverters (Verified)", { it.inverterGrowatt10k }, { p, v -> p.copy(inverterGrowatt10k = v) }),
         PriceFieldSpec("inverterLuxpowerLxpLb12k", "LuxPower SNA-US 12K (needs verification)", "Hybrid Inverters (Verified)", { it.inverterLuxpowerLxpLb12k }, { p, v -> p.copy(inverterLuxpowerLxpLb12k = v) }),
         PriceFieldSpec("inverterLuxpowerGenLb13k", "LuxPower LXP-LB-US 12K/13K (needs verification)", "Hybrid Inverters (Verified)", { it.inverterLuxpowerGenLb13k }, { p, v -> p.copy(inverterLuxpowerGenLb13k = v) }),
 
-        PriceFieldSpec("inverterLuxpowerGenLb6k", "LuxPower GEN-LB-US 6K (partially verified)", "Hybrid Inverters (Manual only)", { it.inverterLuxpowerGenLb6k }, { p, v -> p.copy(inverterLuxpowerGenLb6k = v) }),
-        PriceFieldSpec("inverterLuxpowerGenLb8k", "LuxPower GEN-LB-US 8K (partially verified)", "Hybrid Inverters (Manual only)", { it.inverterLuxpowerGenLb8k }, { p, v -> p.copy(inverterLuxpowerGenLb8k = v) }),
-        PriceFieldSpec("inverterLuxpowerGenLb10k", "LuxPower GEN-LB-US 10K (partially verified)", "Hybrid Inverters (Manual only)", { it.inverterLuxpowerGenLb10k }, { p, v -> p.copy(inverterLuxpowerGenLb10k = v) }),
         PriceFieldSpec("inverterSrneHesp4to6_5k", "SRNE ASF4860U80-H (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp4to6_5k }, { p, v -> p.copy(inverterSrneHesp4to6_5k = v) }),
         PriceFieldSpec("inverterSrneHesp8k", "SRNE ASF4880S180-H (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp8k }, { p, v -> p.copy(inverterSrneHesp8k = v) }),
         PriceFieldSpec("inverterSrneHesp10k", "SRNE HES48100U200-H (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp10k }, { p, v -> p.copy(inverterSrneHesp10k = v) }),
-        PriceFieldSpec("inverterSrneHesp12k", "SRNE HESP 12K-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp12k }, { p, v -> p.copy(inverterSrneHesp12k = v) }),
-        PriceFieldSpec("inverterGrowattSph8k", "Growatt SPH 8000TL-HU-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterGrowattSph8k }, { p, v -> p.copy(inverterGrowattSph8k = v) }),
-
-        PriceFieldSpec("inverterGridTie15k", "15000W Grid-tie 3-phase", "Grid-tie Inverters", { it.inverterGridTie15k }, { p, v -> p.copy(inverterGridTie15k = v) }),
-
-        PriceFieldSpec("inverterOffgrid3k72", "3000W Off-grid 12V (72k)", "Off-grid Inverters", { it.inverterOffgrid3k72 }, { p, v -> p.copy(inverterOffgrid3k72 = v) }),
-        PriceFieldSpec("inverterOffgrid3k78", "3000W Off-grid 12V (78k)", "Off-grid Inverters", { it.inverterOffgrid3k78 }, { p, v -> p.copy(inverterOffgrid3k78 = v) }),
-        PriceFieldSpec("inverterOffgrid3_2kPowmr", "3200W Off-grid PowMr 24V", "Off-grid Inverters", { it.inverterOffgrid3_2kPowmr }, { p, v -> p.copy(inverterOffgrid3_2kPowmr = v) }),
-        PriceFieldSpec("chargeController80A", "80A MPPT charge controller", "Off-grid Inverters", { it.chargeController80A }, { p, v -> p.copy(chargeController80A = v) }),
 
         PriceFieldSpec("batteryLFP5k", "5 kWh LiFePO4 (SRNE SR-EOS05B)", "Batteries", { it.batteryLFP5k }, { p, v -> p.copy(batteryLFP5k = v) }),
         PriceFieldSpec("batteryLFP10k", "10 kWh LiFePO4 (SRNE SR-EOS10B)", "Batteries", { it.batteryLFP10k }, { p, v -> p.copy(batteryLFP10k = v) }),
         PriceFieldSpec("batteryLFP15k", "15 kWh LiFePO4 (SRNE SR-EOS15B)", "Batteries", { it.batteryLFP15k }, { p, v -> p.copy(batteryLFP15k = v) }),
         PriceFieldSpec("batteryLFP16k", "16 kWh LiFePO4 (Manual only)", "Batteries", { it.batteryLFP16k }, { p, v -> p.copy(batteryLFP16k = v) }),
-        PriceFieldSpec("batteryLFP20k", "20 kWh LiFePO4 (Manual only)", "Batteries", { it.batteryLFP20k }, { p, v -> p.copy(batteryLFP20k = v) }),
-        PriceFieldSpec("batteryLFPCustomPerKwh", "Custom-capacity LiFePO4 (per kWh)", "Batteries", { it.batteryLFPCustomPerKwh }, { p, v -> p.copy(batteryLFPCustomPerKwh = v) }),
-        PriceFieldSpec("batteryAGM12V", "12V AGM battery (~2.4kWh)", "Batteries", { it.batteryAGM12V }, { p, v -> p.copy(batteryAGM12V = v) }),
 
         PriceFieldSpec("panel595W", "595W PV panel (JA Solar JAM72D40-GB)", "Panels", { it.panel595W }, { p, v -> p.copy(panel595W = v) }),
         PriceFieldSpec("panel615W", "615W PV panel (DAS DH156NA)", "Panels", { it.panel615W }, { p, v -> p.copy(panel615W = v) }),
@@ -247,7 +254,6 @@ object PriceFields {
 
         PriceFieldSpec("pvWirePerFt", "PV DC wire, red or black (per ft, #10 AWG)", "Wiring", { it.pvWirePerFt }, { p, v -> p.copy(pvWirePerFt = v) }),
         PriceFieldSpec("ac10mmPerFt", "AC wire, red/black/ground (per ft, 10mm)", "Wiring", { it.ac10mmPerFt }, { p, v -> p.copy(ac10mmPerFt = v) }),
-        PriceFieldSpec("ac6mmPerFt", "6mm single wire, off-grid only (per ft)", "Wiring", { it.ac6mmPerFt }, { p, v -> p.copy(ac6mmPerFt = v) }),
         PriceFieldSpec("groundWirePerFt", "Grounding wire (per ft)", "Wiring", { it.groundWirePerFt }, { p, v -> p.copy(groundWirePerFt = v) }),
 
         PriceFieldSpec("dcProtection15A", "DC breaker/fuse 15A", "DC & AC Protection", { it.dcProtection15A }, { p, v -> p.copy(dcProtection15A = v) }),
@@ -285,10 +291,7 @@ object PriceFields {
         PriceFieldSpec("miscAllowance", "Misc. allowance (screws, silicone)", "Enclosures & Conduit", { it.miscAllowance }, { p, v -> p.copy(miscAllowance = v) }),
 
         // A89/Ph21: delivery pricing infrastructure — see DeliveryCalculator.kt. deliveryTollJmd
-        // is deliberately NOT listed here (it's nullable — "Price not entered" until the installer
-        // supplies the current official toll rate — and this generic Double-only field list has no
-        // nullable-aware Settings UI yet; still a domain-layer-settable field, just not wired into
-        // this particular list this round, per "do not redesign the UI during this phase").
+        // is NOT listed here — it's nullable, see nullableAll below.
         PriceFieldSpec("deliveryBaseChargeJmd", "Delivery baseline (Junction -> Santa Cruz, 28km)", "Delivery", { it.deliveryBaseChargeJmd }, { p, v -> p.copy(deliveryBaseChargeJmd = v) }),
 
         // A79 (spec Phase 16, §40 "Labour rates" / "Tax settings"): the only two percentage-typed
@@ -297,5 +300,38 @@ object PriceFields {
         PriceFieldSpec("taxRatePercent", "Tax/fees rate (% of post-discount subtotal)", "Business Rates", { it.taxRatePercent }, { p, v -> p.copy(taxRatePercent = v) }, suffix = "%")
     )
 
+    /**
+     * 2026-08-18 ("for any inverter or component that doesn't have a price leave blank with option
+     * to edit and enter price"): every price this file has no real figure for, rendered by the
+     * Settings screen as its own blank-until-entered group, separate from [all] above so the two
+     * lists' differing get/set signatures (`Double` vs `Double?`) never have to unify into one.
+     */
+    val nullableAll: List<NullablePriceFieldSpec> = listOf(
+        NullablePriceFieldSpec("inverterDeye8k", "Deye SUN-8K-SG01LP1-US", "Hybrid Inverters (Verified)", { it.inverterDeye8k }, { p, v -> p.copy(inverterDeye8k = v) }),
+        NullablePriceFieldSpec("inverterGrowatt10k", "Growatt SPH 10000TL-HU-US", "Hybrid Inverters (Verified)", { it.inverterGrowatt10k }, { p, v -> p.copy(inverterGrowatt10k = v) }),
+
+        NullablePriceFieldSpec("inverterLuxpowerGenLb6k", "LuxPower GEN-LB-US 6K (partially verified)", "Hybrid Inverters (Manual only)", { it.inverterLuxpowerGenLb6k }, { p, v -> p.copy(inverterLuxpowerGenLb6k = v) }),
+        NullablePriceFieldSpec("inverterLuxpowerGenLb8k", "LuxPower GEN-LB-US 8K (partially verified)", "Hybrid Inverters (Manual only)", { it.inverterLuxpowerGenLb8k }, { p, v -> p.copy(inverterLuxpowerGenLb8k = v) }),
+        NullablePriceFieldSpec("inverterLuxpowerGenLb10k", "LuxPower GEN-LB-US 10K (partially verified)", "Hybrid Inverters (Manual only)", { it.inverterLuxpowerGenLb10k }, { p, v -> p.copy(inverterLuxpowerGenLb10k = v) }),
+        NullablePriceFieldSpec("inverterSrneHesp12k", "SRNE HESP 12K-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp12k }, { p, v -> p.copy(inverterSrneHesp12k = v) }),
+        NullablePriceFieldSpec("inverterGrowattSph8k", "Growatt SPH 8000TL-HU-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterGrowattSph8k }, { p, v -> p.copy(inverterGrowattSph8k = v) }),
+
+        NullablePriceFieldSpec("inverterGridTie15k", "15000W Grid-tie 3-phase", "Grid-tie Inverters", { it.inverterGridTie15k }, { p, v -> p.copy(inverterGridTie15k = v) }),
+
+        NullablePriceFieldSpec("inverterOffgrid3k72", "3000W Off-grid 12V (72k)", "Off-grid Inverters", { it.inverterOffgrid3k72 }, { p, v -> p.copy(inverterOffgrid3k72 = v) }),
+        NullablePriceFieldSpec("inverterOffgrid3k78", "3000W Off-grid 12V (78k)", "Off-grid Inverters", { it.inverterOffgrid3k78 }, { p, v -> p.copy(inverterOffgrid3k78 = v) }),
+        NullablePriceFieldSpec("inverterOffgrid3_2kPowmr", "3200W Off-grid PowMr 24V", "Off-grid Inverters", { it.inverterOffgrid3_2kPowmr }, { p, v -> p.copy(inverterOffgrid3_2kPowmr = v) }),
+        NullablePriceFieldSpec("chargeController80A", "80A MPPT charge controller", "Off-grid Inverters", { it.chargeController80A }, { p, v -> p.copy(chargeController80A = v) }),
+
+        NullablePriceFieldSpec("batteryLFP20k", "20 kWh LiFePO4 (Manual only)", "Batteries", { it.batteryLFP20k }, { p, v -> p.copy(batteryLFP20k = v) }),
+        NullablePriceFieldSpec("batteryLFPCustomPerKwh", "Custom-capacity LiFePO4 (per kWh)", "Batteries", { it.batteryLFPCustomPerKwh }, { p, v -> p.copy(batteryLFPCustomPerKwh = v) }),
+        NullablePriceFieldSpec("batteryAGM12V", "12V AGM battery (~2.4kWh)", "Batteries", { it.batteryAGM12V }, { p, v -> p.copy(batteryAGM12V = v) }),
+
+        NullablePriceFieldSpec("ac6mmPerFt", "6mm single wire, off-grid only (per ft)", "Wiring", { it.ac6mmPerFt }, { p, v -> p.copy(ac6mmPerFt = v) }),
+
+        NullablePriceFieldSpec("deliveryTollJmd", "Toll charge (route crosses a toll)", "Delivery", { it.deliveryTollJmd }, { p, v -> p.copy(deliveryTollJmd = v) })
+    )
+
     val groups: List<String> = all.map { it.group }.distinct()
+    val nullableGroups: List<String> = nullableAll.map { it.group }.distinct()
 }

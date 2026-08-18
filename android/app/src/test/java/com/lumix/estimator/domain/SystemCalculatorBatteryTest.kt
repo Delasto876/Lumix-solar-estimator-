@@ -8,9 +8,14 @@ import org.junit.Test
  * a custom field to add the capacity and it ties into the calculation", 2026-08-14) — previously
  * only 5/10/15 kWh tiers existed in [com.lumix.estimator.ui.wizard.steps.StepBatteryBank]. Verifies
  * the new 16kWh/20kWh tiers and the custom-capacity/count field actually flow into
- * [QuoteResult.totalBatteryKwh] and the priced materials list, using [PriceList.DEFAULT]'s own
- * placeholder prices so the expected numbers are exact and hand-computable (215000 + 420000 +
- * 520000 + 555000 + 680000 + 8kWh x2 units x34000/kWh = 2,934,000; totalKwh = 5+10+15+16+20+16 = 82).
+ * [QuoteResult.totalBatteryKwh] and the priced materials list.
+ *
+ * 2026-08-18 ("leave blank with option to edit and enter price"): [PriceList.batteryLFP20k]/
+ * [PriceList.batteryLFPCustomPerKwh] are now nullable (no real price given yet) and default to
+ * null — the 20kWh and custom lines below correctly contribute 0 to [MaterialLine.subtotal] and
+ * surface in [QuoteResult.missingPriceItems] rather than pricing at an invented figure. Only
+ * 5/10/15/16 kWh have real prices (155,000/290,000/310,000/325,000 — [PriceList.DEFAULT]'s own
+ * A89 spreadsheet-sourced figures), so the priced-total assertion below only covers those four.
  */
 class SystemCalculatorBatteryTest {
 
@@ -34,10 +39,20 @@ class SystemCalculatorBatteryTest {
     }
 
     @Test
-    fun `each tier prices at its own placeholder rate, custom priced per kWh`() {
+    fun `the four priced tiers sum to their real spreadsheet total, blank tiers contribute zero`() {
         val result = SystemCalculator.calculate(manualHybridInputs(), PriceList.DEFAULT)
         val batteryCost = result.materials.filter { it.name.contains("LiFePO4") }.sumOf { it.subtotal }
-        assertEquals(2_934_000.0, batteryCost, 1.0)
+        // 155,000 (5k) + 290,000 (10k) + 310,000 (15k) + 325,000 (16k) = 1,080,000. The 20kWh and
+        // custom-per-kWh lines have no real price (null) so their subtotal is 0, not an invented figure.
+        assertEquals(1_080_000.0, batteryCost, 1.0)
+    }
+
+    @Test
+    fun `blank 20kWh and custom battery prices are surfaced as missing, not invented`() {
+        val result = SystemCalculator.calculate(manualHybridInputs(), PriceList.DEFAULT)
+        assertEquals(false, result.canFinalize)
+        val batteryLines = result.materials.filter { it.name.contains("LiFePO4") && !it.hasPrice }
+        assertEquals(2, batteryLines.size)
     }
 
     @Test

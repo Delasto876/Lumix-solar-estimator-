@@ -88,6 +88,7 @@ object QuoteHtmlGenerator {
             append("<tr><td>Materials total</td><td>${formatCurrency(result.materialsTotal)}</td></tr>")
             append("<tr><td>Service$servicePercentLabel</td><td>${formatCurrency(result.serviceCharge)}</td></tr>")
             append("<tr><td>Delivery</td><td>${formatCurrency(result.deliveryCharge)}</td></tr>")
+            append("<tr><td>Installation &amp; Commissioning</td><td>${formatCurrency(result.installationCommissioningCharge)}</td></tr>")
             append("<tr><td>Subtotal</td><td>${formatCurrency(result.subtotalBeforeDiscount)}</td></tr>")
             append("<tr><td>Discount</td><td>-${formatCurrency(result.discountAmount)}</td></tr>")
             append("<tr><td>Tax/fees</td><td>${formatCurrency(result.taxAmount)}</td></tr>")

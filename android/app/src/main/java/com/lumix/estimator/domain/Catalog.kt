@@ -10,13 +10,14 @@ data class InverterOption(
     val name: String,
     val kw: Double,
     val mode: SystemMode,
-    val price: (PriceList) -> Double
+    /** 2026-08-18: nullable — several catalog inverters have no real price entered yet (see PriceList's own doc); [SystemCalculator] passes this straight into a [MaterialLine], whose existing null-price handling flags it rather than inventing a figure. */
+    val price: (PriceList) -> Double?
 )
 
 data class BatteryOption(
     val name: String,
     val kwh: Double,
-    val price: (PriceList) -> Double
+    val price: (PriceList) -> Double?
 )
 
 /**

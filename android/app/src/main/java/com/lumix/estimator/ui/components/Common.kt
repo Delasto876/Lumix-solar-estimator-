@@ -219,6 +219,48 @@ fun NumberField(
     )
 }
 
+/**
+ * 2026-08-18 ("leave blank with option to edit and enter price"): the nullable counterpart of
+ * [NumberField] — renders an empty field when [value] is null (never a guessed "0") and calls
+ * [onValueChange] with null the moment the installer clears the field back to empty, so a price
+ * can be un-entered as easily as it was entered.
+ */
+@Composable
+fun NullableNumberField(
+    label: String,
+    value: Double?,
+    onValueChange: (Double?) -> Unit,
+    modifier: Modifier = Modifier,
+    allowDecimal: Boolean = true,
+    allowNegative: Boolean = false,
+    suffix: String? = null,
+    supportingText: String? = "Price not entered — quotes using this item will be flagged until you enter one."
+) {
+    var text by remember(value) { mutableStateOf(value?.let { formatEditable(it) } ?: "") }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { input ->
+            val sanitized = input.filterIndexed { index, c ->
+                c.isDigit() || (c == '.' && allowDecimal) || (c == '-' && allowNegative && index == 0)
+            }
+            text = sanitized
+            onValueChange(sanitized.toDoubleOrNull())
+        },
+        label = { Text(label) },
+        placeholder = { Text("Not entered") },
+        suffix = suffix?.let { { Text(it) } },
+        singleLine = true,
+        isError = value == null,
+        supportingText = if (value == null) supportingText?.let { { Text(it) } } else null,
+        shape = RoundedCornerShape(LumixRadius.sm),
+        colors = lumixFieldColors(),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = if (allowDecimal) KeyboardType.Decimal else KeyboardType.Number
+        ),
+        modifier = modifier.fillMaxWidth()
+    )
+}
+
 @Composable
 fun IntField(
     label: String,

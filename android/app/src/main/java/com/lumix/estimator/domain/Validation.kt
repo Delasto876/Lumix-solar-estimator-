@@ -35,6 +35,7 @@ object Validation {
             errors += "Discount value can't be negative."
         }
         if (input.deliveryCharge < 0) errors += "Delivery charge can't be negative."
+        if (input.installationCommissioningCharge < 0) errors += "Installation & commissioning charge can't be negative."
         return errors
     }
 }

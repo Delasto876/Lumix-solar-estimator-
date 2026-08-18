@@ -307,6 +307,12 @@ data class QuoteInputs(
 
     val budgetBand: String = "none",
     val deliveryCharge: Double = 0.0,
+    /**
+     * 2026-08-18 ("i will manually enter the cost for installation and commission"): the same
+     * always-manual pattern [deliveryCharge] already uses — never computed/estimated from system
+     * size or any other figure, always the installer's own typed amount.
+     */
+    val installationCommissioningCharge: Double = 0.0,
     // A57 (spec §11): the separate "discount price list" toggle this field used to drive was
     // removed — one price list, discount applied via discountType/discountValue only. Field
     // itself is gone too (kotlinx.serialization's ignoreUnknownKeys=true means older saved quotes

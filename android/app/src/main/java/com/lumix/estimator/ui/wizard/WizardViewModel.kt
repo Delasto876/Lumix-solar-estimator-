@@ -99,9 +99,9 @@ class WizardViewModel(
     private fun designSteps(): List<Int> {
         val data = _inputs.value
         return when (data.quoteMode) {
-            QuoteMode.GUIDED -> listOf(3, 4, 5, 10, 11, 12)
-            QuoteMode.LOAD -> listOf(3, 4, 10, 12)
-            QuoteMode.MANUAL -> listOf(3, 4, 6, 7, 8, 9, 10, 12)
+            QuoteMode.GUIDED -> listOf(2, 3, 4, 5, 10, 11, 12)
+            QuoteMode.LOAD -> listOf(2, 3, 4, 10, 12)
+            QuoteMode.MANUAL -> listOf(2, 3, 4, 6, 7, 8, 9, 10, 12)
         }
     }
 

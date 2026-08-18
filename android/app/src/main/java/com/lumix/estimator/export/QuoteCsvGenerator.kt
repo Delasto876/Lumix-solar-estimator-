@@ -65,6 +65,7 @@ object QuoteCsvGenerator {
             appendLine(csvRow("Materials Total", "%.2f".format(result.materialsTotal)))
             appendLine(csvRow("Service$servicePercentLabel", "%.2f".format(result.serviceCharge)))
             appendLine(csvRow("Delivery", "%.2f".format(result.deliveryCharge)))
+            appendLine(csvRow("Installation & Commissioning", "%.2f".format(result.installationCommissioningCharge)))
             appendLine(csvRow("Subtotal", "%.2f".format(result.subtotalBeforeDiscount)))
             appendLine(csvRow("Discount", "-%.2f".format(result.discountAmount)))
             appendLine(csvRow("Tax/Fees", "%.2f".format(result.taxAmount)))

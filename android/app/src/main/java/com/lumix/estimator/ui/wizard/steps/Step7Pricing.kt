@@ -67,6 +67,14 @@ fun Step7Pricing(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -
                 onValueChange = { v -> onUpdate { it.copy(deliveryCharge = v) } },
                 modifier = Modifier.padding(top = 12.dp)
             )
+
+            NumberField(
+                label = "Installation & Commissioning charge (J$)",
+                value = inputs.installationCommissioningCharge,
+                // Same always-manual pattern as delivery above — never estimated from system size.
+                onValueChange = { v -> onUpdate { it.copy(installationCommissioningCharge = v) } },
+                modifier = Modifier.padding(top = 12.dp)
+            )
         }
 
         SectionCard(title = "Discount") {

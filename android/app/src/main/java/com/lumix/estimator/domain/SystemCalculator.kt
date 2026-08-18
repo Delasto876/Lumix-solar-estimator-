@@ -788,7 +788,7 @@ object SystemCalculator {
                     materials += MaterialLine(
                         "%.1fkWh LiFePO4 (custom)".format(input.manualBattCustomKwh),
                         input.manualBattCustomCount.toDouble(),
-                        input.manualBattCustomKwh * prices.batteryLFPCustomPerKwh
+                        prices.batteryLFPCustomPerKwh?.let { input.manualBattCustomKwh * it }
                     )
                 }
             } else if (effectiveSystemMode == SystemMode.OFFGRID && input.manualAgmCount > 0) {
@@ -870,7 +870,9 @@ object SystemCalculator {
             missingPriceItems += "Toll charge (route crosses a toll — enter the current official rate in Settings)"
         }
 
-        val preDiscountTotal = materialsTotal + serviceCharge + resolvedDeliveryCharge
+        // 2026-08-18 ("i will manually enter the cost for installation and commission"): same
+        // always-manual pattern as deliveryCharge above — never computed from system size.
+        val preDiscountTotal = materialsTotal + serviceCharge + resolvedDeliveryCharge + input.installationCommissioningCharge
 
         var discountAmount = when (input.discountType) {
             DiscountType.PERCENT -> preDiscountTotal * (input.discountValue / 100.0)
@@ -920,6 +922,7 @@ object SystemCalculator {
             materialsTotal = materialsTotal,
             serviceCharge = serviceCharge,
             deliveryCharge = resolvedDeliveryCharge,
+            installationCommissioningCharge = input.installationCommissioningCharge,
             subtotalBeforeDiscount = preDiscountTotal,
             discountAmount = discountAmount,
             taxAmount = taxAmount,

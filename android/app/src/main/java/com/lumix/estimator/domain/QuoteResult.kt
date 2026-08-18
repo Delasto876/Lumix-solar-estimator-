@@ -61,14 +61,16 @@ data class QuoteResult(
     val materialsTotal: Double,
     val serviceCharge: Double,
     val deliveryCharge: Double,
+    /** 2026-08-18 ("i will manually enter the cost for installation and commission"): same always-manual pattern as [deliveryCharge] — see [com.lumix.estimator.domain.QuoteInputs.installationCommissioningCharge]. */
+    val installationCommissioningCharge: Double = 0.0,
     /**
      * A78 (spec Phase 15 — "improve quote engine", §39 "Show: Original subtotal, Discount, Final
-     * subtotal..."): `materialsTotal + serviceCharge + deliveryCharge`, computed once here instead
-     * of every consumer (PDF/CSV/HTML/`ResultsScreen`) re-adding the same three fields itself —
-     * the same "computed twice, risks drift" pattern this codebase has fixed for other figures
-     * (see e.g. A72's `SystemDiagnostics` doc). Defaults to 0.0 for quotes saved before this field
-     * existed, which is a display-only backfill gap (nothing was ever computed wrong), not a real
-     * historical inaccuracy.
+     * subtotal..."): `materialsTotal + serviceCharge + deliveryCharge + installationCommissioningCharge`,
+     * computed once here instead of every consumer (PDF/CSV/HTML/`ResultsScreen`) re-adding the
+     * same fields itself — the same "computed twice, risks drift" pattern this codebase has fixed
+     * for other figures (see e.g. A72's `SystemDiagnostics` doc). Defaults to 0.0 for quotes saved
+     * before this field existed, which is a display-only backfill gap (nothing was ever computed
+     * wrong), not a real historical inaccuracy.
      */
     val subtotalBeforeDiscount: Double = 0.0,
     val discountAmount: Double,

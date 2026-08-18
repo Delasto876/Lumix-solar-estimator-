@@ -358,6 +358,9 @@ fun ResultsScreen(
                     SectionCard(title = "Cost") {
                         StatRow("Equipment", formatCurrency(result.materialsTotal), null)
                         StatRow("Installation", formatCurrency(installationCost), null)
+                        if (result.installationCommissioningCharge > 0) {
+                            StatRow("Installation & Commissioning", formatCurrency(result.installationCommissioningCharge), null)
+                        }
                         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                         StatRow("Subtotal", formatCurrency(result.subtotalBeforeDiscount), null)
                         if (result.discountAmount > 0) {

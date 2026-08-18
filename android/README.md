@@ -5921,3 +5921,94 @@ pinned 11.8.1 version's actual generated docs.
 Per the spec's own boundary ("this phase is specifically to fix and improve the MAP
 infrastructure"): PV/battery/inverter/MPPT sizing, PSH calculation logic itself, simulation physics,
 quotation/material-takeoff logic, and pricing were not modified anywhere in this round.
+
+## A91 — wizard mode-select navigation bug, manual install/commission charge, blank-until-entered pricing
+
+Three items from one message: "i will manually enter the cost for installation and commission and
+the cost for delivery and for any inverter or component that doesn't have a price leave blank with
+option to edit and enter price, also the create a quote is not working when i select the modes it
+does not go to the next step and continue to the next pages."
+
+### 1. Fixed: mode selection didn't advance ("create a quote is not working")
+Root cause: `WizardViewModel.designSteps()` (A88's rewrite) never included step 2 (the Design Mode
+picker) in any of the three per-mode step lists — only `listOf(3, 4, 5, 10, 11, 12)` etc. The
+wizard opens on step 2 by default, so `goNext()`'s `visible.indexOf(2)` was always `-1`, and its
+guard (`idx in 0 until visible.lastIndex`) silently did nothing on every "Continue" tap from that
+screen — selecting GUIDED/LOAD/MANUAL never moved past mode selection, for any mode, every time.
+Fixed by adding `2` to the front of all three `designSteps()` lists. A real regression, not a
+misunderstanding of intended behavior — this should have been caught before shipping A88.
+
+### 2. Installation & Commissioning: added as its own always-manual charge
+"Delivery" was already manual-only (A89 follow-up, 2026-08-18). Installation & Commissioning is a
+new, separate field following the exact same pattern: `QuoteInputs.installationCommissioningCharge`
+(Double, default 0.0, never computed from system size), a `Step7Pricing.kt` field next to Delivery,
+folded into `SystemCalculator`'s `preDiscountTotal`, and shown as its own line in
+`QuoteResult`/`ResultsScreen`/CSV/HTML/PDF — never merged into the existing "Installation" summary
+row (which is `serviceCharge + deliveryCharge`, an unrelated older figure) to avoid conflating an
+auto-computed labour rate with this new manually-typed charge.
+
+### 3. Blank-until-entered pricing, applied to every remaining placeholder
+The A89 master prompt already stated, twice, **"NEVER INVENT A PRICE. A BLANK PRICE MUST ALWAYS
+REMAIN BLANK UNTIL THE INSTALLER ENTERS IT. ESPECIALLY FOR INVERTERS."** That round only actually
+applied it to one field (`deliveryTollJmd`) and explicitly deferred the rest ("this generic
+Double-only field list has no nullable-aware Settings UI yet"). This round builds that UI and
+applies the rule everywhere it was still owed.
+
+**Which 16 fields changed, and how they were identified**: cross-referenced `PriceList.kt`'s own
+doc comments (which fields the A89 spreadsheet reconciliation actually gave a real JMD figure —
+Deye 6K, LuxPower 12K/13K, SRNE 6K/8K/10K inverters; 5/10/15/16 kWh batteries; panels; every
+spreadsheet-sourced material) against every field that comment identifies as still the pre-A89 A51
+"random placeholder" — never confirmed against README §8's explicit list of the spreadsheet's own
+blank "MODEL TO ENTER" rows (`inverterDeye8k`/`inverterGrowatt10k`/`inverterLuxpowerGenLb8k`/
+`inverterLuxpowerGenLb10k`) plus every inverter/battery/wiring field the spreadsheet never
+addressed at all (`inverterLuxpowerGenLb6k`, `inverterSrneHesp12k`, `inverterGrowattSph8k`,
+`inverterGridTie15k`, the three off-grid inverters, `chargeController80A`, `batteryLFP20k`,
+`batteryLFPCustomPerKwh`, `batteryAGM12V`, `ac6mmPerFt`). All 16 changed from a guessed
+`Double = <number>` default to `Double? = null`, matching `deliveryTollJmd`'s existing pattern
+exactly.
+
+**Architecture**: `NullablePriceFieldSpec` (mirrors `PriceFieldSpec`, `get`/`set` typed `Double?`)
+and `PriceFields.nullableAll`/`nullableGroups`, rendered by a new "Not Yet Priced" section in
+Settings via a new `NullableNumberField` component (`ui/components/Common.kt`) — blank when null,
+placeholder text "Not entered," an error-styled supporting caption explaining the quote-blocking
+consequence, and `onValueChange(null)` the instant the field is cleared back to empty so a price
+can be un-entered as easily as entered.
+
+**Zero new wiring needed downstream** — the missing-price pipeline this round's 16 fields now flow
+into (`MaterialLine.unitPrice: Double?`/`hasPrice`/`subtotal`, `QuoteResult.missingPriceItems`/
+`canFinalize`, and the "Price not entered" rendering already in `ResultsScreen`/CSV/HTML/PDF) was
+all built in A89 for exactly this purpose and needed no changes at all; only `InverterOption.price`/
+`BatteryOption.price` (`Catalog.kt`) changed signature to `(PriceList) -> Double?` to carry the
+nullability through, and one arithmetic call site (`SystemCalculator.kt`'s custom-battery line,
+`kWh × rate`) was rewritten null-safe since Kotlin won't multiply a `Double` by a `Double?` directly.
+
+**Real behavior change, disclosed rather than silent**: `SystemCalculator`'s existing MANUAL-mode
+"no inverter explicitly picked" fallback, and GUIDED/LOAD's `EquipmentSelectionEngine`, both select
+from `Catalog.hybridInverters` — which includes `inverterDeye8k`/`inverterGrowatt10k` (the two
+spreadsheet "MODEL TO ENTER" blanks). A perfectly ordinary quote sized to need an 8kW or 10kW
+hybrid inverter can now show "Price not entered" and fail to finalize where it previously showed a
+guessed number — the correct behavior per this round's instruction, but a real change in what a
+fresh install of this exact quote will do until those two prices are entered in Settings.
+
+**Existing-install prices unaffected**: `PriceRepository` decodes a saved price list from
+DataStore JSON with `ignoreUnknownKeys = true`; an installer who already has this app installed and
+already saved a `PriceList` (with the old guessed numbers still present for these 16 fields) keeps
+seeing those exact saved numbers after this update — only `PriceList.DEFAULT` (a fresh install, or
+"Reset prices to default") starts blank.
+
+### 4. Tests
+`SystemCalculatorBatteryTest.kt`'s "each tier prices at its own placeholder rate" test asserted a
+total (`2,934,000`) that was already stale against `PriceList.DEFAULT`'s real A89 battery figures
+before this round even started (the real pre-existing sum was 2,304,000, not 2,934,000 — a
+pre-existing, unrelated staleness bug this pass happened to surface, not something this round
+caused). Rewrote it to the correct real total for the four still-priced tiers (155,000 + 290,000 +
+310,000 + 325,000 = 1,080,000) with the 20kWh/custom lines correctly contributing 0, and added a new
+test confirming those same two lines surface via `missingPriceItems`/`canFinalize` rather than
+silently pricing at 0. A full sweep of every other test file for any assertion touching the 16
+changed fields (by field name and by catalog id) found none — MANUAL/OFFGRID scenarios in
+`MaterialTakeoffEngineTest.kt` and `SystemCalculatorRechargeAwareSizingTest.kt` only assert
+qty/count/kW figures, never price, from the inverters involved.
+
+No real compile — the standing sandbox limitation this entire session has run under. Verification
+was brace/paren balance checks on every touched file (all matched) and the test-file grep sweep
+described above.

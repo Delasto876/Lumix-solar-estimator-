@@ -71,6 +71,7 @@ import com.lumix.estimator.ui.components.CollapsibleSectionCard
 import com.lumix.estimator.ui.components.LabeledDropdown
 import com.lumix.estimator.ui.components.LargeTitleTopBar
 import com.lumix.estimator.ui.components.LumixSecondaryButton
+import com.lumix.estimator.ui.components.NullableNumberField
 import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixRadius
@@ -296,6 +297,39 @@ fun SettingsScreen(
                         onClick = { scope.launch { priceRepository.resetToDefault() } },
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+            }
+
+            item {
+                // 2026-08-18 ("for any inverter or component that doesn't have a price leave
+                // blank with option to edit and enter price"): a separate section from Materials
+                // & Pricing above — these fields genuinely have no real price yet (see PriceList's
+                // own doc), so they render blank rather than a guessed placeholder number, and a
+                // quote using one is flagged (QuoteResult.missingPriceItems) until entered here.
+                CollapsibleSectionCard(
+                    title = "Not Yet Priced",
+                    subtitle = "${PriceFields.nullableAll.size} items with no price entered yet"
+                ) {
+                    Text(
+                        "These have no real price yet — quotes using one of these are flagged as unable to finalize until you enter a price here.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.textSecondary
+                    )
+                    PriceFields.nullableGroups.forEach { group ->
+                        CollapsibleGroup(title = group) {
+                            PriceFields.nullableAll.filter { it.group == group }.forEach { field ->
+                                NullableNumberField(
+                                    label = field.label,
+                                    value = field.get(currentPrices),
+                                    onValueChange = { v ->
+                                        val updated = field.set(currentPrices, v)
+                                        scope.launch { priceRepository.update(updated) }
+                                    },
+                                    suffix = field.suffix
+                                )
+                            }
+                        }
+                    }
                 }
             }
 

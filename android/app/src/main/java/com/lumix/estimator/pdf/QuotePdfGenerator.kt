@@ -178,6 +178,7 @@ object QuotePdfGenerator {
         canvas.drawText("Materials total: ${formatCurrency(result.materialsTotal)}", MARGIN, y, bodyPaint); y += 14f
         canvas.drawText("Service$servicePercentLabel: ${formatCurrency(result.serviceCharge)}", MARGIN, y, bodyPaint); y += 14f
         canvas.drawText("Delivery: ${formatCurrency(result.deliveryCharge)}", MARGIN, y, bodyPaint); y += 14f
+        canvas.drawText("Installation & Commissioning: ${formatCurrency(result.installationCommissioningCharge)}", MARGIN, y, bodyPaint); y += 14f
         // A78 (spec Phase 15, §39 "Show: Original subtotal, Discount, Final subtotal, Tax/fees,
         // Grand total"): subtotalBeforeDiscount/taxAmount are the same fields SystemCalculator
         // already computed once — never re-added here from the three lines above.
