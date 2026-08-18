@@ -106,13 +106,13 @@ object MaterialTakeoffEngine {
                     // this replaces already used.
                     lines += MaterialLine("Expansion bolt M6/M8", (totalSets * 8 * 2).toDouble(), prices.m6m8Bolt)
                 }
-                RoofType.ZINC -> {
+                // A89/Ph21 follow-up (2026-08-18 — "shingle roof and zinc roof carrys the same
+                // rule"): SHINGLE now gets the identical 8-L-foot-per-set treatment as ZINC,
+                // fixing a pre-existing gap (the code this replaces never priced SHINGLE mounting
+                // at all).
+                RoofType.ZINC, RoofType.SHINGLE -> {
                     lines += MaterialLine("L-foot bracket", (totalRails * 4).toDouble(), prices.lFoot, "L_FOOT")
                 }
-                // SHINGLE: no spreadsheet/master-prompt rule exists for this roof type — pre-existing
-                // gap (the code this replaces never priced SHINGLE mounting either), not addressed
-                // this round; see the README's own disclosure.
-                RoofType.SHINGLE -> {}
             }
 
             // ---- PV DC wire bundle: 20ft red + 20ft black, flat default, all systems with panels ----
@@ -157,11 +157,20 @@ object MaterialTakeoffEngine {
         // pre-existing 6mm wiring path (untouched, computed in SystemCalculator directly — no
         // spreadsheet/master-prompt rule addresses off-grid AC wiring). ----
         if (input.effectiveSystemMode != SystemMode.OFFGRID) {
-            lines += MaterialLine("AC wire, red (10mm, ft)", 80.0, prices.ac10mmPerFt, "AC_RED")
-            lines += MaterialLine("AC wire, black (10mm, ft)", 80.0, prices.ac10mmPerFt, "AC_BLACK")
-            lines += MaterialLine("AC ground wire (10mm, ft)", 80.0, prices.ac10mmPerFt, "AC_GROUND")
-            // Master prompt: "1 for inverter output and one for jps input" — 2 breakers for a
-            // grid-interactive system (HYBRID/GRIDTIE both tie to JPS at the AC side).
+            // A89/Ph21 follow-up (2026-08-18): "if no Transfer switch use 30ft of the 10mm wire,
+            // if manual or automatic use 80ft of the wire" — footage now keyed to the same
+            // transfer-switch decision as the changeover switch/trunking below, replacing the old
+            // flat 80ft-regardless default.
+            val acWireFt = if (input.transferSwitchMode == TransferSwitchMode.NONE) 30.0 else 80.0
+            lines += MaterialLine("AC wire, red (10mm, ft)", acWireFt, prices.ac10mmPerFt, "AC_RED")
+            lines += MaterialLine("AC wire, black (10mm, ft)", acWireFt, prices.ac10mmPerFt, "AC_BLACK")
+            lines += MaterialLine("AC ground wire (10mm, ft)", acWireFt, prices.ac10mmPerFt, "AC_GROUND")
+            // A89/Ph21 follow-up: confirmed by the project owner — "that is hybrid logic where
+            // jps send power to inverter, it does not export to the grid, so both breakers is
+            // needed" (JPS feeds the inverter as an input/charging source, not a grid-export
+            // relationship) — 2 breakers for HYBRID/GRIDTIE, both of which tie to JPS at the AC
+            // side; GRIDTIE's own export-to-grid case wasn't explicitly addressed by that
+            // confirmation, so it's left unchanged here pending a follow-up check.
             lines += MaterialLine("AC breaker (inverter output)", 1.0, prices.acBreaker, "AC_BREAKER")
             lines += MaterialLine("AC breaker (JPS input)", 1.0, prices.acBreaker, "AC_BREAKER")
         } else {

@@ -284,10 +284,10 @@ class MaterialTakeoffEngineTest {
         assertEquals(20.0, line(result, "PV_BLACK").sumOf { it.qty }, 0.0)
     }
 
-    // ---- 14. AC wire bundle (80ft red/black/ground) for grid-interactive modes only ----
+    // ---- 14. AC wire bundle: 80ft when a transfer switch is selected, 30ft when none; off-grid excluded entirely ----
     @Test
-    fun `AC wire bundle defaults to 80ft red, black and ground for hybrid, not off-grid`() {
-        val hybrid = MaterialTakeoffEngine.compute(
+    fun `AC wire bundle is 80ft with a transfer switch, 30ft with none, and never appears for off-grid`() {
+        val withSwitch = MaterialTakeoffEngine.compute(
             MaterialTakeoffEngine.TakeoffInput(
                 panelW = 620, panelCount = 4, effectiveSystemMode = SystemMode.HYBRID,
                 roofType = RoofType.SLAB, inverter = deye6k, batteryModuleCount = 0,
@@ -296,9 +296,22 @@ class MaterialTakeoffEngineTest {
             ),
             PriceList.DEFAULT
         )
-        assertEquals(80.0, line(hybrid, "AC_RED").sumOf { it.qty }, 0.0)
-        assertEquals(80.0, line(hybrid, "AC_BLACK").sumOf { it.qty }, 0.0)
-        assertEquals(80.0, line(hybrid, "AC_GROUND").sumOf { it.qty }, 0.0)
+        assertEquals(80.0, line(withSwitch, "AC_RED").sumOf { it.qty }, 0.0)
+        assertEquals(80.0, line(withSwitch, "AC_BLACK").sumOf { it.qty }, 0.0)
+        assertEquals(80.0, line(withSwitch, "AC_GROUND").sumOf { it.qty }, 0.0)
+
+        val noSwitch = MaterialTakeoffEngine.compute(
+            MaterialTakeoffEngine.TakeoffInput(
+                panelW = 620, panelCount = 4, effectiveSystemMode = SystemMode.HYBRID,
+                roofType = RoofType.SLAB, inverter = deye6k, batteryModuleCount = 0,
+                transferSwitchMode = TransferSwitchMode.NONE, useVoltageRegulator = false,
+                use8WayDistributionPanel = false
+            ),
+            PriceList.DEFAULT
+        )
+        assertEquals(30.0, line(noSwitch, "AC_RED").sumOf { it.qty }, 0.0)
+        assertEquals(30.0, line(noSwitch, "AC_BLACK").sumOf { it.qty }, 0.0)
+        assertEquals(30.0, line(noSwitch, "AC_GROUND").sumOf { it.qty }, 0.0)
 
         val offgridInv = Catalog.offgridInverters.first()
         val offgrid = MaterialTakeoffEngine.compute(
@@ -311,6 +324,63 @@ class MaterialTakeoffEngineTest {
             PriceList.DEFAULT
         )
         assertTrue(line(offgrid, "AC_RED").isEmpty())
+    }
+
+    // ---- 14b. Shingle roof carries the same L-foot rule as zinc ----
+    @Test
+    fun `shingle roof gets the same 8-L-foot-per-set rule as zinc`() {
+        val shingle = MaterialTakeoffEngine.compute(
+            MaterialTakeoffEngine.TakeoffInput(
+                panelW = 620, panelCount = 4, effectiveSystemMode = SystemMode.HYBRID,
+                roofType = RoofType.SHINGLE, inverter = deye6k, batteryModuleCount = 0,
+                transferSwitchMode = TransferSwitchMode.AUTOMATIC, useVoltageRegulator = false,
+                use8WayDistributionPanel = false
+            ),
+            PriceList.DEFAULT
+        )
+        assertEquals(8.0, line(shingle, "L_FOOT").sumOf { it.qty }, 0.0)
+        assertTrue(line(shingle, "FRONT_LEG").isEmpty())
+        assertTrue(line(shingle, "BACK_LEG").isEmpty())
+    }
+
+    // ---- 14c. MC4 connectors: flat 4 pairs, all systems, at J$450/pair ----
+    @Test
+    fun `MC4 connectors are always 4 pairs at J450 per pair, regardless of string count`() {
+        val inputs = QuoteInputs(
+            quoteMode = QuoteMode.MANUAL, systemMode = SystemMode.HYBRID,
+            manualModeType = ManualModeType.PANEL_LED,
+            manualPanelWatts = 620, manualPanelCount = 4
+        )
+        val result = SystemCalculator.calculate(inputs, PriceList.DEFAULT)
+        val mc4 = result.materials.first { it.name == "MC4 connector pair" }
+        assertEquals(4.0, mc4.qty, 0.0)
+        assertEquals(450.0, mc4.unitPrice)
+    }
+
+    // ---- 14d. Battery interconnect cable/lugs are never quoted (batteries ship with their own) ----
+    @Test
+    fun `battery cable and lugs are never quoted as separate materials`() {
+        val inputs = QuoteInputs(
+            quoteMode = QuoteMode.MANUAL, systemMode = SystemMode.HYBRID,
+            manualModeType = ManualModeType.BATTERY_LED,
+            manualBatt10k = 1
+        )
+        val result = SystemCalculator.calculate(inputs, PriceList.DEFAULT)
+        assertTrue(result.materials.none { it.name.contains("battery cable", ignoreCase = true) })
+        assertTrue(result.materials.none { it.name.contains("battery lug", ignoreCase = true) })
+    }
+
+    // ---- 14e. Delivery is manual-entry only; never auto-computed from a distance formula ----
+    @Test
+    fun `delivery charge is always the installer's manual entry, never auto-computed`() {
+        val inputs = QuoteInputs(
+            quoteMode = QuoteMode.MANUAL, systemMode = SystemMode.HYBRID,
+            manualModeType = ManualModeType.PANEL_LED,
+            manualPanelWatts = 620, manualPanelCount = 4,
+            deliveryCharge = 12345.0
+        )
+        val result = SystemCalculator.calculate(inputs, PriceList.DEFAULT)
+        assertEquals(12345.0, result.deliveryCharge, 0.0)
     }
 
     // ---- 15. Quantity/price overrides at the quote level don't mutate the catalog price ----

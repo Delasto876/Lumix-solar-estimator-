@@ -5579,6 +5579,54 @@ correct and deterministic." Phase 20 (Installation/commissioning) and Phase 21 (
 distinct scope beyond this pricing/quotation work remains fully pending — the project owner said
 more material for those "I will upload shortly."
 
+### A89 follow-up (2026-08-18) — clarifications from the project owner
+
+A same-day batch of direct answers to open items from A89 above, applied as targeted fixes rather
+than a new lettered round. Supersedes the specific A89 claims noted below; the rest of the A89
+section stands.
+
+- **AC wire footage now keyed to the transfer-switch decision**, not a flat default: "if no
+  Transfer switch use 30ft of the 10mm wire, if manual or automatic use 80ft" —
+  `MaterialTakeoffEngine`'s AC red/black/ground bundle is now `30.0` when `TransferSwitchMode.NONE`,
+  `80.0` otherwise.
+- **Delivery is manual-entry only.** "Let me manually enter delivery price" — `SystemCalculator`
+  no longer calls `DeliveryCalculator` to compute/override `deliveryCharge`; the installer's own
+  `Step7Pricing` entry is used directly, every time. `DeliveryCalculator`'s proportional formula
+  stays built (unused for now) as the same "build now, activate later" seam already established
+  for a future routing API. `QuoteInputs.deliveryRouteDistanceKm`/`deliveryChargeManuallySet` — no
+  longer needed once delivery is always manual — were removed rather than left as dead fields.
+  Toll remains a separate, explicit ask (`deliveryIsTollRoute`), unaffected by this change.
+- **No inventory tracking.** "I do not stock inventory so do not include inventory" — recorded as
+  an explicit scope boundary for the still-pending Phase 21 (Inventory) upload: whatever that
+  phase turns out to need, it will not include stock/inventory-quantity tracking.
+- **MC4 connectors**: real price from the project owner, J$450/pair, and a flat 4 pairs on every
+  system regardless of string count — replaces the old $500 placeholder and the old
+  off-grid-vs-other-mode (4-vs-6) count split.
+- **Battery cable/lugs removed entirely** from the quote — "these batteries comes with their own
+  lugs and cable." `battCablePerFt`/`battLug` (`PriceList` fields, `PriceFieldSpec` entries, and
+  their `SystemCalculator` material lines) are gone, not just zeroed.
+- **Shingle roofs now carry the same rule as zinc** ("shingle roof and zinc roof carrys the same
+  rule") — 8 L-foot brackets per rail set. This fixes the pre-existing gap A89 explicitly flagged
+  (shingle roofs previously got no mounting hardware at all).
+- **AC breaker pair reasoning confirmed for HYBRID**: "that is hybrid logic where jps send power to
+  inverter, it does not export to the grid, so both breakers is needed" — JPS feeds the inverter as
+  a charging/backup input, not a grid-export relationship; both breakers (inverter output + JPS
+  input) stay for HYBRID/GRIDTIE, one for OFFGRID, as A89 already had. **Not yet confirmed**:
+  whether GRIDTIE — which, unlike HYBRID, explicitly *does* export to the grid — should follow this
+  same two-breaker reasoning or something else; flagged in code and left unchanged pending a
+  follow-up answer.
+- **Ground wire price corrected**: J$3,000/ft (the raw spreadsheet figure, already flagged in A89
+  as an outlier) → J$100/ft, the real rate, confirmed by the project owner.
+- Updated `MaterialTakeoffEngineTest.kt` with new/revised coverage for every rule above (AC wire
+  footage by transfer-switch mode, shingle roof, MC4 flat count/price, battery cable/lug absence,
+  delivery manual-entry passthrough).
+
+**Still open, not yet answered**: the GRIDTIE AC-breaker question above; the wizard UI questions
+themselves (transfer switch/voltage regulator/toll rate/delivery entry, distribution-panel
+selectable-to-8-way, material overrides) remain domain-only, no screen built yet, since none of
+this batch of answers changed the "don't redesign the UI this phase" boundary; Phase 20/21's own
+material is still pending upload.
+
 ## A88 — Phase 26: premium UI/UX redesign, mode workflow, home screen, mobile navigation
 
 UI/UX and workflow only, per the installer's own explicit "DO NOT CHANGE THE DETERMINISTIC

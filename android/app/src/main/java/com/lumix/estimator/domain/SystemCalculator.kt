@@ -11,7 +11,6 @@ import com.lumix.estimator.domain.simulation.defaultDailyEnergyKwh
 import com.lumix.estimator.domain.simulation.defaultEffectiveDailyHours
 import com.lumix.estimator.domain.simulation.WeatherEngine
 import com.lumix.estimator.domain.simulation.WeatherScenario
-import com.lumix.estimator.domain.pricing.DeliveryCalculator
 import com.lumix.estimator.domain.pricing.MaterialTakeoffEngine
 import kotlin.math.ceil
 import kotlin.math.max
@@ -745,27 +744,21 @@ object SystemCalculator {
         val totalBackLegs = if (input.roofType == RoofType.SLAB) rows * 4 else 0
         val totalFrontLegs = if (input.roofType == RoofType.SLAB) rows * 4 else 0
         val totalBolts = if (input.roofType == RoofType.SLAB) rows * 8 * 2 else 0
-        val totalLFoot = if (input.roofType == RoofType.ZINC) totalRails * 4 else 0
+        // A89/Ph21 follow-up (2026-08-18 — "shingle roof and zinc roof carrys the same rule"):
+        // SHINGLE now gets the same 8-L-foot-per-set treatment as ZINC, fixing a pre-existing gap
+        // (the code before this round only ever branched on SLAB/ZINC, leaving SHINGLE with no
+        // mounting hardware at all).
+        val totalLFoot = if (input.roofType == RoofType.ZINC || input.roofType == RoofType.SHINGLE) totalRails * 4 else 0
 
-        // No spreadsheet row for MC4 connectors (out of this round's scope) — a real necessary
-        // part, unchanged from its pre-existing formula.
-        val mc4CountPairs = if (effectiveSystemMode == SystemMode.OFFGRID) 4 else 6
+        // A89/Ph21 follow-up (2026-08-18): real price/quantity from the project owner — J$450/pair,
+        // 4 pairs on every system regardless of string count, replacing the old off-grid-vs-other
+        // brand-mode split.
+        val mc4CountPairs = 4
 
-        // Off-grid keeps its own pre-existing AC-wiring/battery-cable convention — no spreadsheet/
-        // master-prompt rule addresses off-grid AC wiring specifically; see
-        // MaterialTakeoffEngine's own doc for why the new 80ft red/black/ground bundle below is
-        // HYBRID/GRIDTIE-only.
+        // Off-grid keeps its own pre-existing AC-wiring convention — no spreadsheet/master-prompt
+        // rule addresses off-grid AC wiring specifically; see MaterialTakeoffEngine's own doc for
+        // why the new red/black/ground bundle below is HYBRID/GRIDTIE-only.
         val wire6mmFt = if (effectiveSystemMode == SystemMode.OFFGRID) 50 else 0
-        val battCableFt = when {
-            effectiveSystemMode == SystemMode.OFFGRID -> 18
-            effectiveSystemMode == SystemMode.HYBRID && batteryModuleCount > 0 -> 10
-            else -> 0
-        }
-        val battLugCount = when {
-            effectiveSystemMode == SystemMode.OFFGRID -> 6
-            effectiveSystemMode == SystemMode.HYBRID && batteryModuleCount > 0 -> 8
-            else -> 0
-        }
 
         val materials = mutableListOf<MaterialLine>()
 
@@ -809,8 +802,9 @@ object SystemCalculator {
 
         if (mc4CountPairs > 0) materials += MaterialLine("MC4 connector pair", mc4CountPairs.toDouble(), prices.mc4Pair)
         if (wire6mmFt > 0) materials += MaterialLine("6mm single wire, off-grid (ft)", wire6mmFt.toDouble(), prices.ac6mmPerFt)
-        if (battCableFt > 0) materials += MaterialLine("#2/0 battery cable (ft)", battCableFt.toDouble(), prices.battCablePerFt)
-        if (battLugCount > 0) materials += MaterialLine("Battery lugs", battLugCount.toDouble(), prices.battLug)
+        // A89/Ph21 follow-up (2026-08-18 — "leave out battery wires and lugs these batteries
+        // comes with their own lugs and cable"): battery interconnect cable/lugs are no longer
+        // quoted as separate materials — every battery this catalog offers ships with its own.
 
         // A89/Ph21 (master prompt — "ask if automatic switch or manual or no transfer switch"):
         // resolved to one TransferSwitchMode for this quote. MANUAL+OFFGRID keeps its own
@@ -863,20 +857,16 @@ object SystemCalculator {
         // hard-coded 0.15 literal — see PriceList.serviceRatePercent's own doc.
         val serviceCharge = materialsTotal * (prices.serviceRatePercent / 100.0)
 
-        // A89/Ph21 (master prompt §"DELIVERY"): proportional off the Junction -> Santa Cruz
-        // 28km/JMD 18,000 baseline, toll added separately only on a route that actually crosses
-        // one — see DeliveryCalculator's own doc. input.deliveryChargeManuallySet preserves
-        // Step7Pricing's pre-existing manual-entry text field: an installer who has directly typed
-        // a delivery figure there keeps exactly that figure (same "manually set wins" pattern
-        // QuoteInputs.peakSunHoursManuallySet already uses) instead of it being silently
-        // recalculated out from under them.
-        val deliveryResult = DeliveryCalculator.calculate(input.deliveryRouteDistanceKm, input.deliveryIsTollRoute, prices)
-        val resolvedDeliveryCharge = when {
-            input.deliveryChargeManuallySet -> input.deliveryCharge
-            deliveryResult.tollMissing -> deliveryResult.baseCharge
-            else -> deliveryResult.totalCharge ?: deliveryResult.baseCharge
-        }
-        if (!input.deliveryChargeManuallySet && deliveryResult.tollMissing) {
+        // A89/Ph21 follow-up (2026-08-18 — "let me manually enter delivery price"): the base
+        // delivery figure is always the installer's own manual entry (input.deliveryCharge) —
+        // DeliveryCalculator's proportional Junction->Santa Cruz formula stays built for later
+        // (see its own doc) but is no longer used to compute or override this field. Toll is still
+        // a separate, explicit add-on: only added when the route is flagged as a toll route, and
+        // never invented when the rate hasn't been entered.
+        val tollCharge = if (input.deliveryIsTollRoute) prices.deliveryTollJmd else 0.0
+        val tollMissing = input.deliveryIsTollRoute && tollCharge == null
+        val resolvedDeliveryCharge = input.deliveryCharge + (tollCharge ?: 0.0)
+        if (tollMissing) {
             missingPriceItems += "Toll charge (route crosses a toll — enter the current official rate in Settings)"
         }
 

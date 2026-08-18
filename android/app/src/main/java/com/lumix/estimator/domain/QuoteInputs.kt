@@ -283,29 +283,20 @@ data class QuoteInputs(
     val transferSwitchMode: TransferSwitchMode = TransferSwitchMode.AUTOMATIC,
     /** A89/Ph21 (master prompt — "voltage regulator ask if using changeover switch or jps as backup"): an explicit installer decision, never auto-added — see [MaterialTakeoffEngine]. */
     val useVoltageRegulator: Boolean = false,
-    /** A89/Ph21 (master prompt — "use a 4 way distribution panel for all systems unless changed to a 8 way distribution panel in set up"): false = 4-way default, matching the spreadsheet's own "Default"/"Selectable" framing. No UI sets this yet — same deferral as [deliveryRouteDistanceKm]. */
+    /** A89/Ph21 (master prompt — "use a 4 way distribution panel for all systems unless changed to a 8 way distribution panel in set up"): false = 4-way default, matching the spreadsheet's own "Default"/"Selectable" framing. No UI sets this yet — same deferral as [deliveryIsTollRoute]. */
     val use8WayDistributionPanel: Boolean = false,
 
     /**
-     * A89/Ph21 (master prompt §"DELIVERY" — proportional pricing off the Junction (St. Elizabeth)
-     * -> Santa Cruz 28km/JMD 18,000 baseline): one-way route distance for THIS quote's delivery.
-     * No wizard UI sets this yet (deferred — "do not redesign the UI during this phase"; a future
-     * phase should wire this to a real distance source, architected via [DeliveryCalculator] to
-     * accept a manual figure now and a routing API later, per the project owner's own explicit
-     * choice to defer live routing). Defaults to the baseline distance itself, so an un-set quote
-     * prices delivery at exactly the baseline JMD 18,000 rather than an arbitrary distance.
+     * A89/Ph21 follow-up (2026-08-18 — "let me manually enter delivery price"): the project owner
+     * explicitly chose to enter [deliveryCharge] manually for every quote rather than have it
+     * auto-computed from a distance formula — [DeliveryCalculator]'s proportional
+     * Junction-\>Santa-Cruz formula stays built (a "build now, activate later" seam for whenever
+     * live routing arrives) but [SystemCalculator.calculate] no longer calls it to override this
+     * field. Whether this route crosses a toll is still tracked separately — see
+     * [deliveryIsTollRoute] — since toll pricing is its own explicit ask, not part of the base
+     * delivery figure the installer types in here.
      */
-    val deliveryRouteDistanceKm: Double = 28.0,
-    /** Whether this quote's route crosses a toll — see [DeliveryCalculator]. No UI yet (same deferral as [deliveryRouteDistanceKm]). */
     val deliveryIsTollRoute: Boolean = false,
-    /**
-     * A89/Ph21: true once the installer has directly overridden [deliveryCharge] in Step7Pricing's
-     * pre-existing text field — same "manually set stops auto-computation from overwriting it"
-     * pattern as [peakSunHoursManuallySet]. False (the default) means [deliveryCharge] is instead
-     * computed fresh each time from [deliveryRouteDistanceKm]/[deliveryIsTollRoute] via
-     * [DeliveryCalculator] — see [SystemCalculator.calculate]'s own wiring.
-     */
-    val deliveryChargeManuallySet: Boolean = false,
     /**
      * A49: the exact warning message text(s) the installer has explicitly accepted via MANUAL
      * mode's "ACCEPT WITH WARNING" gate (see StepSystemReview.kt). A set rather than a plain

@@ -73,8 +73,8 @@ data class PriceList(
     val backLeg: Double = 1500.0,
     val frontLeg: Double = 1350.0,
     val m6m8Bolt: Double = 100.0,
-    /** No spreadsheet row (out of this round's scope) — a real necessary part [MaterialTakeoffEngine] still prices at this pre-existing placeholder. */
-    val mc4Pair: Double = 500.0,
+    /** A89/Ph21 follow-up (2026-08-18): real price from the project owner — J$450/pair, 4 pairs on every system, replacing the old placeholder and the old off-grid-vs-other-mode count split. */
+    val mc4Pair: Double = 450.0,
     val weebClip: Double = 300.0,
 
     // A89/Ph21: PV wire (red/black, #10 AWG) and AC wire (red/black/ground, 10mm) both price
@@ -85,9 +85,6 @@ data class PriceList(
     val ac10mmPerFt: Double = 100.0,
     /** Off-grid-only AC wiring — no spreadsheet counterpart (out of this round's scope), unchanged from its pre-existing placeholder; [MaterialTakeoffEngine] keeps off-grid's own AC wire path separate from the spreadsheet-driven hybrid/grid-tie bundle above. */
     val ac6mmPerFt: Double = 100.0,
-    /** No spreadsheet row (out of this round's scope) — real necessary parts still priced at their pre-existing placeholders. */
-    val battCablePerFt: Double = 1500.0,
-    val battLug: Double = 250.0,
 
     // A89/Ph21: DC string protection (breaker/fuse by amperage tier) and PV combiner/DIN
     // selection — new, from the spreadsheet's Protection rows. Selected by
@@ -136,8 +133,8 @@ data class PriceList(
     val pvcConduit1Inch: Double = 4000.0,
     val flexConduit1_5Inch: Double = 2000.0,
     val earthRod: Double = 2500.0,
-    /** Per-ft — spreadsheet's own MAT-GROUND-WIRE row prices this notably higher per ft than the PV/AC wire rows above; carried over as-given per the "never substitute a spreadsheet price" rule, not adjusted. */
-    val groundWirePerFt: Double = 3000.0,
+    /** A89/Ph21 follow-up (2026-08-18): the project owner confirmed the spreadsheet's J$3,000/ft was not correct and gave the real rate — J$100/ft, in line with the PV/AC wire rows above. */
+    val groundWirePerFt: Double = 100.0,
     val miscAllowance: Double = 5000.0,
     /** Ask-only — added to a quote only when [QuoteInputs.useVoltageRegulator] is explicitly set. */
     val voltageRegulator: Double = 18000.0,
@@ -251,8 +248,6 @@ object PriceFields {
         PriceFieldSpec("pvWirePerFt", "PV DC wire, red or black (per ft, #10 AWG)", "Wiring", { it.pvWirePerFt }, { p, v -> p.copy(pvWirePerFt = v) }),
         PriceFieldSpec("ac10mmPerFt", "AC wire, red/black/ground (per ft, 10mm)", "Wiring", { it.ac10mmPerFt }, { p, v -> p.copy(ac10mmPerFt = v) }),
         PriceFieldSpec("ac6mmPerFt", "6mm single wire, off-grid only (per ft)", "Wiring", { it.ac6mmPerFt }, { p, v -> p.copy(ac6mmPerFt = v) }),
-        PriceFieldSpec("battCablePerFt", "#2/0 battery cable (per ft)", "Wiring", { it.battCablePerFt }, { p, v -> p.copy(battCablePerFt = v) }),
-        PriceFieldSpec("battLug", "Battery lug", "Wiring", { it.battLug }, { p, v -> p.copy(battLug = v) }),
         PriceFieldSpec("groundWirePerFt", "Grounding wire (per ft)", "Wiring", { it.groundWirePerFt }, { p, v -> p.copy(groundWirePerFt = v) }),
 
         PriceFieldSpec("dcProtection15A", "DC breaker/fuse 15A", "DC & AC Protection", { it.dcProtection15A }, { p, v -> p.copy(dcProtection15A = v) }),

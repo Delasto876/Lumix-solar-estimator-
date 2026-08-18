@@ -10,13 +10,14 @@ import com.lumix.estimator.domain.PriceList
  * separately, ONLY on a route that actually crosses a toll — never folded into the proportional
  * base rate, and never invented when the toll amount hasn't been entered (see [tollMissing]).
  *
- * [RouteDistanceSource] is the "build now, activate later" seam the project owner explicitly
- * asked for (AskUserQuestion, 2026-08-18: "Integrate real Google Directions API later"). Nothing
- * implements it yet — today's only distance source is the quote's own manually-entered
- * [com.lumix.estimator.domain.QuoteInputs.deliveryRouteDistanceKm], read directly by
- * [SystemCalculator][com.lumix.estimator.domain.SystemCalculator], bypassing this interface
- * entirely. A future phase can add a Google Directions-backed implementation and have the wizard
- * write its result into that same field, without touching this calculator's own formula below.
+ * A89/Ph21 follow-up (2026-08-18 — "let me manually enter delivery price"): the project owner
+ * chose to enter [com.lumix.estimator.domain.QuoteInputs.deliveryCharge] manually for every quote
+ * instead — [SystemCalculator][com.lumix.estimator.domain.SystemCalculator] no longer calls
+ * [calculate] to compute/override that field. This object and its formula stay built (a "build
+ * now, activate later" seam, matching the project owner's own earlier "Integrate real Google
+ * Directions API later" choice) for whenever automatic distance-based pricing is wanted again —
+ * [RouteDistanceSource] is the documented, currently-unimplemented seam for a future routing-API
+ * lookup that would feed [calculate]'s `distanceKm` parameter.
  */
 fun interface RouteDistanceSource {
     fun distanceKm(fromDescription: String, toDescription: String): Double
