@@ -3,6 +3,7 @@ package com.lumix.estimator.domain.simulation
 import com.lumix.estimator.domain.EquipmentSelectionEngine
 import com.lumix.estimator.domain.EquipmentSpecs
 import com.lumix.estimator.domain.MpptStringPlanner
+import kotlin.math.pow
 
 /**
  * A53/A62: real per-string PV electrical behavior, replacing a flat hardcoded PV voltage. Panel
@@ -15,16 +16,27 @@ import com.lumix.estimator.domain.MpptStringPlanner
  * datasheet coefficients using the cell temperature [SystemLosses] already derives for this
  * instant — no new temperature model needed.
  *
- * Voltage moves with panel count, MPPT topology, and cell temperature; it is NOT simply
- * proportional to delivered power. An MPPT keeps its string near operating Vmp whenever there's
- * irradiance, even while downstream curtailment means little of that power is actually being used
- * — see [MpptReadout.isActive]'s own doc for why this reads off potential, not delivered, power.
+ * [vmpV]/[vocV] are the string's maximum-power and open-circuit voltages, set by panel count, MPPT
+ * topology, and cell temperature only — reference points on the I-V curve, independent of how much
+ * power is actually being harvested. [operatingVoltageV] is where on that curve the MPPT is actually
+ * sitting this instant: normally at [vmpV] (tracking maximum power), but when the array is throttled
+ * back because the battery is full and there's nowhere for the surplus to go, a real MPPT walks the
+ * operating point UP toward [vocV] (voltage rises, current falls) rather than holding Vmp — see
+ * [PvElectricalModel.mpptReadouts]'s own doc for the curve model. The array is still electrically
+ * live (nonzero voltage) whenever there's irradiance, even under full curtailment — see
+ * [MpptReadout.isActive].
  */
 data class MpptReadout(
     val index: Int,
     val panelCount: Int,
     val vmpV: Double,
     val vocV: Double,
+    /**
+     * 2026-08-18 charging-physics fix: the string's actual operating-point voltage this instant.
+     * Equals [vmpV] under normal (untracked) operation and slides toward [vocV] as the MPPT
+     * throttles the array back off its maximum-power point when downstream can't absorb the power.
+     */
+    val operatingVoltageV: Double,
     val impA: Double,
     val iscA: Double,
     val powerKw: Double,
@@ -36,11 +48,28 @@ object PvElectricalModel {
     private const val STC_TEMP_C = 25.0
 
     /**
+     * 2026-08-18 charging-physics fix: shape of the operating-voltage slide from Vmp toward Voc as
+     * the MPPT throttles the array back. Physically motivated: the I-V curve's power is parabolic-
+     * flat at the maximum-power point (dP/dV = 0 there), so `Pmp - P ≈ a·(V - Vmp)²` near the knee
+     * — inverting gives `(V - Vmp) ∝ √(Pmp - P)`, i.e. the fraction of the Vmp→Voc gap consumed goes
+     * as the square-root of the fraction of power backed off. Exponent 0.5 reproduces that and hits
+     * both endpoints exactly (no throttle → Vmp; fully backed off → Voc). Still a smooth engineering
+     * approximation of the real right-branch curve, not a diode-model solve — one constant to swap
+     * if a measured per-panel I-V curve is ever added.
+     */
+    private const val THROTTLE_VOLTAGE_SHAPE = 0.5
+
+    /**
      * One instant's per-MPPT electrical state for [config]'s actual selected panel/inverter.
      * [cellTempC] should be the same value [SimFrame.cellTempC] already carries for this instant.
-     * [potentialPvKw]/[realizedPvKw] are [SimFrame.potentialPvKw]/[SimFrame.pvKw] — used only to
-     * apportion each tracker's *share* of total array power, not to decide whether it's producing
-     * a voltage at all (see [MpptReadout.isActive]).
+     * [potentialPvKw]/[realizedPvKw] are [SimFrame.potentialPvKw]/[SimFrame.pvKw] — [potentialPvKw]
+     * only decides whether the string is electrically live at all (see [MpptReadout.isActive]) and
+     * [realizedPvKw] apportions each tracker's *share* of harvested power. [harvestablePvKw] is
+     * [SimFrame.harvestablePvKw] — the post-loss ceiling the array could deliver if downstream could
+     * absorb it; the ratio `realized / harvestable` is how far the MPPT has throttled the array back,
+     * which drives [MpptReadout.operatingVoltageV] up toward Voc. Defaults to [realizedPvKw] (no
+     * throttling → operating voltage sits at Vmp) so callers that don't model curtailment are
+     * unaffected.
      */
     fun mpptReadouts(
         panelWatts: Int,
@@ -49,7 +78,8 @@ object PvElectricalModel {
         inverterNameHint: String?,
         cellTempC: Double,
         potentialPvKw: Double,
-        realizedPvKw: Double
+        realizedPvKw: Double,
+        harvestablePvKw: Double = realizedPvKw
     ): List<MpptReadout> {
         if (panelCount <= 0) return emptyList()
         val panelSpec = EquipmentSpecs.panelSpecFor(panelWatts)
@@ -79,16 +109,24 @@ object PvElectricalModel {
         // used downstream. This is what keeps voltage from collapsing to zero during curtailment
         // (full sun, battery full, low load) while still correctly reading zero at night.
         val isActive = potentialPvKw > 0.01
+        // 2026-08-18 charging-physics fix: how much of the array's harvestable power is actually
+        // being taken. 1.0 = MPP tracking normally; below 1.0 = the MPPT is throttling the array
+        // back (battery full, nowhere for the surplus to go), which walks the operating voltage up
+        // toward Voc. Guarded against a zero/absent ceiling so it never divides by zero.
+        val harvestFraction = if (harvestablePvKw > 0.01) (realizedPvKw / harvestablePvKw).coerceIn(0.0, 1.0) else 1.0
+        val voltageRiseFraction = (1.0 - harvestFraction).pow(THROTTLE_VOLTAGE_SHAPE)
 
         return counts.mapIndexed { i, panelsInTracker ->
             if (panelsInTracker <= 0) {
-                MpptReadout(i + 1, 0, 0.0, 0.0, 0.0, 0.0, 0.0, false)
+                MpptReadout(i + 1, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false)
             } else {
                 val tempFactor = 1.0 + (tempCoeffVoc / 100.0) * (cellTempC - STC_TEMP_C)
                 val vmpStc = vmpPanel * panelsInTracker
                 val vocStc = vocPanel * panelsInTracker
                 val vmp = if (isActive) (vmpStc * tempFactor).coerceAtLeast(0.0) else 0.0
                 val voc = if (isActive) (vocStc * tempFactor).coerceAtLeast(0.0) else 0.0
+                // Operating point slides from Vmp (full tracking) toward Voc (fully throttled off).
+                val operatingV = if (isActive) (vmp + voltageRiseFraction * (voc - vmp)).coerceIn(vmp, voc) else 0.0
                 val share = panelsInTracker.toDouble() / panelCount
                 val powerKw = realizedPvKw * share
                 MpptReadout(
@@ -96,6 +134,7 @@ object PvElectricalModel {
                     panelCount = panelsInTracker,
                     vmpV = vmp,
                     vocV = voc,
+                    operatingVoltageV = operatingV,
                     impA = if (isActive) impPanel else 0.0,
                     iscA = if (isActive) iscPanel else 0.0,
                     powerKw = powerKw,
@@ -105,12 +144,19 @@ object PvElectricalModel {
         }
     }
 
-    /** A single "whole system" figure for UIs that don't (yet) show the per-MPPT breakdown — the panel-count-weighted average operating Vmp across all active trackers. */
+    /**
+     * A single "whole system" figure for UIs that don't (yet) show the per-MPPT breakdown — the
+     * panel-count-weighted average *operating* voltage across all active trackers. Uses
+     * [MpptReadout.operatingVoltageV] (not [MpptReadout.vmpV]), so a headline "PV Voltage" reading
+     * correctly rises toward Voc when the array is throttled back — matching the real operating
+     * point, and staying consistent with the [SimFrame.pvKw]/this-voltage current the technical
+     * readout derives from it.
+     */
     fun blendedVoltage(readouts: List<MpptReadout>): Double {
         val active = readouts.filter { it.isActive }
         if (active.isEmpty()) return 0.0
         val totalPanels = active.sumOf { it.panelCount }
         if (totalPanels == 0) return 0.0
-        return active.sumOf { it.vmpV * it.panelCount } / totalPanels
+        return active.sumOf { it.operatingVoltageV * it.panelCount } / totalPanels
     }
 }

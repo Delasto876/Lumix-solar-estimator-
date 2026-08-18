@@ -6315,8 +6315,21 @@ battery state) — numerically identical to their old `pvKw` expectations since 
 retains the old field's meaning. `McpToolRegistryTest`'s passthrough assertion is unaffected.
 Brace/paren balance verified on all eight touched files.
 
-### Deliberately not changed this round (disclosed)
-The per-MPPT model still holds array **voltage** at Vmp during throttling (current drops instead),
-rather than modelling the operating point sliding toward Voc as a real MPPT does when it backs off.
-That's a deeper electrical-model change (A53's territory) and separate from the power-reporting fix
-the report was about; left as a known simplification.
+### Follow-up: operating voltage now slides toward Voc under throttling
+The initial A94 pass left the per-MPPT model holding array **voltage** at Vmp during throttling and
+flagged it as a known simplification. Fixed in the same round on request: `PvElectricalModel` now
+reports a real operating point. `MpptReadout` gained an `operatingVoltageV` field distinct from
+`vmpV` (which stays the temperature-only MPP *reference*): when the MPPT throttles the array back
+(harvested < harvestable), the operating point walks UP from Vmp toward Voc — voltage rises, current
+falls — exactly as a real inverter does when it backs off the max-power point. The slide uses
+`(1 - harvested/harvestable)^0.5`, physically motivated by the I-V curve's parabolic flatness at MPP
+(`Pmp - P ∝ (V - Vmp)²`, so the voltage fraction of the Vmp→Voc gap goes as the square-root of the
+power backed off); it hits both endpoints exactly (no throttle → Vmp, fully off → Voc). The headline
+"PV Voltage" (`blendedVoltage`) and the per-MPPT rows now show this operating voltage, so with a full
+battery you see voltage climb and current collapse together while power drops — and `pvCurrent`
+(`pvKw / operating voltage`) stays consistent with P = V·I. `harvestablePvKw` defaults to
+`realizedPvKw` in `mpptReadouts`, so any caller that doesn't model curtailment still reads Vmp — the
+existing per-MPPT voltage/temperature/topology tests are unaffected. `PvElectricalModelTest`'s
+former "voltage does not collapse when curtailed" test was rewritten to assert the new behaviour
+(operating voltage rises above Vmp toward Voc under throttling; the Vmp reference itself does not
+move). The array's voltage still can't exceed Voc, and reads zero at night, as before.

@@ -97,7 +97,8 @@ object TechnicalModel {
             inverterNameHint = config.inverterName,
             cellTempC = frame.cellTempC,
             potentialPvKw = frame.potentialPvKw,
-            realizedPvKw = frame.pvKw
+            realizedPvKw = frame.pvKw,
+            harvestablePvKw = frame.harvestablePvKw
         )
         val pvVoltage = PvElectricalModel.blendedVoltage(mpptStrings)
         val pvCurrent = if (pvVoltage > 0) (frame.pvKw * 1000.0) / pvVoltage else 0.0

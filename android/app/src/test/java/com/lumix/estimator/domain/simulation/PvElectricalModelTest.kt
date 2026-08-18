@@ -138,24 +138,40 @@ class PvElectricalModelTest {
         }
     }
 
-    // ---- 7. PV voltage during curtailment: stays near operating Vmp, does NOT track delivered power ----
+    // ---- 7. PV operating voltage rises toward Voc when the array is throttled back ----
     @Test
-    fun `voltage does not collapse when downstream power is curtailed`() {
-        // Same potential production and cell temperature, wildly different REALIZED (delivered)
-        // power — representing full sun + full battery + tiny load (heavy curtailment) vs. full
-        // sun + full utilization. Voltage must be identical in both; only power should differ.
+    fun `operating voltage climbs toward Voc when the array is throttled, while the Vmp reference is unchanged`() {
+        // 2026-08-18 charging-physics fix: same potential/harvestable production and cell
+        // temperature; heavilyCurtailed harvests almost nothing (battery full, tiny load) while
+        // fullyUtilized takes everything the array can make. A real MPPT walks the operating point
+        // UP toward Voc when it throttles the array back — so operatingVoltageV must rise while the
+        // Vmp *reference* (a temperature-only property of the string) stays put.
         val heavilyCurtailed = PvElectricalModel.mpptReadouts(
             panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
-            cellTempC = 35.0, potentialPvKw = 3.0, realizedPvKw = 0.1
+            cellTempC = 35.0, potentialPvKw = 3.0, realizedPvKw = 0.1, harvestablePvKw = 3.0
         )
         val fullyUtilized = PvElectricalModel.mpptReadouts(
             panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
-            cellTempC = 35.0, potentialPvKw = 3.0, realizedPvKw = 3.0
+            cellTempC = 35.0, potentialPvKw = 3.0, realizedPvKw = 3.0, harvestablePvKw = 3.0
         )
+        // The Vmp reference point is temperature-only — identical in both regardless of throttling.
         assertEquals(
-            "voltage must be the array's operating Vmp regardless of how much power is actually used",
+            "Vmp is a reference point, not the operating voltage — it must not move with utilization",
             fullyUtilized[0].vmpV, heavilyCurtailed[0].vmpV, 0.001
         )
+        // Fully utilized → the MPPT is tracking maximum power, so it operates exactly at Vmp.
+        assertEquals(fullyUtilized[0].vmpV, fullyUtilized[0].operatingVoltageV, 0.001)
+        // Heavily throttled → the operating point has climbed above Vmp, up toward (but not past) Voc.
+        assertTrue(
+            "operating voltage must rise above Vmp when the array is throttled back",
+            heavilyCurtailed[0].operatingVoltageV > heavilyCurtailed[0].vmpV
+        )
+        assertTrue(
+            "operating voltage must stay at or below Voc",
+            heavilyCurtailed[0].operatingVoltageV <= heavilyCurtailed[0].vocV + 0.001
+        )
+        // The more the array is throttled, the higher the operating voltage — strictly higher here.
+        assertTrue(heavilyCurtailed[0].operatingVoltageV > fullyUtilized[0].operatingVoltageV)
         assertTrue(heavilyCurtailed[0].powerKw < fullyUtilized[0].powerKw)
     }
 

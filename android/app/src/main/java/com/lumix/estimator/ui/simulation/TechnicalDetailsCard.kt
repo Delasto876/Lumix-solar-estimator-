@@ -59,7 +59,7 @@ fun TechnicalDetailsContent(readout: TechnicalReadout, modifier: Modifier = Modi
             readout.mpptStrings.forEach { mppt ->
                 TechRow(
                     "MPPT ${mppt.index} (${mppt.panelCount} panels)",
-                    if (mppt.isActive) "%.0f V".format(mppt.vmpV) else "0 V",
+                    if (mppt.isActive) "%.0f V".format(mppt.operatingVoltageV) else "0 V",
                     "MPPT ${mppt.index} power",
                     "%.2f kW".format(mppt.powerKw)
                 )
