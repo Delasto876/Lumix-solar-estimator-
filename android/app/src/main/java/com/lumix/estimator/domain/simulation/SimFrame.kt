@@ -81,5 +81,16 @@ data class SimFrame(
     val unmetLoadKw: Double,
     val curtailedSolarKw: Double,
     val inverterLoadKw: Double,
-    val status: SystemStatus
+    val status: SystemStatus,
+    /**
+     * A87 (spec Phase 24 §3 — "INVERTER SELF-CONSUMPTION"): the inverter's own housekeeping power
+     * draw this instant — see [SimSystemConfig.inverterSelfConsumptionKw]'s own doc for how it's
+     * resolved. NOT included in [houseLoadKw] (which stays pure appliance/background load), but IS
+     * part of what [solarToHouseKw]/[batteryToHouseKw]/[gridToHouseKw] actually serve — see
+     * [SimulationEngine.energyImbalanceKw], which adds this in on the demand side of its own
+     * conservation check for exactly that reason. Defaults to 0.0 only for direct test-fixture
+     * construction that doesn't care about it; every real frame [SimulationEngine.buildDayTimeline]
+     * produces sets this from the config it was built against.
+     */
+    val inverterSelfConsumptionKw: Double = 0.0
 )

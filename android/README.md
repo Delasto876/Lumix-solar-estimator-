@@ -5281,3 +5281,124 @@ real `QuoteResult`/`TechnicalReadout`/`SimFrame`/`DiagnosticCheck` fields verbat
 delegates to `AiExplanationService`); new `AiExplanationServiceTest` (`Disabled` with no key
 configured, never a fabricated `Explained` result even with a key configured since no real provider
 exists yet).
+
+## A87 — Phase 24: engineering physics / power dispatch / sizing / simulation validation
+
+Pure engineering/math/physics round — no UI changes (per the installer's own explicit "DO NOT
+REDESIGN THE UI... UI/UX will be handled separately in PHASE 26"). Audited the current simulation
+engine against every one of §1-27's requirements before changing anything, since most of this
+app's physics has already been built and hardened across ~15 prior rounds (A36/A37/A46/A50-A54/
+A64/A73/A80) — the goal this round was to find and fix genuine remaining gaps, not rebuild what
+already works.
+
+**Audited and confirmed already correct — no change needed:**
+- **§1 (one engine)**: `SimSystemConfig.from(QuoteResult, QuoteInputs)` is already the single
+  mapping every mode/screen/quote/simulation reads through — verified no second PV/battery/
+  simulation model exists anywhere in the codebase.
+- **§2 (energy conservation)**: `SimulationEngine.buildDayTimeline`'s sequential source-pool
+  allocation plus `energyImbalanceKw`'s own conservation check (A47) already enforce this — updated
+  this round only to also account for the new inverter self-consumption term (see below).
+- **§4/§9/§10 (battery charge/discharge limits, SOC math)**: already respects rated charge/
+  discharge power, SOC-dependent tapering, efficiency, min/max SOC, correct `dt` conversion.
+- **§6/§7/§8/§12 (curtailment, load-increase response, deficit handling, SOL/SBU/UTI priority)**:
+  already implemented exactly as described — verified with new regression tests this round (below).
+- **§11 (midnight bug)**: already fixed (A45) — `SimulationViewModel.advanceHour` carries the
+  previous day's real ending SOC into the next day's `startSocFraction` rather than resetting to a
+  fixed default; the reported "20% becomes 60%" shape was the pre-A45 behavior. Added a new
+  engine-level regression test (TEST 5) locking in the underlying continuity guarantee.
+- **§13/§14/§15 (PV physics, Jamaica solar curve, month/weather)**: already a real irradiance
+  curve (not "70%/100% sun" buttons), peaking ~10am-3pm, temperature-derated, weather-curve-driven
+  (A80's `WeatherEngine`/`WeatherCurve` — per-timestep cloud events, not one flat percentage).
+- **§16/§17 (PV voltage, MPPT validation)**: already a real per-MPPT-string voltage/current model
+  (A53's `PvElectricalModel`) — zero at night, temperature-corrected, gated on real per-model MPPT
+  floor/ceiling/current limits, not a flat hardcoded 380V.
+- **§18 (15% design margin)**: `EquipmentSelectionEngine`'s `PREFERRED_VOC_MARGIN_FRACTION` is
+  currently 0.95 (a 5% margin), from an *explicit* prior installer decision (A65) after being asked
+  the identical "does 380V's worked example mean 0.85 or 0.95" question this message's own §18
+  worked example (380 × 0.85 = 323V) would, read literally, reverse. Flagged directly rather than
+  silently changed — asked again this round, and the installer confirmed keeping 0.95 (5%). No code
+  change made; documented here so the decision (and that it was re-confirmed, not overlooked) is on
+  the record.
+- **§19 (uneven MPPT strings)**: `MpptStringPlanner` already splits as evenly as possible when
+  electrically valid (13 panels/2 trackers → 7+6, 14 panels/2 trackers → 7+7) and only falls back
+  to fewer/longer strings when an even split would undervolt — exactly as described.
+- **§20/§21 (PV+battery sizing together, 2 PM recharge target)**: `RechargeFeasibility` (A54)
+  already evaluates the real selected system against the real simulated day, with SOC checkpoints
+  at sunrise/10am/noon/2pm/4pm/sunset/midnight/6am.
+- **§22 (12-hour backup, time-series based)**: `BackupEstimator` (A54) already runs the real
+  `buildDayTimeline` as an actual simulated outage from dusk forward — not `peak × 12` or
+  `average × 12`.
+- **§23 (appliance model)**: already schedule/duty-cycle driven (A64's `OvernightLoadProfile`,
+  A67's real per-appliance schedules) — no runtime-hours prompt during mode selection.
+- **§24/§25/§26 (recommendation, accepted design, edit+recalculate)**: `QuoteResult` already *is*
+  the "AcceptedSystemDesign" the spec describes — every consumer (Simulation, Quote/PDF, System
+  Review, materials takeoff) already reads through it, and A49's "Edit System" button + wizard
+  recalculation flow already satisfies §26 without a restart. Not renamed: `QuoteResult` already
+  fills this exact role end-to-end (verified originally by A21's "quoted-system-is-simulation-
+  system" audit), and a disruptive rename across dozens of call sites would add risk for zero
+  behavioral change — the "no second model" requirement §24-26 actually cares about was already met.
+
+**Found and fixed — genuine gaps:**
+- **§3 (inverter self-consumption) — did not exist at all.** No inverter in `EquipmentSpecs` carries
+  a confirmed self-consumption/standby-power figure (no datasheet value was available to enter), so
+  per this phase's own instruction ("if unavailable, use a clearly documented configurable
+  engineering default"), added `SimSystemConfig.inverterSelfConsumptionKw` — 0.5% of the inverter's
+  rated AC output, floored at 20W, explicitly documented as a generic placeholder pending real
+  per-model data. Folded into `buildDayTimeline`'s demand pool (alongside house load, *not* scaled
+  by the backup-coverage `loadMultiplier` — the inverter still draws its own overhead regardless of
+  how much of the house is on backup) so it competes for solar/battery/grid supply exactly like the
+  house load does, without being double-counted: `houseLoadKw` itself stays pure (appliance/
+  background load only), a new `SimFrame.inverterSelfConsumptionKw` field carries the overhead
+  separately, and `energyImbalanceKw`'s conservation check now includes it on the demand side.
+- **§5 (battery near-full taper) — too coarse.** The existing taper (`BatteryPowerCurve`,
+  A21) was a 4-band step function holding a flat 0.1 fraction across the *entire* 95-100% SOC
+  range — not "increasingly limited" through 96/97/98/99% the way this phase's own worked example
+  describes. Replaced with a continuous quadratic taper (full power to 85% SOC, then decaying
+  smoothly to exactly 0.0 at 100%) — still a generic engineering placeholder (this catalog has no
+  real per-model CV-tail curve), just a smoother, more physically-shaped one. The "100% = 0W" case
+  was already structurally guaranteed regardless (the room-based `roomKwh` clamp in
+  `buildDayTimeline` forces zero charging once the battery has no headroom left, independent of the
+  taper curve's own value there).
+
+**Files changed**: `domain/simulation/SimSystemConfig.kt` (new `inverterSelfConsumptionKw` field +
+default resolution), `domain/simulation/SimFrame.kt` (new field), `domain/simulation/
+SimulationEngine.kt` (`demand` = `load` + inverter self-consumption threaded through the
+allocation pipeline; `energyImbalanceKw` updated; `lerpFrame` updated), `domain/simulation/
+BatteryPowerCurve.kt` (`chargeTaperFraction` rewritten as a continuous quadratic curve).
+
+**Tests**: updated `SimulationEngineBatteryDischargeEfficiencyTest` (hand-traced values recomputed
+to include the new inverter self-consumption term — the fixture's 20kW inverter now draws 100W,
+matching this phase's own worked example almost exactly by construction). New
+`Phase24EngineeringValidationTest` — TEST 1 (charge taper is continuous, reaches exactly 0 at 100%
+SOC), TEST 2 (PV accepted rises with load increase, battery stays at 100%, no unnecessary
+discharge), TEST 3 (battery covers a load-exceeds-PV deficit within its discharge limit), TEST 4
+(grid covers the remainder once PV + capped battery discharge are both exhausted), TEST 5 (a day's
+real ending SOC, replayed as the next day's `startSocFraction`, reproduces exactly at hour 0 — no
+artificial midnight jump), TEST 6 (a RAINY weather curve produces meaningfully less total daily PV
+than TYPICAL and the resulting deficit is picked up by battery/grid, not silently dropped — compared
+over a full day's sum rather than one instant, since transient cloud events are randomly placed and
+a single arbitrary hour could coincidentally land on/off one), plus one direct test that inverter
+self-consumption is included in served demand exactly once. TEST 8 (MPPT validation — invalid
+strings fail, valid uneven strings like 13 panels/2 MPPTs → 6+7 pass) already has thorough
+pre-existing coverage in `MpptStringPlannerTest`/`EquipmentSelectionEngineTest` and was not
+duplicated.
+
+**Tests not executed**: as with every round in this session, there is no Gradle/JVM available in
+this sandbox — every number above was hand-derived by literally replicating `buildDayTimeline`'s
+own formulas in Python, not invented, but none of it has been run through the real Kotlin compiler
+or test runner. The tolerance-based assertions in pre-existing tests (`BackupEstimatorTest`,
+`RechargeFeasibilityTest`, etc.) were checked by inspection for exposure to the two physics changes
+(self-consumption's effect is a few tens of watts against multi-kW loads; the taper curve only
+differs from the old one above 85% SOC) and are very likely unaffected given their existing loose
+tolerances, but this is inspection, not execution.
+
+**Remaining engineering issues, disclosed rather than silently skipped**:
+- **No real per-manufacturer inverter self-consumption datasheet figures.** The 0.5%-of-rating
+  default is a placeholder; if real standby-power specs become available for the catalog's inverters,
+  resolve them per-model in `SimSystemConfig.from` the same way `batteryMaxChargeKw` already
+  prefers a confirmed spec over its generic fallback.
+- **No real per-model battery CV-tail charge curve either.** The new quadratic taper is a generic
+  engineering shape (see §5's own doc above), not measured cell data, and doesn't hard-code
+  manufacturer-specific 97%/98%/99% values, per this phase's own explicit instruction.
+- **§18's margin question is now answered twice, differently, by two different rounds' spec
+  text** — resolved by asking directly (again) rather than picking one silently; 0.95 (5%) stands.

@@ -74,13 +74,34 @@ data class SimSystemConfig(
     val siteLatitude: Double? = null,
     val siteLongitude: Double? = null,
     val roofAzimuthDegrees: Double? = null,
-    val roofPitchDegrees: Double? = null
+    val roofPitchDegrees: Double? = null,
+    /**
+     * A87 (spec Phase 24 §3 — "INVERTER SELF-CONSUMPTION... Use the selected inverter's actual
+     * self-consumption specification where available. If unavailable, use a clearly documented
+     * configurable engineering default"): the inverter's own housekeeping power draw — DSP/
+     * control-board/fan/display overhead the unit consumes whenever it's on, separate from and in
+     * addition to whatever it's delivering to the house or battery. [EquipmentSpecs.InverterSpec]
+     * carries no confirmed per-model self-consumption figure for any catalog entry today (no
+     * datasheet value was available to enter — see that class's own field list), so every config
+     * falls back to [DEFAULT_SELF_CONSUMPTION_FRACTION] of the inverter's own rated AC output,
+     * floored at [DEFAULT_SELF_CONSUMPTION_FLOOR_KW] so a small inverter doesn't round to
+     * effectively zero. This is an explicitly generic engineering placeholder, not a measured
+     * manufacturer figure — if the catalog ever gains a real per-model watt figure, resolve it here
+     * instead (the same "real spec overrides generic estimate" pattern [batteryMaxChargeKw] already
+     * follows), without changing anything downstream that reads this field.
+     */
+    val inverterSelfConsumptionKw: Double = (inverterKw * DEFAULT_SELF_CONSUMPTION_FRACTION).coerceAtLeast(DEFAULT_SELF_CONSUMPTION_FLOOR_KW)
 ) {
     /** True only when every field needed for a site-aware solar position model is present. */
     val isSiteAware: Boolean
         get() = siteLatitude != null && siteLongitude != null && roofAzimuthDegrees != null && roofPitchDegrees != null
 
     companion object {
+        /** ~0.5% of rated AC output — see [inverterSelfConsumptionKw]'s own doc for why this is a generic placeholder, not a manufacturer figure. */
+        const val DEFAULT_SELF_CONSUMPTION_FRACTION = 0.005
+        /** A ~20W floor, so a small inverter's self-consumption doesn't round toward zero. */
+        const val DEFAULT_SELF_CONSUMPTION_FLOOR_KW = 0.02
+
         fun from(result: QuoteResult, inputs: QuoteInputs): SimSystemConfig {
             val constraint = inputs.roofConstraint
             val batteryCapacityKwh = result.totalBatteryKwh

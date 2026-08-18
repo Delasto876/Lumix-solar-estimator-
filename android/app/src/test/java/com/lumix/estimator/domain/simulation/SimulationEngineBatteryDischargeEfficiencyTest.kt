@@ -32,8 +32,10 @@ class SimulationEngineBatteryDischargeEfficiencyTest {
         // Midnight (no PV either way), avgDailyLoadKwh=24 -> background load floor doesn't bind
         // (24/24 x 0.4 = 0.4kW already above the 0.15kW floor); loadFactor(0) = 0.42 / (weekday
         // shape's own mean, 0.580417) = 0.723618 -> load = 0.723618 x 0.4 = 0.289447kW. Battery has
-        // ample power/capacity, so the full load is served from the battery (batteryToHouseKw ==
-        // houseLoadKw exactly).
+        // ample power/capacity, so the full demand is served from the battery. A87: "demand" here
+        // is houseLoadKw PLUS the inverter's own self-consumption (config.inverterKw x 0.005,
+        // floored at 0.02 -> 10.0 x 0.005 = 0.05kW here, above the floor) — batteryToHouseKw now
+        // covers both, not houseLoadKw alone (see SimulationEngine.buildDayTimeline's own comment).
         val config = noPvConfig(startSocFraction = 0.6)
         val frame = SimulationEngine.buildDayTimeline(
             config = config, gridConnected = false, startSocFraction = 0.6,
@@ -41,9 +43,10 @@ class SimulationEngineBatteryDischargeEfficiencyTest {
         ).first()
 
         assertEquals(0.289447, frame.houseLoadKw, 0.001)
+        assertEquals(0.05, frame.inverterSelfConsumptionKw, 0.0001)
         assertEquals(
-            "expected the full load to be served from the battery (AC-side, delivered to the house)",
-            frame.houseLoadKw, frame.batteryToHouseKw, 0.0001
+            "expected the full demand (house load + inverter self-consumption) to be served from the battery (AC-side, delivered to the house)",
+            frame.houseLoadKw + frame.inverterSelfConsumptionKw, frame.batteryToHouseKw, 0.0001
         )
 
         // A73: the DC energy actually drawn from SOC is batteryToHouseKw / 0.97 (more than what was
@@ -52,14 +55,14 @@ class SimulationEngineBatteryDischargeEfficiencyTest {
         val dcDrawnKw = frame.batteryToHouseKw / SystemLosses.INVERTER_EFFICIENCY
         val expectedSocKwh = (10.0 * 0.6) - dcDrawnKw * dtHours
         val expectedSocPercent = (expectedSocKwh / 10.0 * 100.0).toFloat()
-        assertEquals(59.7513f, expectedSocPercent, 0.001f) // hand-traced, matches the assertion below
+        assertEquals(59.70838f, expectedSocPercent, 0.001f) // hand-traced (via Python, A87-updated), matches the assertion below
         assertEquals(expectedSocPercent, frame.batterySocPercent, 0.001f)
 
         // Regression guard against the OLD (pre-A73) 100%-efficient-discharge behavior, which would
         // have deducted batteryToHouseKw directly (a smaller, wrong SOC drop).
         val oldWrongSocKwh = (10.0 * 0.6) - frame.batteryToHouseKw * dtHours
         val oldWrongSocPercent = (oldWrongSocKwh / 10.0 * 100.0).toFloat()
-        assertEquals(59.75879f, oldWrongSocPercent, 0.001f)
+        assertEquals(59.71713f, oldWrongSocPercent, 0.001f)
         assertTrue(
             "the real (efficiency-aware) SOC must be lower than the old 100%-efficient figure would have been",
             frame.batterySocPercent < oldWrongSocPercent

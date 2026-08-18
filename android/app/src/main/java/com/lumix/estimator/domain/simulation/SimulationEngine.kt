@@ -280,6 +280,16 @@ object SimulationEngine {
 
             val load = ((loadFactor(hour, dayType) * backgroundPerHourKw + applianceLoadKw + totalApplianceLoadKwAt(applianceStates, hour, dayType)) * loadMultiplier)
                 .coerceAtLeast(0.0)
+            // A87 (spec Phase 24 §3 — "INVERTER SELF-CONSUMPTION... Required PV: 400 + 100 + 1500
+            // = 2000W"): the inverter's own housekeeping draw is a genuinely separate demand from
+            // the house's own appliance load — NOT scaled by loadMultiplier (a backup-coverage
+            // fraction of the HOUSE's own circuits; the inverter still draws its own overhead
+            // regardless of how much of the house is on backup) — but it competes for the exact
+            // same solar/battery/grid supply pool `load` already does, so it's folded into `demand`
+            // (the actual quantity routed through the allocation below) rather than handled as a
+            // second, separately-solved pool. `load`/[SimFrame.houseLoadKw] itself stays pure
+            // appliance/background load — see that field's own doc.
+            val demand = load + config.inverterSelfConsumptionKw
 
             // The grid connection is strictly import-only in every mode — solar never exports;
             // any surplus that can't be used or stored is simply curtailed.
@@ -303,9 +313,9 @@ object SimulationEngine {
             val allowGridChargeBattery = inverterMode == InverterMode.UTI && gridChargeEnabled && gridConnectedNow
             val solarOnlyMode = inverterMode == InverterMode.SOL
 
-            var solarToHouse = min(pv, load)
+            var solarToHouse = min(pv, demand)
             var remainingPv = pv - solarToHouse
-            var remainingLoad = load - solarToHouse
+            var remainingLoad = demand - solarToHouse
             var solarToBattery = 0.0
             var gridToBattery = 0.0
             var batteryToHouse = 0.0
@@ -430,7 +440,8 @@ object SimulationEngine {
                 unmetLoadKw = unmet,
                 curtailedSolarKw = curtailedSolar,
                 inverterLoadKw = inverterLoadKw,
-                status = status
+                status = status,
+                inverterSelfConsumptionKw = config.inverterSelfConsumptionKw
             )
         }
         return frames
@@ -449,7 +460,12 @@ object SimulationEngine {
      */
     fun energyImbalanceKw(frame: SimFrame): Double {
         val pvBalance = frame.solarToHouseKw + frame.solarToBatteryKw + frame.curtailedSolarKw - frame.pvKw
-        val loadBalance = frame.solarToHouseKw + frame.batteryToHouseKw + frame.gridToHouseKw + frame.unmetLoadKw - frame.houseLoadKw
+        // A87: solarToHouseKw/batteryToHouseKw/gridToHouseKw serve houseLoadKw PLUS the inverter's
+        // own self-consumption (folded into the same demand pool buildDayTimeline allocates
+        // against — see its own comment) — so the demand side of this balance must include it too,
+        // or this would show a permanent phantom imbalance equal to inverterSelfConsumptionKw.
+        val loadBalance = frame.solarToHouseKw + frame.batteryToHouseKw + frame.gridToHouseKw + frame.unmetLoadKw -
+            (frame.houseLoadKw + frame.inverterSelfConsumptionKw)
         return kotlin.math.abs(pvBalance) + kotlin.math.abs(loadBalance)
     }
 
@@ -485,7 +501,8 @@ object SimulationEngine {
         unmetLoadKw = lerp(a.unmetLoadKw, b.unmetLoadKw, t),
         curtailedSolarKw = lerp(a.curtailedSolarKw, b.curtailedSolarKw, t),
         inverterLoadKw = lerp(a.inverterLoadKw, b.inverterLoadKw, t),
-        status = if (t < 0.5) a.status else b.status
+        status = if (t < 0.5) a.status else b.status,
+        inverterSelfConsumptionKw = lerp(a.inverterSelfConsumptionKw, b.inverterSelfConsumptionKw, t)
     )
 
     private fun lerp(a: Double, b: Double, t: Double) = a + (b - a) * t
