@@ -122,12 +122,13 @@ private fun detailLines(
             subtitle = if (spec != null) "${config.panelCount} × ${spec.brand} ${spec.model}" else "${config.panelCount} × ${config.panelWatts} W",
             rows = listOf(
                 "Total capacity" to fmtKw(config.pvCapacityKw),
-                "Ideal output (no losses)" to fmtKw(f.potentialPvKw),
-                "Actual output" to fmtKw(f.pvKw),
+                "Ideal (no losses)" to fmtKw(f.potentialPvKw),
+                "Available (after losses)" to fmtKw(f.harvestablePvKw),
+                "Harvested (actual)" to fmtKw(f.pvKw),
                 "Cell temp" to "%.0f°C".format(f.cellTempC),
-                "To home" to fmtKw(f.solarToHouseKw),
-                "To battery" to fmtKw(f.solarToBatteryKw),
-                "Curtailed (unused)" to fmtKw(f.curtailedSolarKw)
+                "→ To home" to fmtKw(f.solarToHouseKw),
+                "→ To battery" to fmtKw(f.solarToBatteryKw),
+                "Throttled (battery full)" to fmtKw(f.curtailedSolarKw)
             ) + listOfNotNull(
                 spec?.vmpV?.let { "Vmp (per panel)" to "%.1f V".format(it) },
                 spec?.vocV?.let { "Voc (per panel)" to "%.1f V".format(it) },

@@ -52,7 +52,10 @@ class SolarResourceFactorWiringTest {
         val curveShapeIntegral = SimulationEngine.REFERENCE_CURVE_PSH_HOURS / 12.0
         val effectiveCurveSunHoursOctober = octoberSunTimes.dayLengthHours * curveShapeIntegral
         val expectedRatio = (SimulationEngine.REFERENCE_CURVE_PSH_HOURS / effectiveCurveSunHoursOctober) * octoberFactor
-        assertEquals(annualNoon.pvKw * expectedRatio, octoberNoon.pvKw, 0.01)
+        // Compare the harvestable PV ceiling, not harvested pvKw — this test is about the pshScale
+        // amplitude (a PV-generation property), and the ceiling is immune to whether the battery
+        // happened to be full and throttling the array at noon in either run.
+        assertEquals(annualNoon.harvestablePvKw * expectedRatio, octoberNoon.harvestablePvKw, 0.01)
     }
 
     @Test

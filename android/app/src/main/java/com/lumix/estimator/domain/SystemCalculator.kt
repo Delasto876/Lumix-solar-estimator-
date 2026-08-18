@@ -1002,8 +1002,13 @@ object SystemCalculator {
         // solar production, Estimated conservative daily solar production"): only computed when an
         // install month was actually picked — without one, there's no month-specific day to
         // integrate and the field stays null (see QuoteResult.estimatedTypicalDailyPvKwh's own
-        // doc). PV output doesn't depend on battery SOC/appliance load (see buildDayTimeline's own
-        // `pv` derivation), so a single full-day timeline per scenario is enough to sum.
+        // doc). This is a *generation* figure for the quote, so it sums harvestablePvKw (the
+        // array's post-loss production ceiling) rather than pvKw — as of the 2026-08-18
+        // charging-physics fix, pvKw is the *harvested* figure, which a real MPPT throttles back
+        // when the battery is full, so summing it here would understate the array's real monthly
+        // production for reasons that have nothing to do with the weather this figure is about.
+        // harvestablePvKw is battery-SOC-independent (see buildDayTimeline's own `pv` derivation),
+        // so a single full-day timeline per scenario is still enough to sum.
         val dailyProductionEstimate = input.installMonth?.let { month ->
             val dt = 5.0 / 60.0
             fun dailyPvKwh(scenario: WeatherScenario): Double {
@@ -1014,7 +1019,7 @@ object SystemCalculator {
                     installMonth = month,
                     weatherCurve = curve
                 )
-                return timeline.sumOf { it.pvKw * dt }
+                return timeline.sumOf { it.harvestablePvKw * dt }
             }
             dailyPvKwh(WeatherScenario.TYPICAL) to dailyPvKwh(WeatherScenario.CLOUDIER)
         }

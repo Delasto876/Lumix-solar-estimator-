@@ -86,27 +86,34 @@ class Phase24EngineeringValidationTest {
     }
 
     @Test
-    fun `TEST 7 - full battery plus low load curtails the PV surplus instead of consuming it`() {
-        // hour=12 (near solar noon), pvCapacityKw=10 -> potential/realized PV ~7.87kW (hand-traced
-        // via SimulationEngine's own irradiance/temperature-derate formulas). Battery starts at
-        // 100% SOC (no room to charge) and load is small (0.3kW appliance override + background +
-        // the 0.1kW inverter self-consumption default for this config's 20kW inverter) -> almost
-        // all of that ~7.87kW has nowhere to go and must show up as curtailed, not "used."
+    fun `TEST 7 - full battery plus low load throttles the array back to the load instead of over-producing`() {
+        // hour=12 (near solar noon), pvCapacityKw=10 -> harvestable (post-loss) PV ~7.87kW
+        // (hand-traced via SimulationEngine's own irradiance/temperature-derate formulas). Battery
+        // starts at 100% SOC (no room to charge) and load is small (0.3kW appliance override +
+        // background + the 0.1kW inverter self-consumption default for this config's 20kW inverter).
+        // 2026-08-18 charging-physics fix: a real MPPT hybrid inverter walks the array back off its
+        // max-power point here rather than over-producing and dumping — so *harvested* PV
+        // (frame.pvKw) drops to just the served load, while the harvestable ceiling
+        // (frame.harvestablePvKw) stays ~7.87kW and the gap is throttled off (curtailed).
         val cfg = config()
         val frame = singleFrame(cfg, hour = 12.0, startSocFraction = 1.0, applianceLoadKw = 0.3)
 
-        assertEquals(7.867, frame.pvKw, 0.01)
+        // The ceiling the array *could* make is unchanged (~7.87kW) — the fix is about what it
+        // actually harvests, not about the array's potential.
+        assertEquals(7.867, frame.harvestablePvKw, 0.01)
         assertEquals(0.1, frame.inverterSelfConsumptionKw, 0.0001)
         val expectedDemand = frame.houseLoadKw + frame.inverterSelfConsumptionKw
         assertEquals(0.5344, expectedDemand, 0.01)
 
-        // The demand actually gets served in full from solar (PV far exceeds it)...
+        // The demand gets served in full from solar...
         assertEquals(expectedDemand, frame.solarToHouseKw, 0.001)
-        // ...and everything else is curtailed, not silently discarded or double-counted as "used."
-        assertEquals(frame.pvKw - frame.solarToHouseKw, frame.curtailedSolarKw, 0.001)
-        assertTrue("most of the available PV must be curtailed, not consumed, with the battery full and load small", frame.curtailedSolarKw > 7.0)
+        // ...and harvested production drops to exactly that — the array is throttled, not over-run.
+        assertEquals(frame.solarToHouseKw, frame.pvKw, 0.001)
+        // The throttled-off remainder is the gap between the ceiling and what was harvested.
+        assertEquals(frame.harvestablePvKw - frame.pvKw, frame.curtailedSolarKw, 0.001)
+        assertTrue("most of the available PV must be throttled off, not consumed, with the battery full and load small", frame.curtailedSolarKw > 7.0)
 
-        // Conservation still holds exactly even with curtailment active (§2's own "energy must be conserved").
+        // Conservation still holds exactly — harvested PV is fully accounted by house + battery.
         assertEquals(0.0, SimulationEngine.energyImbalanceKw(frame), 0.0001)
     }
 
@@ -229,10 +236,14 @@ class Phase24EngineeringValidationTest {
             resolutionMinutes = 5, durationHours = 24.0, weatherCurve = rainy
         )
 
-        val clearTotalPv = clearTimeline.sumOf { it.pvKw }
-        val rainyTotalPv = rainyTimeline.sumOf { it.pvKw }
+        // 2026-08-18 charging-physics fix: compare the harvestable ceiling (the weather-driven
+        // generation potential), not harvested pvKw — otherwise a clear day whose battery tops off
+        // and throttles the array back would understate its own generation and muddy the
+        // weather comparison this test is actually about.
+        val clearTotalPv = clearTimeline.sumOf { it.harvestablePvKw }
+        val rainyTotalPv = rainyTimeline.sumOf { it.harvestablePvKw }
         assertTrue(
-            "a RAINY scenario must produce meaningfully less total daily PV than TYPICAL",
+            "a RAINY scenario must allow meaningfully less total daily PV than TYPICAL",
             rainyTotalPv < clearTotalPv * 0.85
         )
 

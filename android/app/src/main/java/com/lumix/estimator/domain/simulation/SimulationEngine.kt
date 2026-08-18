@@ -410,6 +410,15 @@ object SimulationEngine {
 
             val batteryPowerKw = (solarToBattery + gridToBattery) - batteryDischargeDcKw
             val gridPowerKw = gridToHouse + gridToBattery
+            // 2026-08-18 charging-physics fix: report the *harvested* PV — what a real MPPT hybrid
+            // inverter actually pulls from the array, which is only ever `house + charging`. When
+            // the battery tops off (and there's no export outlet), the inverter walks the array
+            // back off its maximum-power point, so production physically drops to match the load
+            // rather than staying pinned at the ceiling with the surplus "dumped." `pv` above is
+            // the post-loss harvestable ceiling; the throttled-off remainder is `curtailedSolar`
+            // (already computed), and `pv == harvestedPv + curtailedSolar` by construction, so
+            // SimFrame.harvestablePvKw recovers the ceiling for anything that needs it.
+            val harvestedPv = solarToHouse + solarToBattery
             // What the inverter's own inverting stage is actually carrying — house power sourced
             // from solar/battery, plus whatever's charging the battery. Grid-to-house power
             // bypasses this (see SimFrame's own doc comment), so it's excluded here.
@@ -431,7 +440,7 @@ object SimulationEngine {
 
             frames += SimFrame(
                 hour = hour,
-                pvKw = pv,
+                pvKw = harvestedPv,
                 potentialPvKw = potentialPv,
                 cellTempC = cellTempC,
                 temperatureDerateFraction = temperatureDerate,
@@ -457,17 +466,23 @@ object SimulationEngine {
 
     /**
      * A47: the two conservation laws every [SimFrame] must satisfy by construction — every watt
-     * of realized PV either serves the house, charges the battery, or is curtailed; every watt
-     * of house load is met by solar, battery, or grid, or goes unmet. [buildDayTimeline] builds
-     * each frame via sequential allocation from those same shared pools rather than an
-     * independent solve, so this should always come back at (or within float rounding of) zero —
-     * this function exists to actually verify that, not just assume it, and to give a concrete
-     * number rather than silently trusting the animation looks right. Surfaced in the Technical
-     * panel (`TechnicalDetailsCard.kt`) rather than logged, since this module has no Android
-     * framework dependency to log through and stays that way deliberately.
+     * of *harvested* PV serves the house or charges the battery; every watt of house load is met
+     * by solar, battery, or grid, or goes unmet. [buildDayTimeline] builds each frame via
+     * sequential allocation from those same shared pools rather than an independent solve, so this
+     * should always come back at (or within float rounding of) zero — this function exists to
+     * actually verify that, not just assume it, and to give a concrete number rather than silently
+     * trusting the animation looks right. Surfaced in the Technical panel
+     * (`TechnicalDetailsCard.kt`) rather than logged, since this module has no Android framework
+     * dependency to log through and stays that way deliberately.
+     *
+     * 2026-08-18 charging-physics fix: [SimFrame.pvKw] is now the *harvested* figure (house +
+     * charging) rather than the full harvestable ceiling, so the PV balance no longer carries a
+     * curtailment term — the throttled-off energy was never produced. [SimFrame.curtailedSolarKw]
+     * is the gap up to [SimFrame.harvestablePvKw], a separate quantity, not a conservation
+     * violation.
      */
     fun energyImbalanceKw(frame: SimFrame): Double {
-        val pvBalance = frame.solarToHouseKw + frame.solarToBatteryKw + frame.curtailedSolarKw - frame.pvKw
+        val pvBalance = frame.solarToHouseKw + frame.solarToBatteryKw - frame.pvKw
         // A87: solarToHouseKw/batteryToHouseKw/gridToHouseKw serve houseLoadKw PLUS the inverter's
         // own self-consumption (folded into the same demand pool buildDayTimeline allocates
         // against — see its own comment) — so the demand side of this balance must include it too,

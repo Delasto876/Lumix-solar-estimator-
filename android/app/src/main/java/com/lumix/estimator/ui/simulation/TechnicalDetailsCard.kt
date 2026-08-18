@@ -36,16 +36,16 @@ fun TechnicalDetailsContent(readout: TechnicalReadout, modifier: Modifier = Modi
             "%.0f V".format(readout.pvVoltage), "PV Current", "%.2f A".format(readout.pvCurrent)
         )
         TechRow(
-            "Ideal Output", "%.2f kW".format(readout.potentialPvKw),
-            "Actual Output", "%.2f kW".format(readout.pvPowerKw)
+            "Ideal (no losses)", "%.2f kW".format(readout.potentialPvKw),
+            "Available (after losses)", "%.2f kW".format(readout.harvestablePvKw)
         )
         TechRow(
-            "PV Delivered", "%.2f kW".format(readout.pvDeliveredKw),
-            "PV Curtailed", "%.2f kW".format(readout.pvCurtailedKw)
+            "Harvested (actual)", "%.2f kW".format(readout.pvPowerKw),
+            "Throttled (battery full)", "%.2f kW".format(readout.pvCurtailedKw)
         )
         if (readout.pvCurtailedKw > 0.01) {
             Text(
-                "PV is producing more than the house and battery can currently use — the array stays at its normal operating voltage, but the unused portion is curtailed rather than delivered.",
+                "The battery is full and there's nowhere for the surplus to go, so the inverter walks the array back off its maximum-power point — harvested output drops to just what the house and battery can take. The throttled figure is what the array could still make if there were somewhere to put it, not power being produced and dumped.",
                 style = MaterialTheme.typography.labelSmall,
                 color = palette.textSecondary
             )
@@ -76,7 +76,8 @@ fun TechnicalDetailsContent(readout: TechnicalReadout, modifier: Modifier = Modi
             "Utility Service Limit", "${readout.gridServiceAmps.toInt()} A",
             "Service Used", if (readout.gridServiceUtilization > 0f) "%.0f%%".format(readout.gridServiceUtilization * 100f) else "—"
         )
-        TechRow("Energy Today", "%.1f kWh".format(readout.energyTodayKwh), "Energy This Month (est.)", "%.0f kWh".format(readout.energyMonthEstKwh))
+        TechRow("Energy Today (harvested)", "%.1f kWh".format(readout.energyTodayKwh), "Available Today", "%.1f kWh".format(readout.energyTodayAvailableKwh))
+        TechRow("Energy This Month (est.)", "%.0f kWh".format(readout.energyMonthEstKwh), "Throttled Today", "%.1f kWh".format((readout.energyTodayAvailableKwh - readout.energyTodayKwh).coerceAtLeast(0.0)))
 
         Text(
             "Neutral current is the imbalance between the two 110V legs — assumes lighting/outlet circuits are spread evenly across both, same as a real panel schedule.",

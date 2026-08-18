@@ -6251,3 +6251,72 @@ references the changed functions/fields (`EquipmentSelectionEngineTest.kt`,
 `McpToolRegistryTest.kt`) and hand-confirmed each is either testing the shared function directly
 (unaffected by a new call site routing through it) or asserting a relative/self-consistent
 comparison rather than a hardcoded absolute value (unaffected by the formula change itself).
+
+## A94 — charging physics: PV throttles to match load when the battery is full (real MPPT behavior)
+
+Installer report: "when the battery is near full, the system trickle charges until 100%; when it
+reaches 100% the PV power drops significantly to match the load; if the inverter is pulling more
+than the PV, the battery helps until PV recovers, then it recharges the battery to full and goes
+back to serving load — until PV is too low at end of day and the battery takes over." Reasoned
+through it with the user before implementing.
+
+### Diagnosis — the physics was already right; the telemetry wasn't
+Traced the full dispatch (`buildDayTimeline`). Everything the report describes at the *energy*
+level was already implemented and correct:
+- Trickle/absorption near full — `BatteryPowerCurve.chargeTaperFraction` is a CV-style taper
+  (~90% SOC → 44% of rated charge power, 95% → 11%, 97% → 4%, 99% → <1%, 100% → 0%), plus a hard
+  `roomKwh/dt` clamp.
+- Battery assists the instant load exceeds PV; the frame-by-frame loop naturally produces the
+  "recharge to full, throttle, dip, recharge" hunting cycle; end-of-day handoff to battery works.
+
+The one thing that was **off** was how PV was *reported*. The engine reported `pvKw` as the full
+loss-adjusted potential and booked the unused surplus into a separate `curtailedSolarKw` bucket —
+so when the battery topped off, the on-screen solar production (and the solar→inverter arrow) stayed
+pinned at full blast while the house only sipped a little. A real MPPT hybrid inverter doesn't
+produce-then-dump: it walks the array back off its maximum-power point, so harvested production
+physically drops to `house + charging`. The app was showing the wrong number for a full battery.
+
+### The change (confirmed with the user: throttle reported PV; show both harvested and potential)
+Physics/dispatch is byte-identical — only the PV *reporting convention* changed:
+- `SimFrame.pvKw` now means **harvested** production (`solarToHouseKw + solarToBatteryKw`) — what the
+  inverter actually pulls from the array. It drops to match the load when the battery is full and
+  jumps back up during the recharge cycle, exactly like a real PV monitor.
+- New computed `SimFrame.harvestablePvKw` (`pvKw + curtailedSolarKw`) is the post-loss **ceiling** —
+  what the array could have delivered if the battery could absorb it. `curtailedSolarKw` is now the
+  throttled-off gap between the two (foregone at the source, not produced and dumped).
+- `SimulationEngine.energyImbalanceKw` updated: harvested PV is fully accounted by house + battery,
+  so the PV conservation term no longer includes curtailment.
+- `potentialPvKw` (pre-loss) is unchanged and still gates the per-MPPT voltage model
+  (`PvElectricalModel`), so array voltage is unaffected by the throttling — as A53 intended.
+
+### Where it shows up
+- **Solar production tile + solar→inverter arrow** (`EnergyGraph`, `SimulationScreen`,
+  `EnergyFlowResolver`): now drop to match the load when the battery is full.
+- **24h graph**: solid solar line = harvested; a new faint dashed line = the harvestable ceiling, so
+  the throttled headroom is visible as the gap between them (graph now scales to the ceiling).
+- **Technical panel**: rows relabelled to the honest ladder — "Ideal (no losses)" → "Available
+  (after losses)" → "Harvested (actual)" → "Throttled (battery full)" — plus "Energy Today
+  (harvested)" / "Available Today" / "Throttled Today" so the daily figure shows both, per the
+  user's choice.
+- **Panels inspect sheet**: same ladder, with harvested split into → To home / → To battery.
+- **Quote production estimate** (`SystemCalculator`'s `estimatedTypical/ConservativeDailyPvKwh`):
+  switched to sum `harvestablePvKw`, so the quoted monthly generation stays a pure
+  weather-driven figure and is **not** reduced by battery-full throttling. Because
+  `harvestablePvKw` equals the old `pvKw` value exactly, this quoted number is numerically
+  unchanged from before.
+
+### Tests
+`Phase24EngineeringValidationTest` TEST 7 (the battery-full scenario) rewritten to the new
+convention — asserts harvested `pvKw` drops to the served load while `harvestablePvKw` holds at the
+~7.87kW ceiling and the gap is throttled off. TEST 3/4 (PV fully consumed, nothing throttled)
+pass unchanged since harvested == realized there. The weather-comparison test and
+`SolarResourceFactorWiringTest` now compare `harvestablePvKw` (the generation ceiling, immune to
+battery state) — numerically identical to their old `pvKw` expectations since `harvestablePvKw`
+retains the old field's meaning. `McpToolRegistryTest`'s passthrough assertion is unaffected.
+Brace/paren balance verified on all eight touched files.
+
+### Deliberately not changed this round (disclosed)
+The per-MPPT model still holds array **voltage** at Vmp during throttling (current drops instead),
+rather than modelling the operating point sliding toward Voc as a real MPPT does when it backs off.
+That's a deeper electrical-model change (A53's territory) and separate from the power-reporting fix
+the report was about; left as a known simplification.

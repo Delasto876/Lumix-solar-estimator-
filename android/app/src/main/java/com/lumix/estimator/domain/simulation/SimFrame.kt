@@ -40,12 +40,23 @@ enum class SystemStatus(val label: String) {
  * The grid is strictly import-only in this app — there is no `solarToGridKw`/export field,
  * and none ever will be. [gridToBatteryKw] is JPS charging the battery (UTI mode only, when
  * enabled); it is a separate import path from [gridToHouseKw], and both can be active in the
- * same frame. [curtailedSolarKw] is solar production that had nowhere to go this instant
- * (battery full or absent, and no export outlet) — it's simply unused, not sent anywhere.
+ * same frame.
  *
- * [pvKw] is realized (loss-adjusted) production; [potentialPvKw] is the same instant with no
- * real-world losses applied — the gap between them is [SystemLosses]' itemized inverter/wiring/
- * soiling factors plus [temperatureDerateFraction], not something wasted or curtailed.
+ * 2026-08-18 charging-physics fix: three tiers of PV figure, matching how a real MPPT hybrid
+ * inverter actually behaves rather than a "produce everything, dump the surplus" accounting:
+ *   - [potentialPvKw] — pre-loss ceiling (irradiance × array capacity), no real-world losses.
+ *   - [harvestablePvKw] — post-loss, what the array *could* deliver this instant if the house +
+ *     battery could absorb all of it. The gap down from [potentialPvKw] is [SystemLosses]'
+ *     itemized inverter/wiring/soiling factors plus [temperatureDerateFraction] — real losses,
+ *     not throttling.
+ *   - [pvKw] — what the array *actually* produces: a real inverter walks the array back off its
+ *     maximum-power point when the battery is full and there's nowhere for the surplus to go, so
+ *     harvested production drops to exactly `house + charging`. This is that harvested figure
+ *     ([solarToHouseKw] + [solarToBatteryKw]), the number a real PV monitor would show — it drops
+ *     to match the load once the battery tops off, instead of staying pinned at the ceiling.
+ * [curtailedSolarKw] is the throttled-off remainder ([harvestablePvKw] − [pvKw]) — energy the
+ * array was backed off from making because the battery is full/absent and there's no export
+ * outlet. It's foregone at the source, not produced and dumped anywhere.
  *
  * [inverterLoadKw] is the power actually passing through the inverter's inverting stage this
  * instant: solar/battery serving the house, plus whatever's charging the battery. It deliberately
@@ -93,4 +104,13 @@ data class SimFrame(
      * produces sets this from the config it was built against.
      */
     val inverterSelfConsumptionKw: Double = 0.0
-)
+) {
+    /**
+     * 2026-08-18 charging-physics fix: post-loss production the array *could* have delivered this
+     * instant if the house + battery could absorb all of it — i.e. before the inverter throttled
+     * the array back off its maximum-power point. Equals [pvKw] (actually harvested) plus
+     * [curtailedSolarKw] (throttled off). Useful for showing "how much was left on the table
+     * because the battery was full" without re-deriving it at every call site.
+     */
+    val harvestablePvKw: Double get() = pvKw + curtailedSolarKw
+}

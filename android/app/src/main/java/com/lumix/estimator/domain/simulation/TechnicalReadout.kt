@@ -16,10 +16,13 @@ import kotlin.math.sin
  * configured utility service rating ([gridServiceAmps]) — the same rating the simulation engine
  * itself enforces as a hard import cap, so this is always consistent with what the engine did.
  *
- * [pvPowerKw] is realized (loss-adjusted) solar output; [potentialPvKw] is the same instant with
- * no real-world losses at all. [temperatureLossPercent] and [fixedSystemLossPercent] are the two
- * itemized causes of that gap — see [SystemLosses] for the individual inverter/wiring/soiling
- * factors [fixedSystemLossPercent] combines.
+ * [pvPowerKw] is the *harvested* solar output — what the inverter actually pulls from the array
+ * (house + charging), which a real MPPT walks back off the array's max-power point once the
+ * battery tops off. [harvestablePvKw] is what it could have pulled if the battery could absorb
+ * everything ([pvPowerKw] + [pvCurtailedKw]); [potentialPvKw] is that same instant with no
+ * real-world losses at all. [temperatureLossPercent] and [fixedSystemLossPercent] are the two
+ * itemized causes of the loss gap down from [potentialPvKw] — see [SystemLosses] for the
+ * individual inverter/wiring/soiling factors [fixedSystemLossPercent] combines.
  *
  * [gridNeutralCurrent] is the imbalance between the two 110V legs ([applianceLoadKwByLegAt]) —
  * a balanced split-phase panel carries near-zero neutral current; the more one leg's load
@@ -51,15 +54,22 @@ data class TechnicalReadout(
     val gridServiceUtilization: Float,
     val frequencyHz: Double,
     val energyTodayKwh: Double,
+    /**
+     * 2026-08-18 charging-physics fix: the day-so-far integral of [SimFrame.harvestablePvKw] — what
+     * the array *could* have produced if the battery could absorb everything, i.e. [energyTodayKwh]
+     * (actually harvested) plus everything throttled off while the battery was full. Shown next to
+     * [energyTodayKwh] so the throttled headroom is visible rather than silently missing.
+     */
+    val energyTodayAvailableKwh: Double,
     val energyMonthEstKwh: Double,
     val startupSurgeKw: Double,
     val energyBalanceErrorKw: Double,
     /** A53: real per-MPPT-tracker electrical state — see [PvElectricalModel]. Empty only when there's no PV configured at all. */
     val mpptStrings: List<MpptReadout>,
-    /** [SimFrame.curtailedSolarKw] surfaced here so the debug/technical panel doesn't need to reach back into the raw frame separately. */
+    /** [SimFrame.curtailedSolarKw] surfaced here — the PV the inverter throttled off this instant because the battery is full/absent and there's no export outlet. */
     val pvCurtailedKw: Double,
-    /** Solar actually delivered to the house or battery this instant — [SimFrame.solarToHouseKw] + [SimFrame.solarToBatteryKw]. Distinct from [pvPowerKw] (total realized generation, before curtailment) and [potentialPvKw] (before real-world losses too). */
-    val pvDeliveredKw: Double
+    /** [SimFrame.harvestablePvKw] — post-loss production the array *could* have delivered if the house + battery could absorb all of it ([pvPowerKw] harvested + [pvCurtailedKw] throttled off). The ceiling [pvPowerKw] would reach with no full-battery throttling; still below [potentialPvKw], which is before real-world losses too. */
+    val harvestablePvKw: Double
 )
 
 object TechnicalModel {
@@ -144,7 +154,12 @@ object TechnicalModel {
         val frequencyHz = if (gridActive) GRID_FREQUENCY_HZ + 0.02 * sin(frame.hour) else 0.0
 
         val dt = if (timeline.size > 1) timeline[1].hour - timeline[0].hour else 5.0 / 60.0
-        val energyTodayKwh = timeline.filter { it.hour <= frame.hour }.sumOf { it.pvKw * dt }
+        val framesSoFar = timeline.filter { it.hour <= frame.hour }
+        val energyTodayKwh = framesSoFar.sumOf { it.pvKw * dt }
+        // 2026-08-18 charging-physics fix: harvested (above) vs. harvestable — the day's throttled
+        // headroom is the gap between them, shown side by side so a full-battery afternoon reads as
+        // "produced less because there was nowhere to put it," not as a silent shortfall.
+        val energyTodayAvailableKwh = framesSoFar.sumOf { it.harvestablePvKw * dt }
 
         val temperatureLossPercent = ((1.0 - frame.temperatureDerateFraction) * 100.0).toFloat().coerceAtLeast(0f)
         val fixedSystemLossPercent = ((1.0 - SystemLosses.fixedSystemEfficiency) * 100.0).toFloat()
@@ -170,12 +185,13 @@ object TechnicalModel {
             gridServiceUtilization = gridServiceUtilization,
             frequencyHz = frequencyHz,
             energyTodayKwh = energyTodayKwh,
+            energyTodayAvailableKwh = energyTodayAvailableKwh,
             energyMonthEstKwh = energyTodayKwh * 30,
             startupSurgeKw = startupSurgeKw,
             energyBalanceErrorKw = SimulationEngine.energyImbalanceKw(frame),
             mpptStrings = mpptStrings,
             pvCurtailedKw = frame.curtailedSolarKw,
-            pvDeliveredKw = frame.solarToHouseKw + frame.solarToBatteryKw
+            harvestablePvKw = frame.harvestablePvKw
         )
     }
 }

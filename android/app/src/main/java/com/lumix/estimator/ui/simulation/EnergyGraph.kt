@@ -45,8 +45,10 @@ fun EnergyGraph(
 ) {
     if (timeline.isEmpty()) return
     val palette = LocalLumixPalette.current
+    // Scale to the harvestable ceiling (harvested + throttled) so the faint "available" line below
+    // isn't clipped when the battery tops off and the solid harvested line dips to the load.
     val maxPower = max(
-        max(timeline.maxOf { it.pvKw }, timeline.maxOf { it.houseLoadKw }),
+        max(timeline.maxOf { it.harvestablePvKw }, timeline.maxOf { it.houseLoadKw }),
         timeline.maxOf { it.gridPowerKw }
     ).coerceAtLeast(0.1)
 
@@ -79,6 +81,7 @@ fun EnergyGraph(
 
                 val solarPath = Path()
                 val solarFill = Path()
+                val availablePath = Path()
                 val loadPath = Path()
                 val socPath = Path()
                 val gridPath = Path()
@@ -86,6 +89,10 @@ fun EnergyGraph(
                 timeline.forEachIndexed { i, f ->
                     val x = (f.hour * xStep).toFloat()
                     val ySolar = yForPower(f.pvKw)
+                    // The harvestable ceiling — where the solar line *would* sit without the
+                    // full-battery throttling. Drawn faintly so the gap down to the solid harvested
+                    // line reads as "throttled because the battery is full," not a production drop.
+                    val yAvailable = yForPower(f.harvestablePvKw)
                     val yLoad = yForPower(f.houseLoadKw)
                     val ySoc = yForPercent(f.batterySocPercent)
                     // Grid draw is always >= 0 (import-only) — total of what's going to the
@@ -95,12 +102,14 @@ fun EnergyGraph(
                         solarPath.moveTo(x, ySolar)
                         solarFill.moveTo(x, baseline)
                         solarFill.lineTo(x, ySolar)
+                        availablePath.moveTo(x, yAvailable)
                         loadPath.moveTo(x, yLoad)
                         socPath.moveTo(x, ySoc)
                         gridPath.moveTo(x, yGrid)
                     } else {
                         solarPath.lineTo(x, ySolar)
                         solarFill.lineTo(x, ySolar)
+                        availablePath.lineTo(x, yAvailable)
                         loadPath.lineTo(x, yLoad)
                         socPath.lineTo(x, ySoc)
                         gridPath.lineTo(x, yGrid)
@@ -110,6 +119,15 @@ fun EnergyGraph(
                 solarFill.close()
 
                 drawPath(solarFill, brush = Brush.verticalGradient(listOf(LumixColors.SolarYellow.copy(alpha = 0.22f), Color.Transparent)))
+                drawPath(
+                    availablePath,
+                    color = LumixColors.SolarYellow.copy(alpha = 0.35f),
+                    style = Stroke(
+                        width = 1.5.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 4f))
+                    )
+                )
                 drawPath(solarPath, color = LumixColors.SolarYellow, style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round))
                 drawPath(loadPath, color = palette.textSecondary, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
                 drawPath(
