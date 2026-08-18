@@ -189,8 +189,19 @@ data class ApplianceState(
  * through the appliance picker's own quantity/hours/period controls. Quantities are filled in
  * separately by the caller; only the timing shape lives here. Short "event" appliances (kettle,
  * microwave, iron, gate opener) default to minutes, not hours, since that's how they're actually
- * used. Where the source data gave alternative "or" windows (e.g. laundry morning-or-evening),
- * the evening window was picked as the more universally common one for a working household.
+ * used.
+ *
+ * 2026-08-18 solar-user behavior: this app models solar/battery homes, and real solar households
+ * run their DEFERRABLE high-power chores during the day, on free PV, specifically to keep the
+ * battery full for the night when backup matters most — they iron and do laundry in the morning,
+ * not at 7pm. So the discretionary, shiftable big loads (clothes iron, washer, dryer, EV charging;
+ * pool pump was already daytime) default to the mid-morning/midday solar window rather than the
+ * evening peak a generic grid-tied household would fall into. Time-FIXED loads are left where human
+ * need puts them regardless of solar: cooking at meal times, lighting after dark, fans/AC for
+ * evening/overnight comfort, the fridge/security/router running 24h, bathing-linked water heating.
+ * Shifting a load's start hour changes only WHEN it draws, not its daily kWh (energy = duration ×
+ * duty factor × watts), so this doesn't change system sizing — but it does move discretionary load
+ * off the battery-critical night and onto direct solar, which is the whole point.
  */
 fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type) {
     // A compressor cycles on/off all day rather than truly running continuously — dutyFactor
@@ -294,15 +305,21 @@ fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type)
     SimApplianceType.HAIR_DRYER -> listOf(ApplianceRun(startHour = 6.5, durationHours = 9.0 / 60.0))
     SimApplianceType.CURLING_IRON -> listOf(ApplianceRun(startHour = 6.5, durationHours = 18.0 / 60.0))
 
-    SimApplianceType.IRON -> listOf(ApplianceRun(startHour = 19.0, durationHours = 0.5))
-    // Saturday adds the household's real laundry batch (section 27) on top of an occasional
-    // weeknight load — Jamaican working households typically do the bulk of laundry on the
-    // weekend, not spread flat across every weekday.
+    // Solar-user behavior: ironing is a discretionary chore a solar household does in the morning
+    // on free PV, not at 7pm off the battery — so this defaults to a mid-morning solar window.
+    SimApplianceType.IRON -> listOf(ApplianceRun(startHour = 9.0, durationHours = 0.5))
+    // Solar-user behavior: laundry is the classic deferrable load — real solar homes wash in the
+    // morning/midday, on the sun, to spare the battery for the night. Weekday default moved to a
+    // mid-morning solar window; Saturday's bulk-laundry batch (section 27 — Jamaican working
+    // households do most laundry on the weekend) already sits at 10am, squarely on solar.
     SimApplianceType.WASHING_MACHINE -> listOf(
-        ApplianceRun(startHour = 18.0, durationHours = 0.75),
+        ApplianceRun(startHour = 9.0, durationHours = 0.75),
         ApplianceRun(startHour = 10.0, durationHours = 1.0, dayTypes = setOf(DayType.SATURDAY))
     )
-    SimApplianceType.CLOTHES_DRYER -> listOf(ApplianceRun(startHour = 18.5, durationHours = 0.75))
+    // Solar-user behavior: a 5kW dryer is the single most punishing deferrable load — running it
+    // at midday on solar instead of the evening is exactly what keeps it off the battery. Follows
+    // the morning wash.
+    SimApplianceType.CLOTHES_DRYER -> listOf(ApplianceRun(startHour = 11.0, durationHours = 0.75))
 
     // Scoped to the weekend "cleaning day," not every single day (section 27) — a 9am vacuum
     // run on a weekday when the house is meant to be empty (section 18) doesn't reflect real use.
@@ -317,10 +334,12 @@ fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type)
         ApplianceRun(startHour = 18.0, durationHours = 1.0 / 60.0)
     )
 
-    // No typical pattern exists for these — entirely user-configurable — so this default
-    // (evening, off-peak-ish) is just a starting point, not a behavioral claim.
-    SimApplianceType.EV_CHARGER_L1 -> listOf(ApplianceRun(startHour = 18.0, durationHours = 3.0))
-    SimApplianceType.EV_CHARGER_L2 -> listOf(ApplianceRun(startHour = 18.0, durationHours = 3.0))
+    // Solar-user behavior: EV charging is the largest fully-deferrable load a home has. A solar
+    // owner charges midday on the sun, not overnight off the battery/grid — so this defaults to a
+    // midday solar window. Still entirely user-configurable (a night-shift worker who charges
+    // overnight just drags it there).
+    SimApplianceType.EV_CHARGER_L1 -> listOf(ApplianceRun(startHour = 10.0, durationHours = 3.0))
+    SimApplianceType.EV_CHARGER_L2 -> listOf(ApplianceRun(startHour = 10.0, durationHours = 3.0))
     SimApplianceType.POOL_PUMP -> listOf(ApplianceRun(startHour = 10.0, durationHours = 4.0))
 }
 

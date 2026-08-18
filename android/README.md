@@ -6333,3 +6333,55 @@ existing per-MPPT voltage/temperature/topology tests are unaffected. `PvElectric
 former "voltage does not collapse when curtailed" test was rewritten to assert the new behaviour
 (operating voltage rises above Vmp toward Voc under throttling; the Vmp reference itself does not
 move). The array's voltage still can't exceed Voc, and reads zero at night, as before.
+
+## A95 — appliance run-times match real solar-user behavior; pricing + mode logic reviewed
+
+"check pricing logic and check mode logic and appliance use logic, note most person with solar iron
+in the morning and wash in the morning because backup is critical at night, so match a solar user
+behavior with appliance run time."
+
+### Appliance run-times (fixed)
+The default appliance schedules (`defaultScheduleFor` in `SimAppliance.kt`) were inherited from a
+generic grid-tied working-household profile that pushed laundry, ironing, and EV charging into the
+**evening peak** ("the evening window was picked as the more universally common one"). That's the
+wrong default for a solar/battery home. Real solar users run their **deferrable** high-power chores
+during the day, on free PV, precisely to keep the battery full for the night when backup matters —
+they iron and wash in the morning, not at 7pm. Shifted the discretionary, shiftable big loads onto
+the mid-morning/midday solar window:
+- **Clothes iron**: 7pm → 9am.
+- **Washing machine**: weekday 6pm → 9am (the Saturday bulk-laundry batch already sat at 10am, on solar).
+- **Clothes dryer** (5kW, the single most punishing deferrable load): 6:30pm → 11am, following the wash.
+- **EV charger** (L1 + L2, the largest fully-deferrable load): 6pm → 10am midday charging.
+- Pool pump was already daytime (10am); left as is.
+
+**Time-FIXED loads were deliberately left where human need puts them**, regardless of solar: cooking
+at meal times, lighting after dark, fans/AC for evening/overnight comfort, fridge/security/router at
+24h, and bathing-linked water heating (the electric water heater stays on its pre-bathe morning +
+evening windows — a candidate for a midday solar pre-heat, but that's tied to when people actually
+bathe, so it was left for the installer to shift rather than assumed).
+
+Everything stays fully editable in the appliance picker — these are only the *starting* defaults.
+Key property: shifting a load's start hour changes **only when it draws, not its daily kWh** (energy
+= duration × duty factor × watts), so **system sizing is unchanged**. What does change is realistic
+and desirable: discretionary load moves off the battery-critical night and onto direct solar, so the
+simulation shows less overnight battery draw and more direct daytime self-consumption — matching how
+a real solar household actually runs. No test regressed (`OvernightLoadProfileTest` runs with no
+appliances; no test asserts these appliances' start hours).
+
+### Pricing logic (reviewed — sound)
+Traced the full total assembly in `SystemCalculator.calculate` + `MaterialTakeoffEngine`:
+`materialsTotal` (Σ line subtotals) → `serviceCharge` (labour = materials × configurable
+`serviceRatePercent`) → manual delivery + toll (toll only on a flagged toll route; a blank toll rate
+stays blank and is reported as a missing price, never invented) → manual installation/commissioning
+→ `preDiscountTotal` → discount (clamped to `[0, preDiscountTotal]`, percent or fixed) → tax applied
+**post-discount** (configurable `taxRatePercent`, 0 by default) → `grandTotal`. Blank equipment
+prices are tracked in `missingPriceItems` and never fabricated (the A91 nullable-pricing guarantee).
+Order of operations, clamping, and blank-price handling are all internally consistent — no changes.
+
+### Mode logic (reviewed — sound, already hardened in A93)
+GUIDED/LOAD both converge on `EquipmentSelectionEngine` for inverter + battery selection; MANUAL
+lets the installer drive but was brought onto the same surge-tolerance and real-battery-sizing checks
+in the A93 audit, and its off-grid panel cap was closed there too. `effectiveSystemMode` is resolved
+once (a MANUAL inverter pick can override the requested mode via its catalog `mode`) and threaded
+consistently into the material takeoff, battery/charge-controller lines, transfer-switch resolution,
+and `SimSystemConfig.gridConnectable`. No new issues found this round.
