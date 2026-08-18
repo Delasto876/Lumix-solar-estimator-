@@ -34,34 +34,38 @@ import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.theme.LocalLumixPalette
-import com.lumix.estimator.ui.wizard.steps.StepAirConditioning
 import com.lumix.estimator.ui.wizard.steps.StepBatteryBank
 import com.lumix.estimator.ui.wizard.steps.StepCustomer
 import com.lumix.estimator.ui.wizard.steps.StepHouseholdAppliances
-import com.lumix.estimator.ui.wizard.steps.StepInverterPanels
+import com.lumix.estimator.ui.wizard.steps.StepInverter
+import com.lumix.estimator.ui.wizard.steps.StepLocation
 import com.lumix.estimator.ui.wizard.steps.StepManualMode
-import com.lumix.estimator.ui.wizard.steps.StepPropertySystem
+import com.lumix.estimator.ui.wizard.steps.StepPanels
 import com.lumix.estimator.ui.wizard.steps.StepQuoteMode
 import com.lumix.estimator.ui.wizard.steps.StepRoofType
+import com.lumix.estimator.ui.wizard.steps.StepSiteDetails
 import com.lumix.estimator.ui.wizard.steps.StepSystemReview
 import com.lumix.estimator.ui.wizard.steps.Step4Usage
 import com.lumix.estimator.ui.wizard.steps.Step5Backup
 import com.lumix.estimator.ui.wizard.steps.Step7Pricing
 
+// A88 (spec Phase 26): renumbered per WizardViewModel's own step-scheme doc comment — see that
+// file for which steps are visible, and in what order, per QuoteMode.
 private val stepTitles = mapOf(
     1 to "Customer",
-    2 to "Quote Mode",
-    3 to "Property & System",
+    2 to "Design Mode",
+    3 to "Location",
     4 to "Roof Type",
-    5 to "Air Conditioning",
-    6 to "Appliances",
-    7 to "JPS Bill / Usage",
-    8 to "Backup Requirements",
-    9 to "Manual Mode",
-    10 to "Inverter & Panels",
-    11 to "Battery Bank",
+    5 to "JPS Bill / Usage",
+    6 to "Manual Mode",
+    7 to "Battery",
+    8 to "Inverter",
+    9 to "Panels",
+    10 to "Appliances",
+    11 to "Backup",
     12 to "System Review",
-    13 to "Pricing & Discount"
+    13 to "Site Details",
+    14 to "Pricing & Discount"
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -73,7 +77,9 @@ fun WizardScreen(
     /** A56: DESIGN flow's last step ("Calculate System") finished — a preliminary row now exists; go to `SystemResultScreen`. */
     onSystemCalculated: (Long) -> Unit,
     /** A56: QUOTE_DETAILS flow's last step ("Save Quote") finished — the same row is now complete; go to the full `ResultsScreen`. */
-    onQuoteSaved: (Long) -> Unit
+    onQuoteSaved: (Long) -> Unit,
+    /** A88: SITE_DETAILS flow's one step ("Done") finished — return to `SystemResultScreen` for the same quote. */
+    onSiteDetailsDone: (Long) -> Unit
 ) {
     val palette = LocalLumixPalette.current
     var showCalculationSequence by remember { mutableStateOf(false) }
@@ -97,6 +103,12 @@ fun WizardScreen(
     val stepIndex = visibleSteps.indexOf(currentStep).coerceAtLeast(0)
     val errors = viewModel.errorsForStep(currentStep)
     val isLast = viewModel.isLastStep()
+    // A88 (spec Phase 26 §17): System Review (12) is the DESIGN flow's real "Calculate System"
+    // trigger point, kept decoupled from "is this literally the last array element" so appending
+    // Site Details (13) after it as a SITE_DETAILS-only excursion can't retroactively move where
+    // Calculate System fires — see WizardViewModel.openSiteDetails's own doc for why this shape
+    // was chosen over folding Site Details into designSteps() directly.
+    val isSystemReviewStep = currentStep == 12 && flowMode == WizardFlowMode.DESIGN
 
     Scaffold(
         topBar = {
@@ -118,22 +130,40 @@ fun WizardScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 LumixSecondaryButton(text = "Back", onClick = { viewModel.goBack() }, enabled = stepIndex > 0)
-                if (isLast) {
-                    // A56: DESIGN's last step (System Review) only needs to know the system itself
-                    // is valid — no quote/pricing fields exist yet at this point in the flow.
-                    // QUOTE_DETAILS's last step (Pricing & Discount) is gated on its own step's
-                    // errors, the same check the old single "Calculate" button used.
-                    val calcEnabled = when (flowMode) {
-                        WizardFlowMode.DESIGN -> !SystemCalculator.hasUnacknowledgedManualWarnings(inputs)
-                        WizardFlowMode.QUOTE_DETAILS -> errors.isEmpty()
+                when {
+                    isSystemReviewStep -> {
+                        // A56: DESIGN's System Review only needs to know the system itself is
+                        // valid — no quote/pricing fields exist yet at this point in the flow.
+                        val calcEnabled = !SystemCalculator.hasUnacknowledgedManualWarnings(inputs)
+                        LumixPrimaryButton(
+                            text = "Calculate System",
+                            onClick = { showCalculationSequence = true },
+                            enabled = calcEnabled
+                        )
                     }
-                    LumixPrimaryButton(
-                        text = if (flowMode == WizardFlowMode.DESIGN) "Calculate System" else "Save Quote",
-                        onClick = { showCalculationSequence = true },
-                        enabled = calcEnabled
-                    )
-                } else {
-                    LumixPrimaryButton(text = "Next", onClick = { viewModel.goNext() })
+                    isLast && flowMode == WizardFlowMode.QUOTE_DETAILS -> {
+                        // "Save Quote," not "Create Quote" — SystemResultScreen's own button
+                        // already says "Create Quote" to START this flow; this finishes it.
+                        LumixPrimaryButton(
+                            text = "Save Quote",
+                            onClick = { showCalculationSequence = true },
+                            enabled = errors.isEmpty()
+                        )
+                    }
+                    isLast && flowMode == WizardFlowMode.SITE_DETAILS -> {
+                        LumixPrimaryButton(
+                            text = "Done",
+                            onClick = { viewModel.saveSiteDetails(onSiteDetailsDone) }
+                        )
+                    }
+                    isLast -> {
+                        // Reachable only if a mode's designSteps() ever ends on something other
+                        // than System Review (12) — not the case today, kept as a safe fallback.
+                        LumixPrimaryButton(text = "Continue", onClick = { showCalculationSequence = true })
+                    }
+                    else -> {
+                        LumixPrimaryButton(text = "Continue", onClick = { viewModel.goNext() })
+                    }
                 }
             }
         }
@@ -172,17 +202,18 @@ fun WizardScreen(
                 when (currentStep) {
                     1 -> StepCustomer(inputs, viewModel::update)
                     2 -> StepQuoteMode(inputs, viewModel::update)
-                    3 -> StepPropertySystem(inputs, viewModel::update)
+                    3 -> StepLocation(inputs, viewModel::update)
                     4 -> StepRoofType(inputs, viewModel::update)
-                    5 -> StepAirConditioning(inputs, viewModel::update)
-                    6 -> StepHouseholdAppliances(inputs, viewModel::update)
-                    7 -> if (inputs.quoteMode == QuoteMode.GUIDED) Step4Usage(inputs, viewModel::update)
-                    8 -> Step5Backup(inputs, viewModel::update)
-                    9 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepManualMode(inputs, viewModel::update)
-                    10 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepInverterPanels(inputs, viewModel::update)
-                    11 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepBatteryBank(inputs, viewModel::update)
+                    5 -> if (inputs.quoteMode == QuoteMode.GUIDED) Step4Usage(inputs, viewModel::update)
+                    6 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepManualMode(inputs, viewModel::update)
+                    7 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepBatteryBank(inputs, viewModel::update)
+                    8 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepInverter(inputs, viewModel::update)
+                    9 -> if (inputs.quoteMode == QuoteMode.MANUAL) StepPanels(inputs, viewModel::update)
+                    10 -> StepHouseholdAppliances(inputs, viewModel::update)
+                    11 -> Step5Backup(inputs, viewModel::update)
                     12 -> StepSystemReview(inputs, viewModel::update, settingsRepository, viewModel::goToStep)
-                    13 -> Step7Pricing(inputs, viewModel::update)
+                    13 -> StepSiteDetails(inputs, viewModel::update)
+                    14 -> Step7Pricing(inputs, viewModel::update)
                 }
             }
 

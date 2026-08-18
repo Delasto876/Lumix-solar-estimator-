@@ -71,6 +71,8 @@ fun SystemResultScreen(
     onSimulate: (Long) -> Unit,
     onEditSystem: () -> Unit,
     onCreateQuote: () -> Unit,
+    /** A88 (spec Phase 26 §17): opens the deferred, non-engineering "Site Details" step (property type/system type/JPS rate/storeys) — optional, never blocks Simulate or Create Quote. */
+    onSiteDetails: () -> Unit,
     onBackToHome: () -> Unit
 ) {
     var saved by remember(quoteId) { mutableStateOf<SavedQuote?>(null) }
@@ -102,10 +104,15 @@ fun SystemResultScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 LumixPrimaryButton(text = "⚡ Simulate", onClick = { onSimulate(quoteId) }, modifier = Modifier.fillMaxWidth())
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     LumixSecondaryButton(text = "Edit System", onClick = onEditSystem, modifier = Modifier.weight(1f))
                     LumixSecondaryButton(text = "Create Quote", onClick = onCreateQuote, modifier = Modifier.weight(1f))
                 }
+                // A88: optional, lower-emphasis — kept off the two-button row above rather than
+                // squeezed into a 3-way SpaceBetween row (the exact narrow-screen overflow shape
+                // A84/§20 of this phase both flag), and never gates Simulate/Create Quote per §17's
+                // own "only make a field mandatory when actually required."
+                LumixSecondaryButton(text = "Continue to Site Details", onClick = onSiteDetails, modifier = Modifier.fillMaxWidth())
             }
         }
     ) { padding ->

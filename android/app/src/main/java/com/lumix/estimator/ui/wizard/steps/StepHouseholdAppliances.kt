@@ -7,8 +7,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,6 +45,7 @@ import com.lumix.estimator.ui.theme.LocalLumixPalette
  * the simulation's behavior can never disagree for the same appliance selection. An installer who
  * genuinely wants an exact figure can still enter one, behind ADVANCED — never the default path.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StepHouseholdAppliances(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> Unit) {
     val palette = LocalLumixPalette.current
@@ -50,13 +56,68 @@ fun StepHouseholdAppliances(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> Quo
             color = palette.textSecondary
         )
 
+        // A88 (spec Phase 26 §15 — "Remove AC as a separate system/site question. Move AIR
+        // CONDITIONING into LOADS/APPLIANCES. AC is an electrical load."): folded in here from the
+        // old standalone `StepAirConditioning.kt` step — same fields/logic, just no longer its own
+        // wizard page.
+        SectionCard(title = "Air conditioning") {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Do you have AC units?", modifier = Modifier.weight(1f))
+                Switch(
+                    checked = inputs.ac.hasAc,
+                    onCheckedChange = { v -> onUpdate { it.copy(ac = it.ac.copy(hasAc = v)) } }
+                )
+            }
+            if (inputs.ac.hasAc) {
+                listOf(9000, 12000, 18000, 24000).chunked(2).forEach { pair ->
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        pair.forEach { btu ->
+                            IntField(
+                                label = "$btu BTU",
+                                value = inputs.ac.counts[btu] ?: 0,
+                                onValueChange = { qty ->
+                                    onUpdate {
+                                        it.copy(ac = it.ac.copy(counts = it.ac.counts.toMutableMap().apply { this[btu] = qty }))
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+                Text("Schedule", style = MaterialTheme.typography.bodyMedium)
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    listOf(true, false).forEachIndexed { index, standard ->
+                        SegmentedButton(
+                            selected = inputs.ac.useStandardHours == standard,
+                            onClick = { onUpdate { it.copy(ac = it.ac.copy(useStandardHours = standard)) } },
+                            shape = SegmentedButtonDefaults.itemShape(index, 2)
+                        ) {
+                            Text(if (standard) "Automatic" else "Custom hours/day")
+                        }
+                    }
+                }
+                Text(
+                    if (inputs.ac.useStandardHours) {
+                        "Estimates a realistic evening-window schedule with thermostat cycling — the same model the simulation itself uses, not a flat guess."
+                    } else {
+                        "Enter an explicit hours/day figure for all AC units combined instead."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary
+                )
+                if (!inputs.ac.useStandardHours) {
+                    NumberField(
+                        label = "Custom AC hours/day (all units)",
+                        value = inputs.ac.customHours,
+                        onValueChange = { v -> onUpdate { it.copy(ac = it.ac.copy(customHours = v)) } },
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        }
+
         SectionCard(title = "Appliances") {
-            Text(
-                "Air conditioning has its own step, right before this one.",
-                style = MaterialTheme.typography.labelSmall,
-                color = palette.textSecondary,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
             ApplianceType.entries.groupBy { it.category }.forEach { (category, types) ->
                 Text(
                     category.uppercase(),

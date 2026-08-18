@@ -5402,3 +5402,183 @@ tolerances, but this is inspection, not execution.
   manufacturer-specific 97%/98%/99% values, per this phase's own explicit instruction.
 - **§18's margin question is now answered twice, differently, by two different rounds' spec
   text** — resolved by asking directly (again) rather than picking one silently; 0.95 (5%) stands.
+
+## A88 — Phase 26: premium UI/UX redesign, mode workflow, home screen, mobile navigation
+
+UI/UX and workflow only, per the installer's own explicit "DO NOT CHANGE THE DETERMINISTIC
+ENGINEERING OR SIMULATION LOGIC." Zero domain-layer files touched this round — verified by grep
+before committing.
+
+**Inspected first** (via a dedicated read-only survey before any edit): the wizard's 13 steps were
+one shared, numerically-filtered sequence across all three modes (not genuinely different orders);
+there was no screen literally labeled "PV Configuration" — the closest analogs were the old
+"Property & System" step (location/property/system-mode bundled together) and a panel-layout
+drawing that only appeared on the final `ResultsScreen`, not during design; AC was already its own
+step, separate from Appliances; the bottom nav was already a pill-highlight design with insets
+correctly handled (A15); Home's hero visual was already a Compose-drawn (not photo) illustration
+with an existing subtle pulse/particle animation.
+
+### 1. UI files changed
+New: `ui/wizard/steps/StepLocation.kt`, `StepSiteDetails.kt`, `StepInverter.kt`, `StepPanels.kt`.
+Deleted (content migrated, not lost): `StepPropertySystem.kt`, `StepAirConditioning.kt`,
+`StepInverterPanels.kt`. Rewritten: `ui/wizard/WizardViewModel.kt`, `ui/wizard/WizardScreen.kt`,
+`ui/wizard/steps/StepRoofType.kt` (trimmed), `ui/wizard/steps/StepHouseholdAppliances.kt` (AC
+folded in), `ui/wizard/steps/StepSystemReview.kt` (jump-target renumbering only). Touched:
+`ui/results/SystemResultScreen.kt` (new "Continue to Site Details" action), `ui/results/
+ResultsScreen.kt` (panel-layout drawing removed), `ui/nav/LumixNavHost.kt` (Site Details routing),
+`ui/components/SolarHeroVisual.kt` (house body + sun-side geometry).
+
+### 2. Screens changed
+- **PV Configuration removed from the workflow** (§2): there was no dedicated screen by that name
+  to delete, but the one concrete match — the panel-layout grid drawing ("Your roof, at a glance")
+  — is gone from `ResultsScreen`. `RoofPanelVisualization.kt` itself (the component) and every
+  underlying engineering figure (panel model/quantity/PV kWp/MPPT/string calcs/Voc/Vmp/Isc/Imp) are
+  untouched and still surfaced through System Review / `SystemResultScreen`'s "System" section and
+  "VIEW CALCULATIONS"/"WHY WAS THIS SYSTEM SELECTED?" panels — exactly where §2 says they should
+  remain accessible.
+- **Location** is now its own first design step for every mode (§7/§18), showing the selected
+  parish/town plus the real PSH figure from `SolarResource.estimatedPshFor` — never a hard-coded
+  number.
+- **Site Details** (§17) is a new, deferred, optional step (property type/system type/JPS rate/
+  storeys) reached via `SystemResultScreen`'s new "Continue to Site Details" button, AFTER the
+  system is already sized — never a prerequisite for Calculate System.
+- **Manual mode's equipment steps** (§11) are now Battery → Inverter → Panels as three separate
+  steps instead of one combined "Inverter & Panels" screen.
+- **Air conditioning** (§15) is now a section inside the Appliances step, not its own page.
+
+### 3. Navigation changes
+New `WizardFlowMode.SITE_DETAILS` (mirrors the existing `QUOTE_DETAILS` pattern exactly — its own
+tiny one-step flow, reached and left via explicit navigation, never inserted into the DESIGN flow's
+own step array). This was deliberate: folding Site Details directly into `designSteps()` would have
+moved which step is "last" and silently relocated where the "Calculate System" button fires —
+rejected in favor of the isolated-flow-mode approach for exactly that reason.
+`onSiteDetailsDone`/`onSiteDetails` callbacks wired through `LumixNavHost` reusing the same
+pop-back-to-reveal-the-live-wizard pattern "Edit System" already used, rather than a second,
+competing navigation mechanism (per §1's "do not create duplicate navigation systems").
+
+### 4. Mode workflow changes
+`WizardViewModel.designSteps()` now returns a genuinely different, explicitly ORDERED step list per
+mode (previously: one filtered ascending range for every mode):
+- **GUIDED**: Location → Roof Type → Usage (bill/kWh) → Appliances (+AC) → Backup hours → System Review.
+- **LOAD-BASED**: Location → Roof Type → Appliances (+AC) → System Review. No Usage step, no Backup-
+  hours ask — `QuoteInputs`' own defaults (12h / Most Load) apply automatically, matching this
+  phase's own §16 result list (which shows "BACKUP TARGET: 12 hours" as a displayed result, not an
+  input prompt) and §27's literal Load-Based UX-test flow.
+- **MANUAL**: Location → Roof Type → Manual Mode Type → Battery → Inverter → Panels → Appliances
+  (+AC) → System Review. "Manual Mode Type" (Battery-led/Panel-led/Full-manual, from A21) was kept
+  as its own small step rather than deleted — §1's own "preserve existing functionality unless
+  specifically changed by this prompt," and this phase's §11 doesn't mention removing it.
+
+**Disclosed, not silently resolved** (per this phase's own "MOST IMPORTANT REQUIREMENT" rule —
+"DO NOT silently choose one... explain CURRENT / EXPECTED / WHY THEY DIFFER"):
+- **Roof Type stays a pre-calculation step in every mode**, even though none of §27's three literal
+  flow diagrams list it. CURRENT: `SystemCalculator.calculate()` reads `input.roofType`/
+  `input.zincCenterRail` directly to compute rails/L-feet/mounting-hardware counts (confirmed by
+  grep — `railsPerRow`, line ~765). EXPECTED (read literally from §27's flow diagrams): Roof Type
+  wouldn't appear before Calculate at all. WHY THEY DIFFER: the abbreviated flow diagrams read as a
+  workflow sketch, not an exhaustive step enumeration (they also don't mention "Solar system mode,"
+  which is equally engineering-critical). RECOMMENDED CHANGE: keep Roof Type pre-calculation in all
+  three modes — moving it would make the materials count silently wrong until the installer
+  happened to visit a later screen, which §17's own rule ("Only make a field mandatory when
+  actually required") argues AGAINST deferring, not for it.
+- **"Solar system mode" (Hybrid/Off-grid/Grid-tie) stays on the Location step**, not deferred to
+  Site Details. CURRENT: `StepBatteryBank` (now step 7) branches its entire UI by `systemMode`
+  (HYBRID/OFFGRID/GRIDTIE show completely different fields), and `SimSystemConfig.gridConnectable`
+  derives from it. EXPECTED: §17 doesn't name system mode explicitly as required-for-engineering,
+  and it used to live in the same "Property & System" step as the property-type/JPS-rate fields
+  that WERE moved to Site Details. WHY THEY DIFFER: unlike those fields (confirmed absent from
+  `SystemCalculator` by grep), system mode is load-bearing for Manual mode's very next step.
+  RECOMMENDED CHANGE: keep it early, alongside Location — implemented as such.
+- **"ALTERNATIVE SYSTEMS" (§9/§16) was not built.** The spec asks for a list of valid alternative
+  equipment configurations the installer can choose between ("ACCEPT RECOMMENDED or ACCEPT
+  ALTERNATIVE... each alternative must come from the existing engineering recommendation engine").
+  No such list exists anywhere in the engineering layer today — `EquipmentSelectionEngine` computes
+  ONE recommended configuration (the smallest electrically-valid array/inverter/battery, per its own
+  documented search), not a ranked set of alternatives. Building the UI for this would require a
+  genuinely new engineering-layer capability (search + rank N valid configurations, not just find
+  the first one) — exactly the case this phase's own §29 says to "STOP and report... instead of
+  changing the engineering logic." Not attempted. `SystemResultScreen`'s existing PASS/FAIL
+  diagnostics panel and selection-reason text are the closest existing analog, unchanged.
+- **PASS/WARNING/REVIEW (§9) vs. the existing PASS/FAIL.** `SystemDiagnostics.DiagnosticCheck.pass`
+  is a plain boolean today, not a three-state result — this UI round didn't introduce a third state
+  since doing so meaningfully (deciding which failures count as "REVIEW" vs. hard "FAIL") is a
+  judgment call closer to engineering/business logic than presentation. Not attempted; flagged here
+  rather than silently mapped.
+- **One pre-existing coupling, now more consequential given the reorder**: `StepInverter`'s manual-
+  inverter dropdown can silently set `systemMode` to match the selected inverter's catalog entry (a
+  behavior that predates this round). Since Battery (step 7) now comes BEFORE Inverter (step 8),
+  changing the inverter after already configuring the battery bank could retroactively change which
+  battery-bank UI was even applicable. This is existing domain-adjacent behavior this phase's own
+  "do not modify engineering/simulation logic" boundary put out of scope to fix — flagged, not
+  changed.
+
+### 5. Home-screen changes
+`SolarHeroVisual.kt` (Compose-drawn, not a raster image) reshaped from a symmetric floating-roof
+triangle into an actual house silhouette (roof + wall body + door) with panels on only the right
+roof slope and the sun repositioned above that same slope (`w * 0.72f, h * 0.16f`, was centered at
+`w * 0.5f`) — "sun on the panel side" is now a real geometric relationship, not ambiguous. The
+existing pulse (2.6s smooth brighten/soften) and particle-flow animation were left exactly as they
+were — already a slow, non-flashing cycle, already reads as "premium and subtle" per §4's own
+description — just retargeted to flow toward the (now off-center) panel slope instead of the roof
+peak.
+
+**Disclosed rather than claimed**: §3 explicitly asks for a "photorealistic... premium solar
+technology" image. No image-generation capability is available in this environment to produce that
+raster asset — the enhancement above is the best available substitute within this session's actual
+tooling, not the deliverable the phase describes. If a real photo/rendered asset is supplied later,
+swapping it in is a straightforward `Image(painterResource(...))` replacement of this composable's
+call site in `HomeScreen.kt` — no wiring changes needed elsewhere.
+
+### 6. Responsive/mobile changes
+No NEW overflow-risk patterns introduced: every new/changed screen (`StepLocation`, `StepSiteDetails`,
+`StepInverter`, `StepPanels`, the merged `StepHouseholdAppliances`) reuses the same established safe
+primitives already audited in A84 (`SectionCard`, `Column(verticalArrangement = spacedBy(...))`, no
+fixed pixel widths, `Modifier.weight(1f)` on every multi-child `Row`) — no new instance of the
+`Row(SpaceBetween) { collection.forEach { /* no weight */ } }` anti-pattern that caused A16's/A84's
+bugs. `SystemResultScreen`'s new "Continue to Site Details" button was deliberately placed as its
+own full-width row below the existing two-button row rather than squeezed into a three-way
+`SpaceBetween` row — the exact narrow-screen risk shape this same audit exists to catch.
+
+### 7. Bottom-navigation changes
+None needed — inspected `LumixNavHost.kt` and confirmed the pill-highlight design, icon+label
+layout, and window-insets handling (`contentWindowInsets = WindowInsets(0)` on the outer Scaffold +
+explicit `navigationBarsPadding()` on `FloatingBottomNav`, with a code comment already explaining
+exactly why both pieces are required together) were already built correctly in A15/A20. §21's
+acceptance criteria were already satisfied before this round.
+
+### 8. Tests performed
+None automated — this is a pure Compose UI/navigation-logic round with no new domain logic to
+unit-test, and Compose UI has no test harness in this sandbox (consistent with every prior UI-only
+round). Verification performed: brace/paren balance check on every touched/created file (all
+matched); a full grep sweep for dangling references to the three deleted step files and to the old
+hardcoded step-number jump targets (both clean); confirmed `WizardScreen`'s step dispatch `when`
+covers all 14 step numbers; hand-traced `designSteps()`'s three per-mode lists against the phase's
+own §27 UX-test flows.
+
+### 9. Remaining UI issues
+- No screen-by-screen "premium automotive-app" visual redesign was attempted beyond the wizard
+  workflow/navigation/home-hero changes above — Settings, History, Savings, and Simulation retain
+  their existing (already reasonably premium, per A22's design-token pass) look untouched.
+  §5's "overall UI/UX direction" is a broad, largely-subjective aesthetic goal; this round focused
+  on the concrete, checkable §28 acceptance criteria instead of a full re-skin.
+- Mode selection (`StepQuoteMode`) still requires a tap-to-select-card, then a separate "Continue"
+  tap, rather than auto-advancing straight into the mode on selection — kept for consistency with
+  every other `SelectionCard` in the app, and because auto-advance would remove the visible
+  "✓ SELECTED" confirmation.
+- None of this was verified on a real device or emulator (no Android build tool available in this
+  sandbox, the standing limitation for this entire session) — verification above is static-analysis
+  only.
+
+### 10. Engineering issues discovered but NOT changed
+- **Alternative Systems** (§9/§16) requires a new engineering-layer capability (ranked/multiple
+  valid configurations, not just one) that doesn't exist in `EquipmentSelectionEngine` today — see
+  point 4 above for the full disclosure.
+- **Roof Type / System Mode pre-calculation dependency** — see point 4 above; both stayed
+  pre-calculation contrary to a literal reading of §27's abbreviated flow diagrams, because moving
+  either would produce incorrect materials counts or an invalid Manual-mode Battery step.
+- **Manual inverter selection can silently retarget `systemMode`** (pre-existing, A50-era behavior)
+  — now sits after the Battery step instead of before it; not fixed, since fixing it means changing
+  domain-layer coupling this phase's own boundary excludes.
+- **`DiagnosticCheck` is PASS/FAIL, not PASS/WARNING/REVIEW** — a three-state model would need a
+  judgment call about which failures count as "review" vs. "fail," which reads as engineering/
+  business logic, not presentation — not attempted.

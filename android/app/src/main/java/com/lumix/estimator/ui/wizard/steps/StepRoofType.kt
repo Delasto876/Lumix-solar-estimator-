@@ -16,6 +16,17 @@ import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.RoofType
 import com.lumix.estimator.ui.components.SectionCard
 
+/**
+ * A88 (spec Phase 26 §17 — "REQUIRED FOR ENGINEERING / REQUIRED FOR QUOTE / OPTIONAL SITE
+ * INFORMATION... Only make a field mandatory when it is actually required"): roof type stays a
+ * required, pre-calculation step in every mode — unlike the fields moved to
+ * [StepSiteDetails] (property type, system type, JPS rate, storeys), roof type genuinely feeds
+ * [com.lumix.estimator.domain.SystemCalculator]'s mounting-hardware math (rails/L-feet/clamps
+ * differ by zinc vs. slab vs. shingle — see that file's own `railsPerRow`/`roofType` branches), so
+ * moving it to the deferred Site Details step would make the materials count wrong until the
+ * installer happened to visit that later screen. "Building height" (storeys) was split out to
+ * [StepSiteDetails] instead — confirmed not read anywhere in `SystemCalculator`.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StepRoofType(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> Unit) {
@@ -36,20 +47,6 @@ fun StepRoofType(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -
                             },
                             style = MaterialTheme.typography.labelSmall
                         )
-                    }
-                }
-            }
-        }
-
-        SectionCard(title = "Building height") {
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                listOf(false, true).forEachIndexed { index, twoPlus ->
-                    SegmentedButton(
-                        selected = inputs.twoOrMoreStoreys == twoPlus,
-                        onClick = { onUpdate { it.copy(twoOrMoreStoreys = twoPlus) } },
-                        shape = SegmentedButtonDefaults.itemShape(index, 2)
-                    ) {
-                        Text(if (twoPlus) "2+ storeys" else "1 storey")
                     }
                 }
             }

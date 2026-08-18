@@ -54,7 +54,6 @@ import com.lumix.estimator.ui.components.FlowNode
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.components.RingGauge
-import com.lumix.estimator.ui.components.RoofPanelVisualization
 import com.lumix.estimator.ui.components.SavingsGraph
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
@@ -342,19 +341,6 @@ fun ResultsScreen(
                 item {
                     SectionCard(title = "How the energy flows") {
                         EnergyFlowDiagram(nodes = nodes, onNodeClick = { selectedNode = it })
-                    }
-                }
-
-                if (result.panelCount > 0) {
-                    item {
-                        SectionCard(title = "Your roof, at a glance") {
-                            RoofPanelVisualization(panelCount = result.panelCount)
-                            Text(
-                                "${result.panelCount} panels across ${result.rows} row${if (result.rows == 1) "" else "s"}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = palette.textSecondary
-                            )
-                        }
                     }
                 }
 

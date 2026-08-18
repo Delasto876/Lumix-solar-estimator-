@@ -132,7 +132,9 @@ fun StepSystemReview(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     LumixSecondaryButton(
                         text = if (preview.manualInverterWarning != null) "CHANGE INVERTER" else "CHANGE BATTERY",
-                        onClick = { onJumpToStep(if (preview.manualInverterWarning != null) 10 else 11) },
+                        // A88 (spec Phase 26): renumbered — Inverter is now its own step 8 (was
+                        // the combined "Inverter & Panels" step 10); Battery is now step 7 (was 11).
+                        onClick = { onJumpToStep(if (preview.manualInverterWarning != null) 8 else 7) },
                         modifier = Modifier.weight(1f)
                     )
                     LumixPrimaryButton(

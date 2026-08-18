@@ -214,7 +214,11 @@ fun LumixNavHost(app: LumixApp) {
                         navController.navigate("results/$id") {
                             popUpTo(ROUTE_HOME)
                         }
-                    }
+                    },
+                    // A88 (spec Phase 26 §17): SITE_DETAILS flow's "Done" — return to the same
+                    // quote's SystemResultScreen, mirroring how CREATE QUOTE re-enters the wizard
+                    // then this same route handles the flow-mode switch.
+                    onSiteDetailsDone = { id -> navController.navigate("system-result/$id") }
                 )
             }
 
@@ -231,6 +235,13 @@ fun LumixNavHost(app: LumixApp) {
                     onEditSystem = { navController.popBackStack() },
                     onCreateQuote = {
                         wizardViewModel.startQuoteDetails()
+                        navController.popBackStack()
+                    },
+                    // A88: reveals the same still-live WIZARD (underneath on the backstack, per
+                    // onSystemCalculated above) now showing Site Details — same pop-back-to-reveal
+                    // pattern onEditSystem already uses.
+                    onSiteDetails = {
+                        wizardViewModel.openSiteDetails()
                         navController.popBackStack()
                     },
                     onBackToHome = { navController.popBackStack(ROUTE_HOME, inclusive = false) }

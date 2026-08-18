@@ -21,12 +21,15 @@ import kotlinx.coroutines.launch
 /**
  * A56 (spec §5–9, 35–36 — "do NOT require quote information before the installer can design and
  * simulate the system... only when CREATE QUOTE is selected should the app ask for quote-specific
- * information"): which half of the wizard's step numbers is currently active. DESIGN is every
- * system-sizing step (2 through 12 — Quote Mode through System Review); QUOTE_DETAILS is only
- * steps 1 (Customer) and 13 (Pricing & Discount), reached exclusively via `SystemResultScreen`'s
- * CREATE QUOTE button — never a prerequisite for calculating or simulating a system.
+ * information"), extended A88 (spec Phase 26 §17 — "Do NOT force the installer to enter every
+ * site detail before the system can be sized... show CONTINUE TO SITE DETAILS" after design):
+ * DESIGN is every system-sizing step; SITE_DETAILS is the one deferred, non-engineering-critical
+ * step (property type/system type/JPS rate/storeys — see [com.lumix.estimator.ui.wizard.steps
+ * .StepSiteDetails]'s own doc for why these specific fields, and only these, were confirmed safe
+ * to defer past calculation); QUOTE_DETAILS is Customer + Pricing, reached exclusively via
+ * `SystemResultScreen`'s CREATE QUOTE button — never a prerequisite for calculating or simulating.
  */
-enum class WizardFlowMode { DESIGN, QUOTE_DETAILS }
+enum class WizardFlowMode { DESIGN, SITE_DETAILS, QUOTE_DETAILS }
 
 class WizardViewModel(
     private val quoteRepository: QuoteRepository,
@@ -51,15 +54,24 @@ class WizardViewModel(
     private val _isCalculating = MutableStateFlow(false)
     val isCalculating: StateFlow<Boolean> = _isCalculating.asStateFlow()
 
-    // One concept per screen, per the mobile usability pass: 1 Customer, 2 Quote Mode,
-    // 3 Property & System, 4 Roof Type, 5 Air Conditioning, 6 Household Appliances,
-    // 7 JPS Bill/Usage (GUIDED only), 8 Backup Requirements, 9 Manual Mode (MANUAL only),
-    // 10 Inverter & Panels (MANUAL only), 11 Battery Bank (MANUAL only), 12 System Review,
-    // 13 Pricing & Discount. (The old "Roof Mounting / 3-rail" step was removed — zinc roofs
-    // just always use 3 rails/row now, its own prior default, rather than asking.) A56: 1 and 13
-    // moved out of the normal forward sequence into [WizardFlowMode.QUOTE_DETAILS] — see that
-    // enum's own doc.
-    val totalSteps = 13
+    // A88 (spec Phase 26): step numbers, per concept. Which of these actually appear, and in what
+    // ORDER, now genuinely differs per [com.lumix.estimator.domain.QuoteMode] — see [designSteps]
+    // below, not just a filtered ascending range like before this round.
+    //  1  Customer (QUOTE_DETAILS)
+    //  2  Quote Mode (mode picker)
+    //  3  Location (+ system mode — see StepLocation's own doc for why system mode stays here)
+    //  4  Roof Type (stays pre-calculation — feeds real mounting-hardware materials math)
+    //  5  JPS Bill / Usage (GUIDED only)
+    //  6  Manual Mode Type (MANUAL only)
+    //  7  Battery Bank (MANUAL only)
+    //  8  Inverter (MANUAL only)
+    //  9  Panels (MANUAL only)
+    //  10 Appliances (all modes — air conditioning folded in, A88 §15)
+    //  11 Backup Requirements (GUIDED only — LOAD/MANUAL use QuoteInputs' own 12h/Most-Load defaults)
+    //  12 System Review (all modes)
+    //  13 Site Details (SITE_DETAILS only — property type/system type/JPS rate/storeys)
+    //  14 Pricing & Discount (QUOTE_DETAILS)
+    val totalSteps = 14
 
     fun update(transform: (QuoteInputs) -> QuoteInputs) {
         _inputs.value = transform(_inputs.value)
@@ -69,32 +81,36 @@ class WizardViewModel(
         val data = _inputs.value
         return when (step) {
             1 -> Validation.customerErrors(data)
-            7 -> Validation.usageErrors(data)
-            10 -> Validation.manualErrors(data)
-            13 -> Validation.pricingErrors(data)
+            3 -> Validation.customerErrors(data) // parish is asked here now, not just at step 1
+            5 -> Validation.usageErrors(data)
+            9 -> Validation.manualErrors(data) // panel count, now on the dedicated Panels step
+            14 -> Validation.pricingErrors(data)
             else -> emptyList()
         }
     }
 
+    /**
+     * A88: genuinely different, explicitly ORDERED step sequences per mode — not a filtered
+     * ascending range (the pre-A88 approach), since GUIDED/LOAD-BASED/MANUAL now visit their
+     * mode-specific steps in a different relative order (e.g. MANUAL's Battery -> Inverter ->
+     * Panels, per spec Phase 26 §11), not just "skip steps that don't apply."
+     */
     private fun designSteps(): List<Int> {
         val data = _inputs.value
-        val steps = (2 until totalSteps).toMutableList() // 2..12 — every sizing/design step
-        // JPS Bill/Usage only makes sense in GUIDED mode — LOAD mode sizes from appliance load
-        // directly, MANUAL mode has its own explicit sizing steps. (Previously this only
-        // excluded LOAD mode, leaving a blank page reachable in MANUAL mode's step count.)
-        if (data.quoteMode != QuoteMode.GUIDED) steps.remove(7)
-        if (data.quoteMode != QuoteMode.MANUAL) {
-            steps.remove(9)
-            steps.remove(10)
-            steps.remove(11)
+        return when (data.quoteMode) {
+            QuoteMode.GUIDED -> listOf(3, 4, 5, 10, 11, 12)
+            QuoteMode.LOAD -> listOf(3, 4, 10, 12)
+            QuoteMode.MANUAL -> listOf(3, 4, 6, 7, 8, 9, 10, 12)
         }
-        return steps
     }
+
+    private fun siteDetailsSteps(): List<Int> = listOf(13)
 
     private fun quoteDetailSteps(): List<Int> = listOf(1, totalSteps)
 
     fun visibleSteps(): List<Int> = when (_flowMode.value) {
         WizardFlowMode.DESIGN -> designSteps()
+        WizardFlowMode.SITE_DETAILS -> siteDetailsSteps()
         WizardFlowMode.QUOTE_DETAILS -> quoteDetailSteps()
     }
 
@@ -137,6 +153,36 @@ class WizardViewModel(
     fun startQuoteDetails() {
         _flowMode.value = WizardFlowMode.QUOTE_DETAILS
         _currentStep.value = 1
+    }
+
+    /**
+     * A88 (spec Phase 26 §17): entered from `SystemResultScreen`'s "Continue to Site Details"
+     * button — a small, optional, ALREADY-DESIGNED-system side excursion, mirroring
+     * [startQuoteDetails]'s own pattern rather than being wedged into [designSteps]'s own array
+     * (which would have changed what "last step" means for the DESIGN flow's Calculate System
+     * trigger — see the A88 README section for why that path was rejected).
+     */
+    fun openSiteDetails() {
+        _flowMode.value = WizardFlowMode.SITE_DETAILS
+        _currentStep.value = 13
+    }
+
+    /**
+     * A88: persists whatever Site Details fields the installer changed — none of them affect
+     * [QuoteResult] (confirmed not read by [SystemCalculator] — see [com.lumix.estimator.ui.wizard
+     * .steps.StepSiteDetails]'s own doc), so this updates the saved row's inputs only, without
+     * recalculating. No-ops (calls [onDone] with nothing to persist) if this quote was never
+     * calculated/saved yet, which shouldn't be reachable in practice since Site Details is only
+     * ever opened from the post-calculation `SystemResultScreen`.
+     */
+    fun saveSiteDetails(onDone: (Long) -> Unit) {
+        val id = _savedQuoteId.value
+        val calc = _result.value
+        if (id == null || calc == null) return
+        viewModelScope.launch {
+            quoteRepository.update(id, _inputs.value, calc)
+            onDone(id)
+        }
     }
 
     fun reset() {

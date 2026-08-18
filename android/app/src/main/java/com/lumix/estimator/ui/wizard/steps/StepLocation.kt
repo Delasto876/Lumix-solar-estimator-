@@ -14,30 +14,41 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.domain.Catalog
-import com.lumix.estimator.domain.JpsRate
 import com.lumix.estimator.domain.MONTH_NAMES
-import com.lumix.estimator.domain.PropertyType
 import com.lumix.estimator.domain.QuoteInputs
-import com.lumix.estimator.domain.QuoteMode
 import com.lumix.estimator.domain.SolarResource
 import com.lumix.estimator.domain.SystemMode
-import com.lumix.estimator.domain.SystemTypeNew
 import com.lumix.estimator.ui.components.LabeledDropdown
 import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.components.SectionCard
 
+/**
+ * A88 (spec Phase 26 §7 — "Each mode should begin with: PARISH / TOWN... §18 MODE WORKFLOW: HOME
+ * -> CHOOSE DESIGN MODE -> ... -> LOCATION / PSH"): the first step every design mode (GUIDED/
+ * LOAD-BASED/MANUAL) actually shares, split out of the old combined "Property & System" step
+ * (`StepPropertySystem.kt`, now `StepSiteDetails.kt` for what's left) so location genuinely comes
+ * first, on its own, per the phase's own explicit workflow diagram. PSH itself is never
+ * hand-typed-as-a-fake-number by this screen — [SolarResource.estimatedPshFor] (the existing
+ * engineering/weather engine) supplies the auto-filled starting value; the installer can still
+ * override it, exactly as before.
+ *
+ * "Solar system mode" (Hybrid/Off-grid/Grid-tie) stays on THIS early step rather than moving to
+ * the deferred Site Details step ([StepSiteDetails]): unlike property type/system type/JPS rate
+ * (which don't feed [com.lumix.estimator.domain.SystemCalculator] at all), system mode is a
+ * genuine engineering input — it decides whether MANUAL mode's battery step even shows a battery
+ * bank (grid-tie systems have none) and whether the grid is treated as connectable at all. Per
+ * this phase's own §29 rule ("if a UI problem appears to require an engineering change, STOP and
+ * report it instead"), moving an engineering-load-bearing field to a screen that visits AFTER
+ * calculation would be exactly that kind of problem — so it stays here, pre-calculation, alongside
+ * location. See the A88 README section for the full disclosed reasoning.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StepPropertySystem(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> Unit) {
+fun StepLocation(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        // A60 (spec §13–15): site location now lives here, in the design flow, because it drives
-        // the Peak Sun Hours estimate PV sizing actually uses — not just a delivery/billing detail
-        // (that's still asked again, pre-filled, in Create Quote's Customer step). Optional, same as
-        // the rest of this step — never gates Calculate, per A56's own "no quote-adjacent field
-        // blocks design" principle.
-        SectionCard(title = "Site location") {
+        SectionCard(title = "Location") {
             LabeledDropdown(
-                label = "Parish (optional)",
+                label = "Parish",
                 options = Catalog.parishes,
                 selected = inputs.parish.ifBlank { "Select parish" },
                 optionLabel = { it },
@@ -61,11 +72,18 @@ fun StepPropertySystem(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInp
                     onSelected = { v -> onUpdate { it.copy(nearestTown = v) } }
                 )
             }
+            if (inputs.parish.isNotBlank()) {
+                Text(
+                    "${inputs.parish.uppercase()}${if (inputs.nearestTown.isNotBlank()) ", ${inputs.nearestTown}" else ""}\nJAMAICA",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
             NumberField(
-                label = "Peak Sun Hours",
+                label = "Estimated PSH (Peak Sun Hours)",
                 value = inputs.peakSunHours,
                 onValueChange = { v -> onUpdate { it.copy(peakSunHours = v, peakSunHoursManuallySet = true) } },
-                suffix = "hrs",
+                suffix = "hrs/day",
                 supportingText = if (inputs.parish.isBlank()) {
                     "Jamaica-wide default — not a measured, location-specific value. Select a parish above for a closer regional estimate, or edit directly."
                 } else {
@@ -73,12 +91,9 @@ fun StepPropertySystem(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInp
                 },
                 modifier = Modifier.padding(top = 4.dp)
             )
-            // A80 (spec Phase 17 §"INSTALLATION MONTH" — "ask: which month is this system being
-            // designed/installed for?"): optional, same as the rest of this step — leaving it
-            // unset simply keeps the fixed annual-average day-length/weather assumption every
-            // quote used before this field existed (see QuoteInputs.installMonth's own doc).
-            // Deliberately does NOT affect equipment sizing, only simulation/evaluation — the
-            // NumberField above is still what actually sizes the array.
+            // A80 (spec Phase 17 §"INSTALLATION MONTH"): optional — leaving it unset keeps the
+            // fixed annual-average day-length/weather assumption. Does NOT affect equipment
+            // sizing, only simulation/evaluation — the PSH field above is what actually sizes the array.
             LabeledDropdown(
                 label = "Installation month (optional)",
                 options = listOf(0) + (1..12).toList(),
@@ -86,34 +101,9 @@ fun StepPropertySystem(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInp
                 optionLabel = { monthIndex -> if (monthIndex == 0) "Not specified" else MONTH_NAMES[monthIndex - 1] },
                 onSelected = { v -> onUpdate { it.copy(installMonth = v.takeIf { m -> m != 0 }) } }
             )
-            if (inputs.installMonth != null) {
-                Text(
-                    "Simulation and recharge/backup checks will use ${MONTH_NAMES[inputs.installMonth!! - 1]}'s modeled Jamaica seasonal weather tendency instead of a flat annual average. This does not change panel/inverter/battery sizing.",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
         }
 
-        SectionCard(title = "Property") {
-            LabeledDropdown(
-                label = "Property type",
-                options = PropertyType.entries,
-                selected = inputs.propertyType,
-                optionLabel = { it.label },
-                onSelected = { v -> onUpdate { it.copy(propertyType = v) } }
-            )
-
-            LabeledDropdown(
-                label = "System type",
-                options = SystemTypeNew.entries,
-                selected = inputs.systemType,
-                optionLabel = { if (it == SystemTypeNew.NEW) "New installation" else "Upgrade / Expansion" },
-                onSelected = { v -> onUpdate { it.copy(systemType = v) } }
-            )
-        }
-
-        SectionCard(title = "Solar system mode") {
+        SectionCard(title = "System mode") {
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 SystemMode.entries.forEachIndexed { index, mode ->
                     SegmentedButton(
@@ -131,22 +121,6 @@ fun StepPropertySystem(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInp
                         )
                     }
                 }
-            }
-
-            if (inputs.quoteMode == QuoteMode.GUIDED) {
-                LabeledDropdown(
-                    label = "JPS rate type",
-                    options = JpsRate.entries,
-                    selected = inputs.jpsRate,
-                    optionLabel = {
-                        when (it) {
-                            JpsRate.RESIDENTIAL -> "Residential"
-                            JpsRate.COMMERCIAL -> "Commercial / Business"
-                            JpsRate.UNKNOWN -> "Not sure"
-                        }
-                    },
-                    onSelected = { v -> onUpdate { it.copy(jpsRate = v) } }
-                )
             }
         }
     }

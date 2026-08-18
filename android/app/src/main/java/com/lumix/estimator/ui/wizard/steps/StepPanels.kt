@@ -10,29 +10,17 @@ import com.lumix.estimator.ui.components.IntField
 import com.lumix.estimator.ui.components.LabeledDropdown
 import com.lumix.estimator.ui.components.SectionCard
 
+/**
+ * A88 (spec Phase 26 §11 — MANUAL mode: "Then: PANELS. Panel model, Panel quantity."): the other
+ * half of the old combined `StepInverterPanels.kt` — see [StepInverter]'s own doc for why they're
+ * now separate steps. Panel model/quantity/PV kWp itself is NOT shown to the installer as a
+ * dedicated "PV Configuration" screen elsewhere (§2 of this same phase removes that concept from
+ * the workflow) — this IS the one place MANUAL mode's installer actually picks panels; GUIDED/LOAD
+ * modes never see this step at all (the engineering engine picks panels for them).
+ */
 @Composable
-fun StepInverterPanels(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> Unit) {
+fun StepPanels(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionCard(title = "Inverter") {
-            val noneLabel = "Let system choose inverter"
-            LabeledDropdown(
-                label = "Manual inverter (optional)",
-                options = listOf("") + Catalog.manualInverters.map { it.id },
-                selected = inputs.manualInverterId ?: "",
-                optionLabel = { id -> if (id.isBlank()) noneLabel else Catalog.findManual(id)?.name ?: id },
-                onSelected = { id ->
-                    onUpdate {
-                        if (id.isBlank()) {
-                            it.copy(manualInverterId = null)
-                        } else {
-                            val invDef = Catalog.findManual(id)
-                            it.copy(manualInverterId = id, systemMode = invDef?.mode ?: it.systemMode)
-                        }
-                    }
-                }
-            )
-        }
-
         SectionCard(title = "Panels") {
             LabeledDropdown(
                 label = "Panel wattage",
