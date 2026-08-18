@@ -5100,3 +5100,70 @@ SimulatedMonitoringProvider.kt`; `ui/settings/SettingsScreen.kt` (new "Device Mo
 from a real `TechnicalReadout`/`SimFrame` pair (not a placeholder), `energyTotal`/`faultCode` are
 always null, `fetchLatest` returns a real `Connected` result with genuine solar-noon PV output, and
 every named manufacturer in `MonitoringProviderRegistry` honestly reports `NotConfigured`.
+
+## A84 — Phase 17: mobile responsiveness audit (§44)
+
+The 67-order's Phase 17 maps to the original spec's §44 ("MOBILE RESPONSIVENESS" — "must work
+correctly on phones including Samsung A15-class displays. Do not allow: bottom buttons to be cut
+off, content hidden behind navigation bars, jumbled cards, text overflow, buttons outside
+viewport... When a screen is too dense: move to another screen/step. Do NOT solve every layout
+problem by making everything scroll indefinitely"). A80 already delivered the *substance* of
+Phase 17's other spec mention (the weather-scenario/solar-conditions redesign); this round is the
+dedicated §44 layout-safety audit that was still outstanding.
+
+**Note on Phases 20/21/23/24**: still on hold pending user-provided material — see the summary
+delivered in chat this round for the exact upload checklist for each.
+
+**Inspected**: rather than re-reading all ~36 files across `ui/` and `site/` line-by-line (most
+were already hardened for this exact class of bug across A15/A16/A20/A43), targeted the newest,
+never-visually-verified surfaces (A80–A83's additions) with pattern searches for the two concrete
+ways this codebase has actually broken before:
+1. A multiline grep for `Row(...SpaceBetween...) { X.entries.forEach { ... } }` with no per-child
+   `weight()` — the exact shape of A16's original bottom-nav-6-tabs-clipping bug (unconstrained
+   children whose summed intrinsic width can exceed the row's available width, pushing later
+   children outside the viewport). Found exactly one match across the entire source tree.
+2. Grep for fixed `.width(NN.dp)` on `Text`/content nodes (a second, unrelated way to force
+   overflow on a narrow screen) — no matches beyond two `Spacer`s (harmless, fixed gaps).
+3. Grep for `navigationBarsPadding`/`WindowInsets`/`Scaffold` usage on the four Solar Site screens
+   (`SolarSiteMapScreen.kt`, `ManualSiteScreen.kt`, `SiteDetailScreen.kt`,
+   `SolarSiteEntryScreen.kt`) added by A81, since they predate the audit and use a mix of
+   `Scaffold` and manual full-bleed layouts — confirmed each already handles nav-bar insets
+   correctly (`SolarSiteMapScreen.kt` even has a code comment explaining `navigationBarsPadding()`
+   is load-bearing there, not defensive, since it has no `Scaffold`).
+
+**Found and fixed**: `ui/simulation/WeatherSelector.kt`'s `WeatherSelector` composable — 5
+`WeatherScenario` chips in a `Row(Arrangement.SpaceBetween) { WeatherScenario.entries.forEach { ...
+Column(/* no weight */) { ... } } }`. Each chip sized to its own unconstrained content width; fine
+for short single-word labels, but the real labels ("Clearer than normal", "Cloudier than normal")
+could push the 5 chips past a narrow (Samsung A15-class) screen edge — the same root cause as A16's
+bottom-nav clipping bug, now recurring in code added after that fix. Fixed by adding `.weight(1f)`
+to each chip's `Column` (forces all 5 into the row's actual available width instead of their own
+content width), tightening horizontal chip padding from 4.dp to 2.dp to give wrapped labels a
+little more room, and adding `maxLines = 2` / `overflow = TextOverflow.Ellipsis` to the label
+`Text` so a still-too-long label wraps to a second line or ellipsizes gracefully instead of
+overflowing its chip.
+
+**Audited and found already correct, not touched**:
+- The second, broader multiline grep for any other `Row`-of-`forEach`'d-children shape (not just
+  the exact `SpaceBetween` variant) found no further matches — this specific overflow pattern was
+  otherwise absent from the codebase.
+- `SimulationScreen.kt`, `SystemResultScreen.kt`, `ResultsScreen.kt`, `SettingsScreen.kt`,
+  `WizardScreen.kt`, `LumixNavHost.kt` — all already reference `navigationBarsPadding`/
+  `WindowInsets`/`Scaffold`, consistent with A15 Phase 1's original "global window-insets/safe-area
+  pass" still holding across everything built since.
+- The four Solar Site screens (A81) — inset handling confirmed correct per point 3 above.
+
+**Deferred, disclosed rather than silently skipped**: an exhaustive per-screen visual audit of
+every remaining file (dense-screen-should-split-not-scroll judgment calls, jumbled-card layout
+review) was not performed — there is no real device/emulator or Kotlin compiler in this sandbox to
+visually confirm layout at runtime, so this audit is necessarily static-analysis-only, scoped to
+the two concrete failure shapes this codebase has actually hit before (A16's overflow pattern, and
+missing nav-bar insets on new screens) rather than a full manual re-read of ~36 files most of which
+were already hardened in earlier rounds.
+
+**Files changed**: `ui/simulation/WeatherSelector.kt` (2 new imports, `.weight(1f)` + tightened
+padding + `maxLines`/`overflow` on the `WeatherSelector` composable's chip `Column`/`Text`).
+
+**Tests**: none added — this is a Compose layout fix with no new domain logic to unit-test; Compose
+UI has no test harness available in this sandbox (consistent with every prior UI-only round in this
+session).

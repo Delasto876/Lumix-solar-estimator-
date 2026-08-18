@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -22,6 +23,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.domain.simulation.WeatherScenario
 import com.lumix.estimator.ui.theme.LocalLumixPalette
@@ -53,6 +55,13 @@ fun WeatherSelector(
 ) {
     val palette = LocalLumixPalette.current
 
+    // A84 (spec Phase 17, original §44 "MOBILE RESPONSIVENESS" — "do not allow: buttons outside
+    // viewport"): each chip's Column previously sized to its own unconstrained content width —
+    // fine for short single-word labels, but WeatherScenario's real labels ("Clearer than
+    // normal", "Cloudier than normal") could push 5 of them past the screen edge on a narrow
+    // (Samsung A15-class) display, the same bottom-nav-clipping shape A16 already fixed once
+    // elsewhere. `weight(1f)` forces all 5 into the row's actual available width, wrapping each
+    // label onto a second line (Text wraps by default) rather than overflowing the viewport.
     Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         WeatherScenario.entries.forEach { scenario ->
             val isSelected = scenario == selected
@@ -63,11 +72,12 @@ fun WeatherSelector(
             )
             Column(
                 modifier = Modifier
+                    .weight(1f)
                     .scale(scale)
                     .clip(RoundedCornerShape(LumixRadius.md))
                     .background(if (isSelected) palette.solarYellow.copy(alpha = 0.16f) else Color.Transparent)
                     .clickable { onSelect(scenario) }
-                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                    .padding(vertical = 8.dp, horizontal = 2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(scenario.glyph, style = MaterialTheme.typography.titleMedium)
@@ -76,7 +86,9 @@ fun WeatherSelector(
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                     color = if (isSelected) palette.solarYellowText else palette.textSecondary,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
