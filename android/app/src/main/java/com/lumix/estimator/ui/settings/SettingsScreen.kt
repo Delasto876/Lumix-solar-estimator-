@@ -48,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.data.CodeStandardRepository
 import com.lumix.estimator.data.PriceRepository
@@ -56,7 +57,10 @@ import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.data.ThemeMode
 import com.lumix.estimator.domain.CodeRequirementReference
 import com.lumix.estimator.domain.CodeStandard
+import com.lumix.estimator.domain.ai.AiConfig
+import com.lumix.estimator.domain.mcp.McpConfig
 import com.lumix.estimator.domain.monitoring.MonitoringManufacturer
+import com.lumix.estimator.domain.monitoring.MonitoringProviderRegistry
 import com.lumix.estimator.domain.PriceFields
 import com.lumix.estimator.domain.PriceList
 import com.lumix.estimator.domain.SavingsCalculator
@@ -322,18 +326,19 @@ fun SettingsScreen(
             }
 
             item {
-                // A83 (spec Phase 22, original §63 "FUTURE MONITORING"): "prepare the
-                // architecture... but do not make monitoring the priority" — this is a status
-                // list, not a live dashboard. The manufacturer list itself comes from
-                // MonitoringManufacturer (the same enum MonitoringProviderRegistry keys its own
-                // NotConfigured providers by), so this can't silently drift from the real
-                // registry — see DeviceTelemetry.kt's own doc for why no live client exists yet.
+                // A83 (spec Phase 22, original §63 "FUTURE MONITORING"), extended A85 (Phase 23 —
+                // "BUILD NOW, ACTIVATE LATER"): this is a status list, not a live dashboard. The
+                // manufacturer list comes from MonitoringManufacturer (the same enum
+                // MonitoringProviderRegistry keys its providers by), so this can't silently drift
+                // from the real registry. Status per manufacturer comes from
+                // MonitoringProviderRegistry.statusFor, which is itself driven only by
+                // MonitoringConfig — never a value invented in this UI layer.
                 CollapsibleSectionCard(
                     title = "Device Monitoring",
-                    subtitle = "Architecture ready — no live device connected"
+                    subtitle = "Mock data — ready for future activation"
                 ) {
                     Text(
-                        "Prepared for future live monitoring from these manufacturers. None are connected yet — no API access has been configured, and none will be invented here.",
+                        "Every manufacturer below is wired to local mock telemetry so the monitoring UI can be built and tested without any paid API access. Drop real credentials into local.properties (see app/build.gradle.kts) to activate a real integration later — no other part of the app needs to change.",
                         style = MaterialTheme.typography.labelSmall,
                         color = palette.textSecondary,
                         modifier = Modifier.padding(bottom = 10.dp)
@@ -345,9 +350,49 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(manufacturer.label, style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
-                            Text("Not connected", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+                            Text(
+                                MonitoringProviderRegistry.statusFor(manufacturer).label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.textSecondary,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
                         }
                     }
+                }
+            }
+
+            item {
+                // A85 (Phase 24 — "Build the AI layer as an optional service that can be
+                // disabled... Build the architecture so an AI provider can be connected later"):
+                // status only, matching the Device Monitoring section's own pattern. AiConfig
+                // defaults to disabled (no API key) — see AiConfig.kt's own doc.
+                CollapsibleSectionCard(
+                    title = "AI Assistant",
+                    subtitle = if (AiConfig.enabled) "Enabled" else "Disabled — ready for future activation"
+                ) {
+                    Text(
+                        "Optional: explains results this app's own deterministic engine already computed. Never used to perform PV/battery/inverter sizing, MPPT, Voc/Vmp/Isc validation, SOC, or backup calculations — those stay deterministic regardless of this setting. Disabled until an AI provider and API key are configured.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textSecondary
+                    )
+                }
+            }
+
+            item {
+                // A85 (Phase 24 — "MCP... build it as an optional local/development interface...
+                // expose read-only information only"): status only; the tool registry itself
+                // (McpToolRegistry) has no UI of its own yet — it exists for a future MCP host/
+                // client to call, in-process, since this sandbox has no MCP transport available.
+                CollapsibleSectionCard(
+                    title = "MCP Access",
+                    subtitle = if (McpConfig.enabled) "Enabled (read-only)" else "Disabled — ready for future activation"
+                ) {
+                    Text(
+                        "Optional: exposes read-only queries (system design, quote, battery/inverter status, simulation state, warnings, material takeoff) to a future MCP client. Cannot modify the engineering design — any change still goes through this app's own validation and calculation engine.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textSecondary
+                    )
                 }
             }
 

@@ -77,15 +77,51 @@ interface MonitoringProvider {
 }
 
 /**
- * A83: one [MonitoringProvider] per named manufacturer, standing in until a real API integration
- * exists — every entry unconditionally returns [MonitoringResult.NotConfigured], never a
- * fabricated reading. This is the literal "prepare the architecture for Deye/LuxPower/Growatt/
- * SOLARMAN/Solar of Things" the spec asks for: the registry/interface shape is real and ready:
- * what remains, for each manufacturer, is the actual network client once real API access exists.
+ * A85: which of the two states in [MonitoringProviderRegistry]'s own diagram ("Mock Provider OR
+ * Real Provider") a manufacturer is currently in — read by the Settings "Device Monitoring"
+ * section so it never has to duplicate the same [MonitoringCredentials.isConfigured] check.
+ */
+enum class MonitoringIntegrationStatus(val label: String) {
+    MOCK_DATA("Mock data — ready for future activation"),
+    CREDENTIALS_SET_NO_CLIENT("Credentials set — real client not yet implemented")
+}
+
+/**
+ * A83 (extended A85 — "BUILD NOW, ACTIVATE LATER... continue building the architecture so these
+ * integrations can be connected later without redesigning the application"): one [MonitoringProvider]
+ * per named manufacturer. Every entry returns a [MockMonitoringProvider] until [MonitoringConfig]
+ * reports real credentials for that manufacturer — the literal "prepare the architecture for Deye/
+ * LuxPower/Growatt/SOLARMAN/Solar of Things" the spec asks for, now with mock data flowing so the
+ * monitoring UI/charts/alerts can be built and exercised today.
+ *
+ * "Do NOT rebuild the architecture" when real credentials eventually arrive: this is the ONE place
+ * that changes. The `credentials.isConfigured` branch below is where a real per-manufacturer
+ * network client gets constructed and returned once real API docs/credentials exist for that
+ * manufacturer — nothing else in the app (the [MonitoringProvider] interface, [DeviceTelemetry],
+ * any UI reading through this registry) needs to change when that happens.
  */
 object MonitoringProviderRegistry {
-    fun providerFor(manufacturer: MonitoringManufacturer): MonitoringProvider = object : MonitoringProvider {
-        override val manufacturer: MonitoringManufacturer = manufacturer
-        override suspend fun fetchLatest(deviceId: String): MonitoringResult = MonitoringResult.NotConfigured
+    fun providerFor(manufacturer: MonitoringManufacturer): MonitoringProvider {
+        val credentials = MonitoringConfig.credentialsFor(manufacturer)
+        return if (!credentials.isConfigured) {
+            MockMonitoringProvider(manufacturer)
+        } else {
+            // READY FOR FUTURE ACTIVATION: credentials exist, but no manufacturer network client
+            // has been implemented yet (no documented endpoint contract to build against — same
+            // "don't invent data" reasoning as A83's original doc). Replace this branch with a real
+            // provider (e.g. `RealDeyeProvider(credentials)`) once one is implemented for
+            // `manufacturer`; every caller of this registry is unaffected by that swap.
+            object : MonitoringProvider {
+                override val manufacturer: MonitoringManufacturer = manufacturer
+                override suspend fun fetchLatest(deviceId: String): MonitoringResult = MonitoringResult.NotConfigured
+            }
+        }
     }
+
+    fun statusFor(manufacturer: MonitoringManufacturer): MonitoringIntegrationStatus =
+        if (MonitoringConfig.credentialsFor(manufacturer).isConfigured) {
+            MonitoringIntegrationStatus.CREDENTIALS_SET_NO_CLIENT
+        } else {
+            MonitoringIntegrationStatus.MOCK_DATA
+        }
 }

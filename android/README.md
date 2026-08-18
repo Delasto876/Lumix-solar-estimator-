@@ -5167,3 +5167,117 @@ padding + `maxLines`/`overflow` on the `WeatherSelector` composable's chip `Colu
 **Tests**: none added — this is a Compose layout fix with no new domain logic to unit-test; Compose
 UI has no test harness available in this sandbox (consistent with every prior UI-only round in this
 session).
+
+## A85 — Phase 23/24: manufacturer-API and AI/MCP architecture ("build now, activate later")
+
+The installer's explicit instruction this round: no paid services, no production API credentials,
+no subscriptions right now, but keep building the architecture so real integrations "can be
+connected later without redesigning the application" — with mock/local data standing in so the
+monitoring UI, charts, and alerts can actually be developed and tested today, not just stubbed.
+
+**Phase 23 — Manufacturer monitoring APIs.**
+- **`app/build.gradle.kts`**: `buildFeatures.buildConfig = true`, plus one `local.properties`-sourced
+  `buildConfigField` per credential the installer's config block named — `DEYE_API_KEY`,
+  `DEYE_CLIENT_ID`, `DEYE_CLIENT_SECRET`, `LUXPOWER_API_KEY`, `GROWATT_API_KEY`, `SOLARMAN_APP_ID`,
+  `SOLARMAN_APP_SECRET`, `SOLAR_OF_THINGS_API_KEY`, and `AI_API_KEY` for Phase 24 — every one
+  defaults to `""`, same never-hardcoded/never-committed pattern A81's `MAPS_API_KEY` already
+  established. Add lines like `DEYE_API_KEY=...` to `android/local.properties` to activate later.
+- **`domain/monitoring/MonitoringConfig.kt`** (new): `MonitoringCredentials` sealed subtypes (one
+  per manufacturer, matching the config block above) with `isConfigured`, and `MonitoringConfig`
+  itself — deliberately NOT reading `BuildConfig` directly (that would tie the pure-Kotlin domain
+  layer to a generated Android class and make it untestable outside a full build variant); instead
+  `LumixApp.onCreate` calls `MonitoringConfig.configure(...)` once at startup with the real
+  `BuildConfig.*` values. Blank credentials (the default, and every unit test's state) means
+  `isConfigured == false` for all five manufacturers.
+- **`domain/monitoring/MockMonitoringData.kt`** (new): a deterministic, wall-clock-time-driven
+  generator producing a plausible `DeviceTelemetry` shaped like a real manufacturer response — a
+  daylight-window PV bell curve (zero outside 6am-6pm, peaking at solar noon), a battery that
+  charges through the day and drains overnight, a household load with morning/evening bumps.
+  Deliberately NOT wired to the real `SimulationEngine` (reusing this app's own verified physics
+  here would blur "real engineering output" with "placeholder data," the same confusion the spec's
+  own AI-layer framing warns against). `nominalCapacityKw` is a distinct, clearly-fictional PV size
+  per manufacturer only so multiple mock devices look different in a list. Also adds
+  `MockMonitoringAlerts` — simple threshold rules (low SOC, critical SOC while importing, elevated
+  temperature) over one telemetry snapshot, for the "demonstrate alerts using mock data" requirement.
+- **`domain/monitoring/MockMonitoringProvider.kt`** (new): a `MonitoringProvider` that always
+  returns `Connected` with `MockMonitoringData.generate(...)` — never `NotConfigured` — so a
+  monitoring screen built against it behaves like it would against a real device.
+- **`DeviceTelemetry.kt`**: `MonitoringProviderRegistry.providerFor` now checks
+  `MonitoringConfig.credentialsFor(manufacturer).isConfigured` — unconfigured (every manufacturer,
+  today) routes to `MockMonitoringProvider`; configured (not reachable today — no real client
+  exists yet for any manufacturer) routes to an honest `NotConfigured` stub with a code comment
+  marking exactly where a real provider gets swapped in later. New `MonitoringIntegrationStatus`
+  enum (`MOCK_DATA` / `CREDENTIALS_SET_NO_CLIENT`) and `statusFor(manufacturer)` back the Settings
+  UI's per-manufacturer label.
+- **Settings → "Device Monitoring"**: now shows "Mock data — ready for future activation" per
+  manufacturer (via `statusFor`) instead of a flat "Not connected," plus a note pointing at
+  `local.properties` for future activation.
+
+**Phase 24 — AI / MCP.**
+- **`domain/ai/AiConfig.kt`** (new): single blank-by-default API key, same
+  `configure()`-called-from-`LumixApp.onCreate` pattern as `MonitoringConfig`. `enabled` is the one
+  switch every AI-layer consumer checks; blank (the default) means disabled.
+- **`domain/ai/AiExplanationProvider.kt`** (new): `EngineeringExplanationContext` — the ONLY input
+  an AI provider ever receives, holding a `QuoteResult` and `List<DiagnosticCheck>` that are both
+  ALREADY-COMPUTED output of this app's deterministic engine. This is enforced structurally, not
+  just documented: there is no `SystemCalculator` or equipment catalog reachable from the
+  `domain.ai` package, so an implementation cannot perform sizing even if it tried — it can only
+  narrate numbers someone else already computed. `AiExplanationResult` sealed class:
+  `Explained`/`Disabled`/`NotConfigured`/`Error`.
+- **`domain/ai/AiExplanationService.kt`** (new): the one provider the app calls — returns `Disabled`
+  when `AiConfig.enabled` is false (today, always), `NotConfigured` when enabled but no real
+  provider is implemented yet (no AI provider/API docs were provided to build against — same "don't
+  invent behavior this app has no way to verify" reasoning A83 already applied to manufacturer
+  APIs). Marked "READY FOR FUTURE ACTIVATION" in its own doc comment for where a real HTTP call
+  gets added later, with neither the context/result types nor any caller needing to change.
+- **`domain/mcp/McpConfig.kt`** (new): unlike monitoring/AI, needs no credentials — just an explicit
+  `enabled` off-switch (default `false`), since a tool registry over this app's own already-computed
+  data isn't a call to any paid service.
+- **`domain/mcp/McpModels.kt`** (new): one `@Serializable` DTO per tool response
+  (`McpSystemDesign`, `McpCustomer`, `McpLoadProfile`, `McpPvConfiguration`, `McpBatteryStatus`,
+  `McpInverterStatus`, `McpSimulationState`, `McpSystemWarnings`, `McpQuoteSummary`,
+  `McpMaterialTakeoff`) — thin projections of existing domain fields, never a new computed figure.
+- **`domain/mcp/McpToolRegistry.kt`** (new): one pure, read-only function per named tool
+  (`get_system_design`, `get_customer`, `get_load_profile`, `get_pv_configuration`,
+  `get_battery_status`, `get_inverter_status`, `get_simulation_state`, `get_system_warnings`,
+  `get_quote`, `get_material_takeoff`, `explain_calculation`). Since this app has no standing global
+  "current session" object, each tool takes the relevant already-computed domain object(s) (a
+  `QuoteResult`, a `TechnicalReadout`, a `SimFrame`, a `List<DiagnosticCheck>`) as parameters rather
+  than reaching into hidden mutable state — no function here can mutate the engineering design or
+  feed a result back into `SystemCalculator`. `McpConfig.enabled` is meant to gate whether a future
+  MCP host exposes these tools to a client at all; the functions themselves stay pure either way,
+  since there's no live MCP transport in this Android sandbox for them to be reachable through yet.
+- **Settings → "AI Assistant" / "MCP Access"** (new, informational): status rows matching the Device
+  Monitoring section's own pattern — "Disabled — ready for future activation" for both, today.
+
+**Audited and deliberately NOT attempted, disclosed rather than silently skipped**:
+- **Any real Deye/LuxPower/Growatt/SOLARMAN/Solar of Things network client**, and **any real AI
+  provider integration.** Still no API documentation, credentials, or sample responses for any of
+  these — this round only prepares the swap point (`MonitoringProviderRegistry`'s `isConfigured`
+  branch, `AiExplanationService`'s body) so plugging one in later needs no redesign, per the
+  installer's own explicit instruction.
+- **An actual MCP network transport/host** (stdio or HTTP server exposing `McpToolRegistry` to a
+  real MCP client). No such library is in this project's dependencies and the installer's own
+  instructions call for "an optional local/development interface," not a running server — the
+  registry is real and ready for a future host to wrap.
+- **A live-updating monitoring dashboard screen** consuming `MockMonitoringProvider`. The
+  architecture (mock provider, registry routing, alerts) is what this round asked for; the actual
+  dashboard UI is a separate, not-yet-requested build step.
+
+**Files changed**: `app/build.gradle.kts`; new `domain/monitoring/MonitoringConfig.kt`,
+`domain/monitoring/MockMonitoringData.kt`, `domain/monitoring/MockMonitoringProvider.kt`;
+`domain/monitoring/DeviceTelemetry.kt` (registry rewrite); new `domain/ai/AiConfig.kt`,
+`domain/ai/AiExplanationProvider.kt`, `domain/ai/AiExplanationService.kt`; new
+`domain/mcp/McpConfig.kt`, `domain/mcp/McpModels.kt`, `domain/mcp/McpToolRegistry.kt`;
+`LumixApp.kt` (wires `BuildConfig.*` into `MonitoringConfig`/`AiConfig` at startup);
+`ui/settings/SettingsScreen.kt` (Device Monitoring status + new AI Assistant/MCP Access sections).
+
+**Tests**: `SimulatedMonitoringProviderTest` updated (every manufacturer now expects `Connected`
+mock telemetry, not `NotConfigured`, in the default unconfigured state); new
+`MockMonitoringDataTest` (PV zero at midnight/positive at solar noon, SOC always in range, timestamp
+echoed, `energyTotal` populated unlike the honest-null `SimulatedMonitoringProvider`, low-SOC alert
+rule, `MockMonitoringProvider` always `Connected`); new `McpToolRegistryTest` (every tool projects
+real `QuoteResult`/`TechnicalReadout`/`SimFrame`/`DiagnosticCheck` fields verbatim, `explainCalculation`
+delegates to `AiExplanationService`); new `AiExplanationServiceTest` (`Disabled` with no key
+configured, never a fabricated `Explained` result even with a key configured since no real provider
+exists yet).

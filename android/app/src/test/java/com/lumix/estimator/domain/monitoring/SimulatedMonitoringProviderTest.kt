@@ -90,12 +90,18 @@ class SimulatedMonitoringProviderTest {
     }
 
     @Test
-    fun `every named manufacturer honestly reports NotConfigured, never a fabricated reading`() {
+    fun `every named manufacturer defaults to a Mock provider when no credentials are configured`() {
+        // A85 (Phase 23 — "BUILD NOW, ACTIVATE LATER"): MonitoringConfig is never configured in a
+        // unit test (no Android Application/BuildConfig here), so every manufacturer's credentials
+        // stay blank — the same "unconfigured" state MonitoringProviderRegistry sees by default in
+        // the real app until local.properties gets real values. Connected + mock telemetry (never
+        // NotConfigured) is the correct behavior in that state, per this round's explicit request
+        // that the monitoring UI/charts/alerts be exercisable without any real credentials.
         for (manufacturer in MonitoringManufacturer.entries) {
             val provider = MonitoringProviderRegistry.providerFor(manufacturer)
             assertEquals(manufacturer, provider.manufacturer)
             val result = runBlocking { provider.fetchLatest("any-device-id") }
-            assertEquals(MonitoringResult.NotConfigured, result)
+            assertTrue("expected Connected mock telemetry for $manufacturer, got $result", result is MonitoringResult.Connected)
         }
     }
 }

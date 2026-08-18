@@ -21,6 +21,24 @@ val localProperties = Properties().apply {
 }
 val mapsApiKey: String = localProperties.getProperty("MAPS_API_KEY") ?: ""
 
+// A85 (Phase 23/24 — "NO PAID SERVICES / NO PRODUCTION API CREDENTIALS right now... use...
+// environment-variable placeholders... Never hard-code secrets"): same local.properties pattern as
+// mapsApiKey above, one property per credential the spec's own config block names. Every one
+// defaults to "" (never committed, never hardcoded) — MonitoringConfig/AiConfig read these via
+// BuildConfig and treat blank as "not configured," which is what routes every manufacturer to its
+// MockMonitoringProvider and the AI layer to Disabled until real values are dropped into
+// local.properties later. Add lines like `DEYE_API_KEY=...` to android/local.properties to activate.
+fun localProp(key: String): String = localProperties.getProperty(key) ?: ""
+val deyeApiKey = localProp("DEYE_API_KEY")
+val deyeClientId = localProp("DEYE_CLIENT_ID")
+val deyeClientSecret = localProp("DEYE_CLIENT_SECRET")
+val luxPowerApiKey = localProp("LUXPOWER_API_KEY")
+val growattApiKey = localProp("GROWATT_API_KEY")
+val solarmanAppId = localProp("SOLARMAN_APP_ID")
+val solarmanAppSecret = localProp("SOLARMAN_APP_SECRET")
+val solarOfThingsApiKey = localProp("SOLAR_OF_THINGS_API_KEY")
+val aiApiKey = localProp("AI_API_KEY")
+
 android {
     namespace = "com.lumix.estimator"
     compileSdk = 34
@@ -34,6 +52,16 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
+
+        buildConfigField("String", "DEYE_API_KEY", "\"$deyeApiKey\"")
+        buildConfigField("String", "DEYE_CLIENT_ID", "\"$deyeClientId\"")
+        buildConfigField("String", "DEYE_CLIENT_SECRET", "\"$deyeClientSecret\"")
+        buildConfigField("String", "LUXPOWER_API_KEY", "\"$luxPowerApiKey\"")
+        buildConfigField("String", "GROWATT_API_KEY", "\"$growattApiKey\"")
+        buildConfigField("String", "SOLARMAN_APP_ID", "\"$solarmanAppId\"")
+        buildConfigField("String", "SOLARMAN_APP_SECRET", "\"$solarmanAppSecret\"")
+        buildConfigField("String", "SOLAR_OF_THINGS_API_KEY", "\"$solarOfThingsApiKey\"")
+        buildConfigField("String", "AI_API_KEY", "\"$aiApiKey\"")
     }
 
     buildTypes {
@@ -61,6 +89,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
