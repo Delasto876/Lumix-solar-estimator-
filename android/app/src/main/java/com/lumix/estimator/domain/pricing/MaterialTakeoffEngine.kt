@@ -153,9 +153,9 @@ object MaterialTakeoffEngine {
             }
         }
 
-        // ---- AC wiring bundle + AC breaker pair — HYBRID/GRIDTIE only; OFFGRID keeps its own
-        // pre-existing 6mm wiring path (untouched, computed in SystemCalculator directly — no
-        // spreadsheet/master-prompt rule addresses off-grid AC wiring). ----
+        // ---- AC wiring bundle — HYBRID/GRIDTIE only; OFFGRID keeps its own pre-existing 6mm
+        // wiring path (untouched, computed in SystemCalculator directly — no spreadsheet/
+        // master-prompt rule addresses off-grid AC wiring). ----
         if (input.effectiveSystemMode != SystemMode.OFFGRID) {
             // A89/Ph21 follow-up (2026-08-18): "if no Transfer switch use 30ft of the 10mm wire,
             // if manual or automatic use 80ft of the wire" — footage now keyed to the same
@@ -165,16 +165,20 @@ object MaterialTakeoffEngine {
             lines += MaterialLine("AC wire, red (10mm, ft)", acWireFt, prices.ac10mmPerFt, "AC_RED")
             lines += MaterialLine("AC wire, black (10mm, ft)", acWireFt, prices.ac10mmPerFt, "AC_BLACK")
             lines += MaterialLine("AC ground wire (10mm, ft)", acWireFt, prices.ac10mmPerFt, "AC_GROUND")
-            // A89/Ph21 follow-up: confirmed by the project owner — "that is hybrid logic where
-            // jps send power to inverter, it does not export to the grid, so both breakers is
-            // needed" (JPS feeds the inverter as an input/charging source, not a grid-export
-            // relationship) — 2 breakers for HYBRID/GRIDTIE, both of which tie to JPS at the AC
-            // side; GRIDTIE's own export-to-grid case wasn't explicitly addressed by that
-            // confirmation, so it's left unchanged here pending a follow-up check.
-            lines += MaterialLine("AC breaker (inverter output)", 1.0, prices.acBreaker, "AC_BREAKER")
-            lines += MaterialLine("AC breaker (JPS input)", 1.0, prices.acBreaker, "AC_BREAKER")
+        }
+
+        // A89/Ph21 follow-up (2026-08-18): confirmed by the project owner this is HYBRID-specific
+        // logic, not grid-tie — "jps grid send power to inverter and can be used to charge battery
+        // or power house through inverter, will need a breaker for that jps line into the
+        // inverter and i will need another breaker from inverter to load." Two distinct AC
+        // breakers, only for HYBRID (the only mode with that JPS-charges-battery-or-house-via-
+        // inverter relationship). GRIDTIE has no such JPS-into-inverter input path (it exports to
+        // the grid, the opposite relationship) and OFFGRID has no JPS connection at all — both get
+        // just the one inverter-output breaker.
+        if (input.effectiveSystemMode == SystemMode.HYBRID) {
+            lines += MaterialLine("AC breaker (JPS input to inverter)", 1.0, prices.acBreaker, "AC_BREAKER")
+            lines += MaterialLine("AC breaker (inverter output to load)", 1.0, prices.acBreaker, "AC_BREAKER")
         } else {
-            // Pure off-grid has no JPS side to protect — one AC breaker (inverter output only).
             lines += MaterialLine("AC breaker (inverter output)", 1.0, prices.acBreaker, "AC_BREAKER")
         }
 

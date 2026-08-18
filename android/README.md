@@ -5608,24 +5608,24 @@ section stands.
 - **Shingle roofs now carry the same rule as zinc** ("shingle roof and zinc roof carrys the same
   rule") — 8 L-foot brackets per rail set. This fixes the pre-existing gap A89 explicitly flagged
   (shingle roofs previously got no mounting hardware at all).
-- **AC breaker pair reasoning confirmed for HYBRID**: "that is hybrid logic where jps send power to
-  inverter, it does not export to the grid, so both breakers is needed" — JPS feeds the inverter as
-  a charging/backup input, not a grid-export relationship; both breakers (inverter output + JPS
-  input) stay for HYBRID/GRIDTIE, one for OFFGRID, as A89 already had. **Not yet confirmed**:
-  whether GRIDTIE — which, unlike HYBRID, explicitly *does* export to the grid — should follow this
-  same two-breaker reasoning or something else; flagged in code and left unchanged pending a
-  follow-up answer.
+- **AC breaker count corrected — HYBRID-only, not HYBRID/GRIDTIE**: a follow-up answer clarified
+  the reasoning is specifically hybrid-inverter logic — "jps grid send power to inverter and can be
+  used to charge battery or power house through inverter, will need a breaker for that jps line
+  into the inverter and i will need another breaker from inverter to load." Two breakers
+  ("AC breaker (JPS input to inverter)" / "AC breaker (inverter output to load)") now apply to
+  HYBRID only. GRIDTIE — which exports to the grid rather than receiving a JPS-charges-battery
+  input — was moved to the same single "AC breaker (inverter output)" line OFFGRID already used;
+  this corrects the A89 draft above, which had grouped GRIDTIE with HYBRID's 2-breaker rule.
 - **Ground wire price corrected**: J$3,000/ft (the raw spreadsheet figure, already flagged in A89
   as an outlier) → J$100/ft, the real rate, confirmed by the project owner.
 - Updated `MaterialTakeoffEngineTest.kt` with new/revised coverage for every rule above (AC wire
-  footage by transfer-switch mode, shingle roof, MC4 flat count/price, battery cable/lug absence,
-  delivery manual-entry passthrough).
+  footage by transfer-switch mode, AC breaker count by system mode, shingle roof, MC4 flat
+  count/price, battery cable/lug absence, delivery manual-entry passthrough).
 
-**Still open, not yet answered**: the GRIDTIE AC-breaker question above; the wizard UI questions
-themselves (transfer switch/voltage regulator/toll rate/delivery entry, distribution-panel
-selectable-to-8-way, material overrides) remain domain-only, no screen built yet, since none of
-this batch of answers changed the "don't redesign the UI this phase" boundary; Phase 20/21's own
-material is still pending upload.
+**Still open**: the wizard UI questions themselves (transfer switch/voltage regulator/toll rate/
+delivery entry, distribution-panel selectable-to-8-way, material overrides) remain domain-only, no
+screen built yet, since none of this batch of answers changed the "don't redesign the UI this
+phase" boundary; Phase 20/21's own material is still pending upload.
 
 ## A88 — Phase 26: premium UI/UX redesign, mode workflow, home screen, mobile navigation
 

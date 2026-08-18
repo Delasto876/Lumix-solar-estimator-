@@ -326,6 +326,44 @@ class MaterialTakeoffEngineTest {
         assertTrue(line(offgrid, "AC_RED").isEmpty())
     }
 
+    // ---- 14a2. AC breaker count: 2 for hybrid (JPS-input + inverter-output), 1 for grid-tie/off-grid ----
+    @Test
+    fun `hybrid gets 2 AC breakers (JPS input plus inverter output); grid-tie and off-grid get 1`() {
+        val hybrid = MaterialTakeoffEngine.compute(
+            MaterialTakeoffEngine.TakeoffInput(
+                panelW = 620, panelCount = 4, effectiveSystemMode = SystemMode.HYBRID,
+                roofType = RoofType.SLAB, inverter = deye6k, batteryModuleCount = 0,
+                transferSwitchMode = TransferSwitchMode.AUTOMATIC, useVoltageRegulator = false,
+                use8WayDistributionPanel = false
+            ),
+            PriceList.DEFAULT
+        )
+        assertEquals(2, line(hybrid, "AC_BREAKER").size)
+
+        val gridtie = MaterialTakeoffEngine.compute(
+            MaterialTakeoffEngine.TakeoffInput(
+                panelW = 620, panelCount = 4, effectiveSystemMode = SystemMode.GRIDTIE,
+                roofType = RoofType.SLAB, inverter = deye6k, batteryModuleCount = 0,
+                transferSwitchMode = TransferSwitchMode.AUTOMATIC, useVoltageRegulator = false,
+                use8WayDistributionPanel = false
+            ),
+            PriceList.DEFAULT
+        )
+        assertEquals(1, line(gridtie, "AC_BREAKER").size)
+
+        val offgridInv = Catalog.offgridInverters.first()
+        val offgrid = MaterialTakeoffEngine.compute(
+            MaterialTakeoffEngine.TakeoffInput(
+                panelW = 620, panelCount = 4, effectiveSystemMode = SystemMode.OFFGRID,
+                roofType = RoofType.SLAB, inverter = offgridInv, batteryModuleCount = 0,
+                transferSwitchMode = TransferSwitchMode.AUTOMATIC, useVoltageRegulator = false,
+                use8WayDistributionPanel = false
+            ),
+            PriceList.DEFAULT
+        )
+        assertEquals(1, line(offgrid, "AC_BREAKER").size)
+    }
+
     // ---- 14b. Shingle roof carries the same L-foot rule as zinc ----
     @Test
     fun `shingle roof gets the same 8-L-foot-per-set rule as zinc`() {
