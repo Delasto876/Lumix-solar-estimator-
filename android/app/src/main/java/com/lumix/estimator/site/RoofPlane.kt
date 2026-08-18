@@ -1,5 +1,7 @@
 package com.lumix.estimator.site
 
+import kotlinx.serialization.Serializable
+
 /**
  * One traced roof section. Areas and azimuth are estimates derived from a hand-traced
  * satellite polygon — see [RoofGeometryEngine][com.lumix.estimator.site.geometry.RoofGeometryEngine]
@@ -12,6 +14,7 @@ package com.lumix.estimator.site
  * @param azimuthDegrees the user-confirmed facing direction; null until confirmed.
  * @param shadingFactor 0f..1f fraction of exposure retained after shading (1.0 = no shading).
  */
+@Serializable
 data class RoofPlane(
     val id: String,
     val label: String,

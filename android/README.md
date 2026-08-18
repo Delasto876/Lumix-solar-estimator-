@@ -5806,3 +5806,118 @@ own §27 UX-test flows.
 - **`DiagnosticCheck` is PASS/FAIL, not PASS/WARNING/REVIEW** — a three-state model would need a
   judgment call about which failures count as "review" vs. "fail," which reads as engineering/
   business logic, not presentation — not attempted.
+
+## A90 — "REPLACE THE CURRENT MAP IMPLEMENTATION": MapLibre + OpenFreeMap, no API keys
+
+The prior map (Google Maps Compose SDK) required a billing-enabled `MAPS_API_KEY` and rendered
+blank without one — exactly the failure the project owner reported. Replaced entirely with
+MapLibre + OpenFreeMap's public `liberty` style (real OpenStreetMap data, no key, no billing, no
+credit card), plus a genuinely interactive roof-drawing tool and provider-abstraction architecture
+for future satellite/routing support, per the spec's own explicit boundaries.
+
+### 1. GL JS → MapLibre Native (disclosed substitution)
+The spec names "MAPLIBRE GL JS" — a browser/WebGL library with no application inside a native
+Kotlin/Compose app. Substituted **MapLibre Native's Android SDK**
+(`org.maplibre.gl:android-sdk:11.8.1`) instead of wrapping a WebView around the JS library: same
+OpenFreeMap style-JSON format either way (the style URL is unchanged), but native rendering avoids
+a WebView/JS-bridge's extra failure surface and matches the spec's own explicit mobile-reliability
+and Samsung-A15 testing requirements better than a JS-bridge approach would. The SDK version
+pinned in `app/build.gradle.kts` could not be verified against Maven in this sandbox (no working
+dependency resolution — the standing limitation this whole session has run under) — worth
+confirming on first real Gradle sync.
+
+### 2. Architecture — every interface the spec named, all built
+- **`map/BaseMapProvider.kt`** — `OpenFreeMapProvider` (`styleUrl =
+  "https://tiles.openfreemap.org/styles/liberty"`), the only implementation; interface exists so a
+  second base-map source could be swapped in without touching call sites.
+- **`map/SatelliteProvider.kt`** — `NoSatelliteProvider` is the only implementation right now
+  (`isConfigured = false`, `styleUrlOrNull() = null`). The spec was explicit: "Do not pretend that
+  OpenFreeMap provides satellite imagery." `SolarSiteMapScreen`'s layer toggle falls back to the
+  normal map and shows "Satellite imagery unavailable — using map view." instead of ever going
+  blank when satellite is selected with no provider configured. Wiring in a real provider (Google
+  Maps/Esri/MapTiler tile source) later is a `SatelliteProvider` implementation plus a
+  `BuildConfig`-sourced key — no drawing/geometry code changes needed, matching the spec's "Future
+  Satellite Support" requirement.
+- **`map/GeocodingProvider.kt` + `AndroidGeocodingProvider.kt`** — real coordinate search via
+  Android's built-in `android.location.Geocoder` (a free framework service, not the paid Google
+  Maps Geocoding API — no key). `suggestKnownPlaces()` cross-references the app's own existing
+  `Catalog.parishTowns` data for instant offline parish/town-name autocomplete, but every actual
+  lat/lon comes from the real Geocoder call — consistent with this project's standing rule to never
+  fabricate coordinate data for Jamaica's ~70 towns.
+- **`map/RoutingProvider.kt`** — `NullRoutingProvider`, a `fun interface` shaped for OSRM/
+  OpenRouteService/GraphHopper later. Deliberately **not** wired into `DeliveryCalculator` this
+  round — the spec's own instruction ("architect for it... do not require a paid API right now")
+  and the separate, still-standing "delivery is manual entry only" rule from A89 follow-up both
+  point the same way. The map works fully with zero routing credentials.
+
+### 3. Roof drawing — real, not a fake overlay
+`site/map/RoofDrawingService.kt` (renamed/expanded from the old `RoofDrawingController`, which only
+supported draw-then-finish) now also supports **editing an already-drawn polygon**: `startEditing`,
+`selectVertex`, `moveSelectedVertexTo`, `deleteVertex` (floor of 3 vertices — a polygon can't go
+below a triangle), `insertVertexAfter` (ADD POINT), `clearSelection`, `finishEditing`. Vertices are
+rendered via `GeoJsonSource` + `FillLayer`/`LineLayer`/`CircleLayer` in `SolarSiteMapScreen.kt`
+(MapLibre's foundational styling API, chosen over the "classic annotations" API specifically
+because it's the most version-stable part of MapLibre's surface — this integration could not be
+compiled in this sandbox, so reducing SDK-version-drift risk mattered more than saving a few lines).
+
+**One disclosed UX adaptation**: MOVE POINT is tap-select-then-tap-to-relocate, not true
+click-and-drag. The spec asked for MOVE POINT as a capability, not specifically a drag gesture, and
+whether the pinned SDK version's draggable-annotation API is available/stable couldn't be confirmed
+without a real compile — tap-select-then-relocate achieves the same editing outcome with a
+lower-risk, more certain API surface.
+
+### 4. Map ↔ solar-design connection (the spec's "not a disconnected visual feature" requirement)
+Two real, pre-existing gaps found and fixed, not just theoretical risk:
+- **`SiteRepository` was purely in-memory** — a saved site vanished on process death, which would
+  have failed the spec's own test steps 12–15 (save location → reload project → confirm it's still
+  there). Rebuilt Room-backed (`SiteEntity`/`SiteDao`/`AppDatabase` v1→v2,
+  `fallbackToDestructiveMigration()` — see caveat below), mirroring the existing
+  `QuoteEntity`/`QuoteDao`/`QuoteRepository` pattern exactly: the whole `SolarSite` (including every
+  traced `RoofPlane`) as one JSON blob column, flat columns alongside for listing without decoding.
+- **Parish/town/PSH never reached the wizard.** The map's "Use This Location" flow reverse-geocodes
+  a selection into `parish`/`town` (new `SolarSite` fields), but
+  `WizardViewModel.startWithRoofConstraint` previously only ever set `roofConstraint` — lat/lon
+  reached panel-count capping, nothing else. `startWithRoofConstraint` now takes optional
+  `parish`/`town` params and, when present, sets `QuoteInputs.parish`/`nearestTown` and auto-fills
+  `peakSunHours` via the existing real `SolarResource.estimatedPshFor(parish)` lookup — the exact
+  same auto-fill-unless-manually-overridden pattern `StepLocation` already uses for typed-in
+  locations. `LumixNavHost.kt`'s `onUseRoof` callback passes the already-fetched `SolarSite`'s
+  parish/town through. A roof traced on the map now feeds the wizard identically to one entered by
+  hand on `StepLocation` — not a second-class input path.
+
+### 5. Failure handling
+Tile-load failure and the base map's own `onDidFailLoadingMap` listener surface a real message
+("Map tiles could not be loaded. Check your internet connection.") instead of an unexplained blank
+map, per the spec's explicit example. No `MAP_API_KEY_REQUIRED` screen exists anywhere in this
+build — there's nothing to require a key for.
+
+### 6. Data-loss caveat (please read before installing over an existing build)
+`AppDatabase` went from schema version 1 to 2 (new `sites` table) using
+`.fallbackToDestructiveMigration()` rather than a written `Migration` — consistent with this
+project's pre-release/placeholder-data status throughout the rest of this session. This means an
+installer upgrading over an **existing** install loses their previously saved **quotes** too, not
+just gains site storage. Worth knowing before shipping this specific build over a device with real
+saved quotes already on it.
+
+### 7. Tests performed / not performed
+No real compile — the standing sandbox limitation (no working Android Gradle Plugin resolution)
+applies to this round exactly as it has all session. Verification was: brace/paren balance checked
+on every touched/created file individually and then as one consolidated sweep (all matched); a grep
+sweep for stale references to the removed Google Maps SDK, the old `SiteMapType` enum name, and the
+old `RoofDrawingController` name (none found — only doc-comment mentions of what was replaced);
+confirmed `AndroidManifest.xml` still parses and no longer references
+`com.google.android.geo.API_KEY`; hand-traced the "not a disconnected visual feature" requirement
+against `WizardViewModel`/`LumixNavHost` call sites to confirm parish/town/PSH genuinely reach
+`QuoteInputs`, not just lat/lon.
+
+Of the spec's own 15-step manual test checklist, none could be run in this sandbox (no device/
+emulator, no working compile) — this is a real gap in what "done" can mean without an actual build.
+The highest-risk files if a real compile turns up API mismatches: `MapLibreMapView.kt` (the
+Compose/AndroidView MapLibre wrapper) and `SolarSiteMapScreen.kt` (all `GeoJsonSource`/style-layer
+wiring) — both call MapLibre Android SDK APIs recalled from memory, not confirmed against the
+pinned 11.8.1 version's actual generated docs.
+
+### 8. Explicitly not touched
+Per the spec's own boundary ("this phase is specifically to fix and improve the MAP
+infrastructure"): PV/battery/inverter/MPPT sizing, PSH calculation logic itself, simulation physics,
+quotation/material-takeoff logic, and pricing were not modified anywhere in this round.

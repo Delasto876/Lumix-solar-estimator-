@@ -10,6 +10,7 @@ import com.lumix.estimator.domain.ai.AiConfig
 import com.lumix.estimator.domain.monitoring.MonitoringConfig
 import com.lumix.estimator.domain.monitoring.MonitoringCredentials
 import com.lumix.estimator.site.SiteRepository
+import com.lumix.estimator.site.map.ensureMapLibreInitialized
 
 class LumixApp : Application() {
     lateinit var quoteRepository: QuoteRepository
@@ -27,11 +28,15 @@ class LumixApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // "REPLACE THE CURRENT MAP IMPLEMENTATION" (2026-08-18): MapLibre Native's one-time
+        // runtime init, before any MapView is created — no API key/token argument, unlike the
+        // old Mapbox-lineage `Mapbox.getInstance(context, token)` pattern this otherwise mirrors.
+        ensureMapLibreInitialized(this)
         val db = AppDatabase.get(this)
         quoteRepository = QuoteRepository(db.quoteDao())
         priceRepository = PriceRepository(this)
         settingsRepository = SettingsRepository(this)
-        siteRepository = SiteRepository()
+        siteRepository = SiteRepository(db.siteDao())
         codeStandardRepository = CodeStandardRepository(this)
 
         // A85 (Phase 23/24 — "BUILD NOW, ACTIVATE LATER"): the one place BuildConfig.* (itself

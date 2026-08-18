@@ -2,11 +2,15 @@ package com.lumix.estimator.site
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import com.lumix.estimator.site.geometry.PanelLayoutOptimizer
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 data class SiteUiState(
@@ -14,6 +18,9 @@ data class SiteUiState(
     val draftLatitude: Double? = null,
     val draftLongitude: Double? = null,
     val draftAddress: String? = null,
+    /** Real Catalog.parishTowns values when the selected location resolved to a known Jamaica place — see SolarSite's own doc. */
+    val draftParish: String? = null,
+    val draftTown: String? = null,
     val roofPlanes: List<RoofPlane> = emptyList(),
     val savedSiteId: String? = null
 ) {
@@ -30,17 +37,45 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
     private val _state = MutableStateFlow(SiteUiState())
     val state: StateFlow<SiteUiState> = _state
 
-    val savedSites: StateFlow<List<SolarSite>> get() = repository.sites
+    /**
+     * Synchronous local cache so [getSite] can stay a plain (non-suspend) function for its
+     * existing call sites (e.g. `LumixNavHost`'s `onUseRoof`, `SiteDetailScreen`'s composable
+     * body) while [repository] is Room/Flow-backed. Populated reactively from every DB change
+     * below, and optimistically inside [saveSite] so a just-saved site is guaranteed present
+     * immediately, without racing Room's Flow-invalidation timing.
+     */
+    private val cachedSites = mutableMapOf<String, SolarSite>()
 
-    fun getSite(id: String): SolarSite? = repository.get(id)
+    val savedSites: StateFlow<List<SolarSite>> =
+        repository.sites.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    init {
+        viewModelScope.launch {
+            repository.sites.collect { list ->
+                list.forEach { cachedSites[it.id] = it }
+            }
+        }
+    }
+
+    fun getSite(id: String): SolarSite? = cachedSites[id]
 
     fun startNewSite() {
         _state.value = SiteUiState()
     }
 
-    fun setLocation(latitude: Double, longitude: Double, address: String?, name: String?) {
+    fun setLocation(
+        latitude: Double,
+        longitude: Double,
+        address: String?,
+        name: String?,
+        parish: String? = null,
+        town: String? = null
+    ) {
         _state.update {
-            it.copy(draftLatitude = latitude, draftLongitude = longitude, draftAddress = address, draftName = name)
+            it.copy(
+                draftLatitude = latitude, draftLongitude = longitude, draftAddress = address, draftName = name,
+                draftParish = parish, draftTown = town
+            )
         }
     }
 
@@ -94,22 +129,30 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
         _state.update { it.copy(roofPlanes = it.roofPlanes.filterNot { plane -> plane.id == id }) }
     }
 
-    fun saveSite(): String? {
+    /**
+     * "Save location. Reload project. Confirm location and polygon remain" (2026-08-18): now
+     * suspends on the real Room write (see [SiteRepository]'s own doc) rather than an in-memory
+     * assignment, so a save genuinely completes — not just updates local state — before the
+     * caller navigates away.
+     */
+    suspend fun saveSite(): String? {
         val s = _state.value
         val lat = s.draftLatitude ?: return null
         val lon = s.draftLongitude ?: return null
         val id = UUID.randomUUID().toString()
-        repository.save(
-            SolarSite(
-                id = id,
-                name = s.draftName,
-                latitude = lat,
-                longitude = lon,
-                address = s.draftAddress,
-                timestampMillis = System.currentTimeMillis(),
-                roofPlanes = s.roofPlanes
-            )
+        val site = SolarSite(
+            id = id,
+            name = s.draftName,
+            latitude = lat,
+            longitude = lon,
+            address = s.draftAddress,
+            timestampMillis = System.currentTimeMillis(),
+            roofPlanes = s.roofPlanes,
+            parish = s.draftParish,
+            town = s.draftTown
         )
+        repository.save(site)
+        cachedSites[id] = site
         _state.update { it.copy(savedSiteId = id) }
         return id
     }

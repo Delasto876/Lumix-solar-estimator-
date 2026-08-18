@@ -1,10 +1,9 @@
 package com.lumix.estimator.site.map
 
 import android.Manifest
-import android.content.Context
-import android.location.Geocoder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +15,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -35,6 +36,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,24 +46,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.MapType
-import com.google.maps.android.compose.GoogleMap
-import com.google.maps.android.compose.MapProperties
-import com.google.maps.android.compose.MapUiSettings
-import com.google.maps.android.compose.Marker
-import com.google.maps.android.compose.Polygon
-import com.google.maps.android.compose.rememberCameraPositionState
-import com.google.maps.android.compose.rememberMarkerState
 import com.lumix.estimator.location.DeviceLocationManager
+import com.lumix.estimator.map.AndroidGeocodingProvider
+import com.lumix.estimator.map.GeocodeResult
+import com.lumix.estimator.map.KnownPlace
+import com.lumix.estimator.map.NoSatelliteProvider
+import com.lumix.estimator.map.OpenFreeMapProvider
 import com.lumix.estimator.network.NetworkConnectivityObserver
 import com.lumix.estimator.sensors.CompassManager
 import com.lumix.estimator.site.GeoPoint
+import com.lumix.estimator.site.RoofPlane
 import com.lumix.estimator.site.ShadeAndExclusionSection
 import com.lumix.estimator.site.SolarCompassBadge
 import com.lumix.estimator.site.SolarSiteViewModel
@@ -76,20 +74,103 @@ import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixRadius
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.util.Locale
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
+import org.maplibre.geojson.Polygon as GeoJsonPolygon
 
 private val pitchOptions: List<Double?> = listOf(null, 0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0)
-private val jamaicaDefault = LatLng(18.1096, -77.2975)
+private val jamaicaDefault = GeoPoint(18.1096, -77.2975)
+
+private enum class RoofEditMode { NONE, MOVE, DELETE, ADD }
+
+// Source/layer IDs — created once in onMapReady, refreshed via SideEffect on every state change.
+private const val SRC_SELECTED = "lumix-selected-location"
+private const val LYR_SELECTED = "lumix-selected-location-layer"
+private const val SRC_SAVED_FILL = "lumix-saved-planes-fill"
+private const val LYR_SAVED_FILL = "lumix-saved-planes-fill-layer"
+private const val SRC_SAVED_OUTLINE = "lumix-saved-planes-outline"
+private const val LYR_SAVED_OUTLINE = "lumix-saved-planes-outline-layer"
+private const val SRC_ROOF_FILL = "lumix-roof-fill"
+private const val LYR_ROOF_FILL = "lumix-roof-fill-layer"
+private const val SRC_ROOF_OUTLINE = "lumix-roof-outline"
+private const val LYR_ROOF_OUTLINE = "lumix-roof-outline-layer"
+private const val SRC_ROOF_VERTICES = "lumix-roof-vertices"
+private const val LYR_ROOF_VERTICES = "lumix-roof-vertices-layer"
+private const val SRC_ROOF_SELECTED_VERTEX = "lumix-roof-selected-vertex"
+private const val LYR_ROOF_SELECTED_VERTEX = "lumix-roof-selected-vertex-layer"
 
 /**
- * Satellite map for selecting a customer's property and tracing roof planes directly on it.
- * A peer to [com.lumix.estimator.site.ManualSiteScreen], not the only way in — this screen
- * needs a configured Google Maps API key to actually render tiles; without one the map area
- * will show blank/error tiles from the SDK itself, which is why manual entry exists as a
- * fully independent alternative rather than a degraded fallback bolted onto this screen.
+ * Every GeoJsonSource this screen manages, resolved once when the style finishes loading. Uses
+ * `Style.getSource(id)` + an explicit cast rather than the generic `getSourceAs<T>` — safer
+ * against SDK-version drift in this environment, where nothing here could be compiled/verified
+ * (see [MapLibreMapView]'s own doc).
+ */
+private class MapLayerRefs(style: Style) {
+    val selected: GeoJsonSource = style.getSource(SRC_SELECTED) as GeoJsonSource
+    val savedFill: GeoJsonSource = style.getSource(SRC_SAVED_FILL) as GeoJsonSource
+    val savedOutline: GeoJsonSource = style.getSource(SRC_SAVED_OUTLINE) as GeoJsonSource
+    val roofFill: GeoJsonSource = style.getSource(SRC_ROOF_FILL) as GeoJsonSource
+    val roofOutline: GeoJsonSource = style.getSource(SRC_ROOF_OUTLINE) as GeoJsonSource
+    val roofVertices: GeoJsonSource = style.getSource(SRC_ROOF_VERTICES) as GeoJsonSource
+    val roofSelectedVertex: GeoJsonSource = style.getSource(SRC_ROOF_SELECTED_VERTEX) as GeoJsonSource
+}
+
+private fun GeoPoint.toLatLng() = LatLng(latitude, longitude)
+private fun LatLng.toGeoPoint() = GeoPoint(latitude, longitude)
+private fun GeoPoint.toGeoJsonPoint(): Point = Point.fromLngLat(longitude, latitude)
+
+private fun ringOf(vertices: List<GeoPoint>): List<Point> {
+    val points = vertices.map { it.toGeoJsonPoint() }
+    return if (points.isNotEmpty() && points.first() != points.last()) points + points.first() else points
+}
+
+private fun pointFeatures(vertices: List<GeoPoint>): FeatureCollection =
+    FeatureCollection.fromFeatures(vertices.map { Feature.fromGeometry(it.toGeoJsonPoint()) })
+
+private fun outlineFeatures(vertices: List<GeoPoint>): FeatureCollection {
+    if (vertices.size < 2) return FeatureCollection.fromFeatures(emptyList())
+    val line = org.maplibre.geojson.LineString.fromLngLats(ringOf(vertices))
+    return FeatureCollection.fromFeatures(listOf(Feature.fromGeometry(line)))
+}
+
+private fun fillFeatures(vertices: List<GeoPoint>): FeatureCollection {
+    if (vertices.size < 3) return FeatureCollection.fromFeatures(emptyList())
+    val polygon = GeoJsonPolygon.fromLngLats(listOf(ringOf(vertices)))
+    return FeatureCollection.fromFeatures(listOf(Feature.fromGeometry(polygon)))
+}
+
+private fun savedPlanesFillFeatures(planes: List<RoofPlane>): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        planes.filter { it.vertices.size >= 3 }
+            .map { Feature.fromGeometry(GeoJsonPolygon.fromLngLats(listOf(ringOf(it.vertices)))) }
+    )
+
+private fun savedPlanesOutlineFeatures(planes: List<RoofPlane>): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        planes.filter { it.vertices.size >= 3 }
+            .map { Feature.fromGeometry(org.maplibre.geojson.LineString.fromLngLats(ringOf(it.vertices))) }
+    )
+
+/**
+ * Satellite-roof-tracing map, now on MapLibre Native + OpenFreeMap (2026-08-18 "REPLACE THE
+ * CURRENT MAP IMPLEMENTATION" — see [com.lumix.estimator.map.OpenFreeMapProvider]'s own doc for
+ * why "MapLibre GL JS" became MapLibre Native for this platform, and [MapLibreMapView]'s doc for
+ * the one file in this change that could not be compiled/verified in this environment). No API
+ * key or billing account is needed for this screen to render tiles at all — [ManualSiteScreen]
+ * remains available as an alternative entry point for an installer who prefers typed dimensions,
+ * not as a fallback for a broken map.
  */
 @Composable
 fun SolarSiteMapScreen(
@@ -104,24 +185,23 @@ fun SolarSiteMapScreen(
     val state by viewModel.state.collectAsState()
 
     val mapController = remember { MapController() }
-    val roofController = remember { RoofDrawingController() }
+    val roofController = remember { RoofDrawingService() }
+    val geocodingProvider = remember { AndroidGeocodingProvider(context) }
     val locationManager = remember { DeviceLocationManager(context) }
     val compassManager = remember { CompassManager(context) }
     val compassState by compassManager.state.collectAsState()
     val connectivityObserver = remember { NetworkConnectivityObserver(context) }
     val isOnline by connectivityObserver.observe().collectAsState(initial = connectivityObserver.isOnline())
 
-    val initialLatLng = remember {
-        val lat = state.draftLatitude
-        val lon = state.draftLongitude
-        if (lat != null && lon != null) LatLng(lat, lon) else jamaicaDefault
-    }
-    val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(initialLatLng, 17f)
-    }
+    var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
+    var layerRefs by remember { mutableStateOf<MapLayerRefs?>(null) }
+    var tileLoadError by remember { mutableStateOf(false) }
+    var satelliteNotice by remember { mutableStateOf(false) }
+    var editMode by remember { mutableStateOf(RoofEditMode.NONE) }
 
     var searchQuery by remember { mutableStateOf(state.draftAddress ?: "") }
     var searchError by remember { mutableStateOf(false) }
+    var searchSuggestions by remember { mutableStateOf<List<KnownPlace>>(emptyList()) }
     var roofFormVertices by remember { mutableStateOf<List<GeoPoint>?>(null) }
 
     DisposableEffect(Unit) {
@@ -129,19 +209,41 @@ fun SolarSiteMapScreen(
         onDispose { compassManager.stop() }
     }
 
-    // Declination depends on where on Earth you are; keep it current as the site location is set.
     LaunchedEffect(state.draftLatitude, state.draftLongitude) {
         val lat = state.draftLatitude
         val lon = state.draftLongitude
         if (lat != null && lon != null) compassManager.updateLocation(lat, lon)
     }
 
+    LaunchedEffect(searchQuery) {
+        searchSuggestions = if (searchQuery.isBlank()) emptyList() else geocodingProvider.suggestKnownPlaces(searchQuery)
+    }
+
+    fun animateTo(point: GeoPoint, zoom: Double = 17.0) {
+        mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(point.toLatLng(), zoom))
+    }
+
+    fun runSearch(query: String) {
+        scope.launch {
+            val results = geocodingProvider.search(query)
+            val best = results.firstOrNull()
+            if (best != null) {
+                mapController.selectLocation(best.point)
+                animateTo(best.point)
+                searchError = false
+                searchSuggestions = emptyList()
+            } else {
+                searchError = true
+            }
+        }
+    }
+
     fun moveToDeviceLocation() {
         scope.launch {
             locationManager.lastKnownLocation()?.let { location ->
-                val latLng = LatLng(location.latitude, location.longitude)
-                mapController.selectLocation(latLng)
-                cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
+                val point = GeoPoint(location.latitude, location.longitude)
+                mapController.selectLocation(point)
+                animateTo(point, 18.0)
             }
         }
     }
@@ -150,55 +252,145 @@ fun SolarSiteMapScreen(
         if (granted) moveToDeviceLocation()
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        GoogleMap(
-            modifier = Modifier.fillMaxSize(),
-            cameraPositionState = cameraPositionState,
-            properties = MapProperties(
-                mapType = when (mapController.mapType) {
-                    SiteMapType.NORMAL -> MapType.NORMAL
-                    SiteMapType.SATELLITE -> MapType.SATELLITE
-                    SiteMapType.HYBRID -> MapType.HYBRID
-                }
-            ),
-            uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false, mapToolbarEnabled = false),
-            onMapClick = { latLng ->
-                if (roofController.isDrawing) {
-                    roofController.addVertex(GeoPoint(latLng.latitude, latLng.longitude))
+    // Push the latest Compose state into the already-created GeoJSON sources after every
+    // recomposition this state affects — the standard pattern for keeping an imperative object
+    // (the MapLibre style) in sync with Compose state, since MapLibre's classes are not
+    // Compose-aware the way com.google.maps.android.compose's Marker/Polygon composables were.
+    SideEffect {
+        val refs = layerRefs ?: return@SideEffect
+        mapController.selectedLocation?.let { loc ->
+            refs.selected.setGeoJson(FeatureCollection.fromFeatures(listOf(Feature.fromGeometry(loc.toGeoJsonPoint()))))
+        } ?: refs.selected.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        refs.savedFill.setGeoJson(savedPlanesFillFeatures(state.roofPlanes))
+        refs.savedOutline.setGeoJson(savedPlanesOutlineFeatures(state.roofPlanes))
+        refs.roofFill.setGeoJson(fillFeatures(roofController.vertices))
+        refs.roofOutline.setGeoJson(outlineFeatures(roofController.vertices))
+        val selectedIndex = roofController.selectedVertexIndex
+        val unselected = roofController.vertices.filterIndexed { i, _ -> i != selectedIndex }
+        refs.roofVertices.setGeoJson(pointFeatures(unselected))
+        refs.roofSelectedVertex.setGeoJson(
+            if (selectedIndex != null && selectedIndex in roofController.vertices.indices) {
+                pointFeatures(listOf(roofController.vertices[selectedIndex]))
+            } else {
+                FeatureCollection.fromFeatures(emptyList())
+            }
+        )
+    }
+
+    fun handleMapClick(point: GeoPoint) {
+        when {
+            roofController.isDrawing -> roofController.addVertex(point)
+            roofController.isEditing && editMode == RoofEditMode.MOVE -> {
+                if (roofController.selectedVertexIndex != null) {
+                    roofController.moveSelectedVertexTo(point)
+                    roofController.clearSelection()
                 } else {
-                    mapController.selectLocation(latLng)
+                    // Nearest existing vertex within a small tolerance selects it; otherwise no-op —
+                    // MOVE POINT only relocates a vertex the installer actually tapped near.
+                    val nearest = roofController.vertices.withIndex().minByOrNull { (_, v) ->
+                        (v.latitude - point.latitude) * (v.latitude - point.latitude) +
+                            (v.longitude - point.longitude) * (v.longitude - point.longitude)
+                    }
+                    val toleranceDegSq = 0.00005 * 0.00005 * 200 // generous finger-sized tap tolerance
+                    if (nearest != null) {
+                        val d = (nearest.value.latitude - point.latitude) * (nearest.value.latitude - point.latitude) +
+                            (nearest.value.longitude - point.longitude) * (nearest.value.longitude - point.longitude)
+                        if (d < toleranceDegSq) roofController.selectVertex(nearest.index)
+                    }
                 }
             }
-        ) {
-            mapController.selectedLocation?.let { loc ->
-                Marker(state = rememberMarkerState(position = loc), title = "Selected location")
-            }
-
-            // Already-saved roof planes for this draft site, in green.
-            state.roofPlanes.forEach { plane ->
-                if (plane.vertices.size >= 3) {
-                    Polygon(
-                        points = plane.vertices.map { LatLng(it.latitude, it.longitude) },
-                        fillColor = Color(0x3363E6A5),
-                        strokeColor = Color(0xFF63E6A5),
-                        strokeWidth = 3f
-                    )
+            roofController.isEditing && editMode == RoofEditMode.DELETE -> {
+                val nearest = roofController.vertices.withIndex().minByOrNull { (_, v) ->
+                    (v.latitude - point.latitude) * (v.latitude - point.latitude) +
+                        (v.longitude - point.longitude) * (v.longitude - point.longitude)
                 }
+                if (nearest != null) roofController.deleteVertex(nearest.index)
             }
-
-            // The roof currently being traced, in solar yellow.
-            if (roofController.vertices.size >= 2) {
-                Polygon(
-                    points = roofController.vertices.map { LatLng(it.latitude, it.longitude) },
-                    fillColor = Color(0x4DFFD84D),
-                    strokeColor = Color(0xFFFFD84D),
-                    strokeWidth = 4f
-                )
+            roofController.isEditing && editMode == RoofEditMode.ADD -> {
+                val afterIndex = roofController.selectedVertexIndex ?: (roofController.vertices.size - 1)
+                roofController.insertVertexAfter(afterIndex, point)
             }
-            roofController.vertices.forEach { v ->
-                Marker(state = rememberMarkerState(position = LatLng(v.latitude, v.longitude)))
-            }
+            else -> mapController.selectLocation(point)
         }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        MapLibreMapView(
+            styleUrl = OpenFreeMapProvider.styleUrl,
+            modifier = Modifier.fillMaxSize(),
+            onMapReady = { map, style ->
+                mapLibreMap = map
+                tileLoadError = false
+
+                style.addSource(GeoJsonSource(SRC_SELECTED, FeatureCollection.fromFeatures(emptyList())))
+                style.addLayer(
+                    CircleLayer(LYR_SELECTED, SRC_SELECTED).withProperties(
+                        PropertyFactory.circleRadius(8f),
+                        PropertyFactory.circleColor(Color(0xFFFFD84D).toArgb()),
+                        PropertyFactory.circleStrokeColor(Color(0xFF1A1A1A).toArgb()),
+                        PropertyFactory.circleStrokeWidth(2f)
+                    )
+                )
+
+                style.addSource(GeoJsonSource(SRC_SAVED_FILL, FeatureCollection.fromFeatures(emptyList())))
+                style.addLayer(
+                    FillLayer(LYR_SAVED_FILL, SRC_SAVED_FILL).withProperties(
+                        PropertyFactory.fillColor(Color(0x3363E6A5).toArgb())
+                    )
+                )
+                style.addSource(GeoJsonSource(SRC_SAVED_OUTLINE, FeatureCollection.fromFeatures(emptyList())))
+                style.addLayer(
+                    LineLayer(LYR_SAVED_OUTLINE, SRC_SAVED_OUTLINE).withProperties(
+                        PropertyFactory.lineColor(Color(0xFF63E6A5).toArgb()),
+                        PropertyFactory.lineWidth(3f)
+                    )
+                )
+
+                style.addSource(GeoJsonSource(SRC_ROOF_FILL, FeatureCollection.fromFeatures(emptyList())))
+                style.addLayer(
+                    FillLayer(LYR_ROOF_FILL, SRC_ROOF_FILL).withProperties(
+                        PropertyFactory.fillColor(Color(0x4DFFD84D).toArgb())
+                    )
+                )
+                style.addSource(GeoJsonSource(SRC_ROOF_OUTLINE, FeatureCollection.fromFeatures(emptyList())))
+                style.addLayer(
+                    LineLayer(LYR_ROOF_OUTLINE, SRC_ROOF_OUTLINE).withProperties(
+                        PropertyFactory.lineColor(Color(0xFFFFD84D).toArgb()),
+                        PropertyFactory.lineWidth(4f)
+                    )
+                )
+
+                style.addSource(GeoJsonSource(SRC_ROOF_VERTICES, FeatureCollection.fromFeatures(emptyList())))
+                style.addLayer(
+                    CircleLayer(LYR_ROOF_VERTICES, SRC_ROOF_VERTICES).withProperties(
+                        PropertyFactory.circleRadius(6f),
+                        PropertyFactory.circleColor(Color(0xFFFFD84D).toArgb()),
+                        PropertyFactory.circleStrokeColor(Color(0xFF1A1A1A).toArgb()),
+                        PropertyFactory.circleStrokeWidth(1.5f)
+                    )
+                )
+                style.addSource(GeoJsonSource(SRC_ROOF_SELECTED_VERTEX, FeatureCollection.fromFeatures(emptyList())))
+                style.addLayer(
+                    CircleLayer(LYR_ROOF_SELECTED_VERTEX, SRC_ROOF_SELECTED_VERTEX).withProperties(
+                        PropertyFactory.circleRadius(9f),
+                        PropertyFactory.circleColor(Color(0xFFFF5252).toArgb()),
+                        PropertyFactory.circleStrokeColor(Color(0xFFFFFFFF).toArgb()),
+                        PropertyFactory.circleStrokeWidth(2f)
+                    )
+                )
+
+                layerRefs = MapLayerRefs(style)
+
+                val initial = state.draftLatitude?.let { lat -> state.draftLongitude?.let { lon -> GeoPoint(lat, lon) } } ?: jamaicaDefault
+                map.moveCamera(CameraUpdateFactory.newLatLngZoom(initial.toLatLng(), if (initial == jamaicaDefault) 8.0 else 17.0))
+
+                map.addOnMapClickListener { latLng ->
+                    handleMapClick(latLng.toGeoPoint())
+                    true
+                }
+            },
+            onStyleLoadFailed = { tileLoadError = true }
+        )
 
         // Top bar: back button + search field + map-type switch. Same no-Scaffold situation as
         // the bottom panel below — statusBarsPadding() is what keeps this clear of the status
@@ -224,7 +416,7 @@ fun SolarSiteMapScreen(
                             modifier = Modifier.weight(1f),
                             decorationBox = { inner ->
                                 if (searchQuery.isEmpty()) {
-                                    Text("Search customer location", style = MaterialTheme.typography.bodyMedium, color = palette.textSecondary)
+                                    Text("Search parish, town, or address", style = MaterialTheme.typography.bodyMedium, color = palette.textSecondary)
                                 }
                                 inner()
                             }
@@ -233,19 +425,28 @@ fun SolarSiteMapScreen(
                             Icons.Default.Search,
                             contentDescription = "Search",
                             tint = palette.textSecondary,
-                            modifier = Modifier.padding(start = 8.dp).clickable {
-                                scope.launch {
-                                    val result = geocodeAddress(context, searchQuery)
-                                    if (result != null) {
-                                        mapController.selectLocation(result)
-                                        cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(result, 17f))
-                                        searchError = false
-                                    } else {
-                                        searchError = true
-                                    }
-                                }
-                            }
+                            modifier = Modifier.padding(start = 8.dp).clickable { runSearch(searchQuery) }
                         )
+                    }
+                }
+            }
+            if (searchSuggestions.isNotEmpty()) {
+                GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+                    LazyColumn(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        items(searchSuggestions) { place ->
+                            Text(
+                                place.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = palette.textPrimary,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        searchQuery = place.label
+                                        runSearch(place.label)
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -260,6 +461,12 @@ fun SolarSiteMapScreen(
             if (!isOnline) {
                 OfflineBanner(onSwitchToManual = onSwitchToManual)
             }
+            if (tileLoadError) {
+                TileErrorBanner()
+            }
+            if (satelliteNotice) {
+                InfoBanner("Satellite imagery unavailable — using map view.")
+            }
         }
 
         // Right-side floating controls: zoom, layers, my location.
@@ -268,28 +475,34 @@ fun SolarSiteMapScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             LumixIconButtonSurface(onClick = {
-                scope.launch { cameraPositionState.animate(CameraUpdateFactory.zoomIn()) }
+                mapLibreMap?.let { map -> map.animateCamera(CameraUpdateFactory.zoomIn()) }
             }) { Icon(Icons.Default.Add, contentDescription = "Zoom in") }
             LumixIconButtonSurface(onClick = {
-                scope.launch { cameraPositionState.animate(CameraUpdateFactory.zoomOut()) }
+                mapLibreMap?.let { map -> map.animateCamera(CameraUpdateFactory.zoomOut()) }
             }) { Icon(Icons.Default.Remove, contentDescription = "Zoom out") }
             LumixIconButtonSurface(onClick = {
-                mapController.setMapType(
-                    when (mapController.mapType) {
-                        SiteMapType.SATELLITE -> SiteMapType.HYBRID
-                        SiteMapType.HYBRID -> SiteMapType.NORMAL
-                        SiteMapType.NORMAL -> SiteMapType.SATELLITE
+                // "Display 'Satellite imagery unavailable — using map view.' only when necessary" —
+                // NoSatelliteProvider is the only provider wired in today, so this always shows
+                // the notice rather than actually switching layers; see SatelliteProvider's own doc.
+                if (!NoSatelliteProvider.isConfigured) {
+                    satelliteNotice = true
+                    scope.launch {
+                        kotlinx.coroutines.delay(3000)
+                        satelliteNotice = false
                     }
-                )
-            }) { Icon(Icons.Default.Layers, contentDescription = "Map type") }
+                } else {
+                    mapController.setLayer(if (mapController.layer == MapLayer.MAP) MapLayer.SATELLITE else MapLayer.MAP)
+                }
+            }) { Icon(Icons.Default.Layers, contentDescription = "Map layer") }
             LumixIconButtonSurface(onClick = {
                 mapController.toggle3D()
-                val target = mapController.selectedLocation ?: cameraPositionState.position.target
-                val newTilt = if (mapController.is3D) MapController.TILT_3D_DEGREES else MapController.TILT_FLAT_DEGREES
-                scope.launch {
-                    cameraPositionState.animate(
+                val map = mapLibreMap
+                val target = mapController.selectedLocation?.toLatLng() ?: map?.cameraPosition?.target
+                if (map != null && target != null) {
+                    val newTilt = if (mapController.is3D) MapController.TILT_3D_DEGREES else MapController.TILT_FLAT_DEGREES
+                    map.animateCamera(
                         CameraUpdateFactory.newCameraPosition(
-                            CameraPosition.Builder(cameraPositionState.position)
+                            CameraPosition.Builder(map.cameraPosition)
                                 .target(target)
                                 .tilt(newTilt)
                                 .build()
@@ -329,8 +542,8 @@ fun SolarSiteMapScreen(
                 .navigationBarsPadding()
                 .padding(16.dp)
         ) {
-            if (roofController.isDrawing) {
-                RoofDrawingControls(
+            when {
+                roofController.isDrawing -> RoofDrawingControls(
                     vertexCount = roofController.vertices.size,
                     onUndo = roofController::undo,
                     onClear = roofController::clear,
@@ -341,19 +554,46 @@ fun SolarSiteMapScreen(
                         }
                     }
                 )
-            } else {
-                SiteAnalysisPanel(
+                roofController.isEditing -> RoofEditingControls(
+                    mode = editMode,
+                    onModeChange = { editMode = it; roofController.clearSelection() },
+                    onClear = { roofController.clear(); editMode = RoofEditMode.NONE },
+                    onRedraw = { roofController.startDrawing(); editMode = RoofEditMode.NONE },
+                    onDone = {
+                        val vertices = roofController.finishEditing()
+                        if (vertices.size >= 3) roofFormVertices = vertices
+                        editMode = RoofEditMode.NONE
+                    }
+                )
+                else -> SiteAnalysisPanel(
                     hasLocation = state.hasLocation,
                     hasPin = mapController.selectedLocation != null,
                     roofPlaneCount = state.roofPlanes.size,
                     totalCapacityKw = state.roofPlanes.sumOf { it.panelLayout?.totalCapacityKw ?: 0.0 },
+                    canEditRoof = state.roofPlanes.isNotEmpty(),
                     onUseLocation = {
                         mapController.selectedLocation?.let { loc ->
-                            viewModel.setLocation(loc.latitude, loc.longitude, searchQuery.ifBlank { null }, null)
+                            scope.launch {
+                                // Reverse-search this exact point back through the geocoder to
+                                // pick up a real parish/town when the installer dropped a pin
+                                // rather than typing a search — feeds StepLocation's parish/PSH,
+                                // never fabricated locally.
+                                val results = geocodingProvider.search("${loc.latitude},${loc.longitude}")
+                                val match = results.firstOrNull()
+                                viewModel.setLocation(
+                                    loc.latitude, loc.longitude,
+                                    searchQuery.ifBlank { match?.label },
+                                    null,
+                                    match?.parish, match?.town
+                                )
+                            }
                         }
                     },
                     onTraceRoof = { roofController.startDrawing() },
-                    onSaveSite = { viewModel.saveSite()?.let(onSaved) }
+                    onEditRoof = {
+                        state.roofPlanes.lastOrNull()?.let { plane -> roofController.startEditing(plane.vertices) }
+                    },
+                    onSaveSite = { scope.launch { viewModel.saveSite()?.let(onSaved) } }
                 )
             }
         }
@@ -380,9 +620,9 @@ fun SolarSiteMapScreen(
 
 /**
  * Shown whenever [NetworkConnectivityObserver] reports no internet — the one thing this screen
- * cannot function without (satellite tiles + address search both need a live connection), unlike
- * the rest of Solar Site, which is pure local math. Points straight at the always-available
- * escape hatch rather than leaving the user staring at blank map tiles with no explanation.
+ * cannot function without (map tiles + address search both need a live connection), unlike the
+ * rest of Solar Site, which is pure local math. Points straight at the always-available escape
+ * hatch rather than leaving the user staring at blank map tiles with no explanation.
  */
 @Composable
 private fun OfflineBanner(onSwitchToManual: (() -> Unit)?) {
@@ -406,6 +646,33 @@ private fun OfflineBanner(onSwitchToManual: (() -> Unit)?) {
                 LumixSecondaryButton(text = "Manual Entry", onClick = onSwitchToManual)
             }
         }
+    }
+}
+
+/** "If tiles fail to load: show a useful error... Do NOT display a blank white/black map with no explanation." */
+@Composable
+private fun TileErrorBanner() {
+    val palette = LocalLumixPalette.current
+    GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+        Text(
+            "Map tiles could not be loaded. Check your internet connection.",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.warningRedText,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)
+        )
+    }
+}
+
+@Composable
+private fun InfoBanner(text: String) {
+    val palette = LocalLumixPalette.current
+    GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textPrimary,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)
+        )
     }
 }
 
@@ -435,14 +702,69 @@ private fun RoofDrawingControls(
     }
 }
 
+/** "The polygon must remain editable. Allow: MOVE POINT, DELETE POINT, ADD POINT, CLEAR ROOF, REDRAW." */
+@Composable
+private fun RoofEditingControls(
+    mode: RoofEditMode,
+    onModeChange: (RoofEditMode) -> Unit,
+    onClear: () -> Unit,
+    onRedraw: () -> Unit,
+    onDone: () -> Unit
+) {
+    val palette = LocalLumixPalette.current
+    GlassSurface(shape = RoundedCornerShape(LumixRadius.lg)) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                when (mode) {
+                    RoofEditMode.NONE -> "Editing roof — choose an action below"
+                    RoofEditMode.MOVE -> "Tap a point, then tap where it should move to"
+                    RoofEditMode.DELETE -> "Tap a point to delete it"
+                    RoofEditMode.ADD -> "Tap the map to add a new point"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = palette.textPrimary
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                ModeChip("Move", mode == RoofEditMode.MOVE, Modifier.weight(1f)) { onModeChange(if (mode == RoofEditMode.MOVE) RoofEditMode.NONE else RoofEditMode.MOVE) }
+                ModeChip("Delete", mode == RoofEditMode.DELETE, Modifier.weight(1f)) { onModeChange(if (mode == RoofEditMode.DELETE) RoofEditMode.NONE else RoofEditMode.DELETE) }
+                ModeChip("Add", mode == RoofEditMode.ADD, Modifier.weight(1f)) { onModeChange(if (mode == RoofEditMode.ADD) RoofEditMode.NONE else RoofEditMode.ADD) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                LumixSecondaryButton(text = "Clear Roof", onClick = onClear, modifier = Modifier.weight(1f))
+                LumixSecondaryButton(text = "Redraw", onClick = onRedraw, modifier = Modifier.weight(1f))
+                LumixPrimaryButton(text = "Done", onClick = onDone, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModeChip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val palette = LocalLumixPalette.current
+    Box(
+        modifier = modifier
+            .background(
+                if (selected) palette.solarYellow.copy(alpha = 0.25f) else Color.Transparent,
+                RoundedCornerShape(LumixRadius.sm)
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = if (selected) palette.solarYellowText else palette.textPrimary)
+    }
+}
+
 @Composable
 private fun SiteAnalysisPanel(
     hasLocation: Boolean,
     hasPin: Boolean,
     roofPlaneCount: Int,
     totalCapacityKw: Double,
+    canEditRoof: Boolean,
     onUseLocation: () -> Unit,
     onTraceRoof: () -> Unit,
+    onEditRoof: () -> Unit,
     onSaveSite: () -> Unit
 ) {
     val palette = LocalLumixPalette.current
@@ -464,6 +786,9 @@ private fun SiteAnalysisPanel(
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         LumixSecondaryButton(text = "Trace Roof", onClick = onTraceRoof, modifier = Modifier.weight(1f))
+                        if (canEditRoof) {
+                            LumixSecondaryButton(text = "Edit Roof", onClick = onEditRoof, modifier = Modifier.weight(1f))
+                        }
                         if (roofPlaneCount > 0) {
                             LumixPrimaryButton(text = "Save Site", onClick = onSaveSite, modifier = Modifier.weight(1f))
                         }
@@ -561,17 +886,5 @@ private fun RoofConfirmForm(
                 modifier = Modifier.weight(1f)
             )
         }
-    }
-}
-
-/** Blocking Geocoder call moved off the main thread; returns null (never throws) on any failure — no network, bad query, or no results. */
-private suspend fun geocodeAddress(context: Context, query: String): LatLng? = withContext(Dispatchers.IO) {
-    if (query.isBlank()) return@withContext null
-    try {
-        val geocoder = Geocoder(context, Locale.getDefault())
-        @Suppress("DEPRECATION")
-        geocoder.getFromLocationName(query, 1)?.firstOrNull()?.let { LatLng(it.latitude, it.longitude) }
-    } catch (e: Exception) {
-        null
     }
 }

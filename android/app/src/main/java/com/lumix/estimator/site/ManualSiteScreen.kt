@@ -27,6 +27,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -41,6 +42,7 @@ import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixRadius
+import kotlinx.coroutines.launch
 
 private val pitchOptions: List<Double?> = listOf(null, 0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0)
 
@@ -58,6 +60,7 @@ fun ManualSiteScreen(
 ) {
     val palette = LocalLumixPalette.current
     val state by viewModel.state.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
 
     var name by remember { mutableStateOf("") }
     var address by remember { mutableStateOf("") }
@@ -223,7 +226,9 @@ fun ManualSiteScreen(
                         LumixPrimaryButton(
                             text = "Save Site",
                             onClick = {
-                                viewModel.saveSite()?.let(onSaved)
+                                coroutineScope.launch {
+                                    viewModel.saveSite()?.let(onSaved)
+                                }
                             },
                             modifier = Modifier.fillMaxWidth()
                         )

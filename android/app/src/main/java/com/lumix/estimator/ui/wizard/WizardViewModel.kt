@@ -10,6 +10,7 @@ import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteMode
 import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.RoofConstraint
+import com.lumix.estimator.domain.SolarResource
 import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.domain.Validation
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -194,9 +195,24 @@ class WizardViewModel(
     }
 
     /** A81 (Phase 18, restored): starts a fresh quote pre-loaded with a Solar Site roof's panel-fit limit, so the wizard's recommendation is capped at what the roof can physically hold. */
-    fun startWithRoofConstraint(constraint: RoofConstraint) {
+    /**
+     * "Do NOT make the map a disconnected visual feature" (2026-08-18): [parish]/[town] come from
+     * the map's reverse-geocoded selection (see `SolarSiteMapScreen`'s "Use This Location" flow),
+     * so a roof traced on the map now carries the same parish/PSH auto-fill `StepLocation` gives a
+     * manually-typed location — not just lat/lon for panel-count capping.
+     */
+    fun startWithRoofConstraint(constraint: RoofConstraint, parish: String? = null, town: String? = null) {
         reset()
-        _inputs.value = _inputs.value.copy(roofConstraint = constraint)
+        _inputs.value = _inputs.value.let { current ->
+            var updated = current.copy(roofConstraint = constraint)
+            if (!parish.isNullOrBlank()) {
+                updated = updated.copy(parish = parish, nearestTown = town.orEmpty())
+                if (!updated.peakSunHoursManuallySet) {
+                    updated = updated.copy(peakSunHours = SolarResource.estimatedPshFor(parish))
+                }
+            }
+            updated
+        }
     }
 
     /**

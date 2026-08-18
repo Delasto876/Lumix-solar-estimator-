@@ -1,25 +1,52 @@
 package com.lumix.estimator.site
 
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
+import com.lumix.estimator.data.SiteDao
+import com.lumix.estimator.data.SiteEntity
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 /**
- * In-memory store for [SolarSite]s traced or entered this session. Not yet backed by Room —
- * a follow-up can persist it the same way `QuoteRepository` stores quotes (one JSON blob per
- * row via kotlinx.serialization) without changing this class's public surface.
+ * "Save location. Reload project. Confirm location and polygon remain" (2026-08-18): now backed
+ * by Room — the whole [SolarSite] as one JSON blob per row, same pattern
+ * `QuoteRepository`/[com.lumix.estimator.data.QuoteEntity] already uses. Was purely in-memory
+ * before this round (this class's own prior doc said so, framed as a deliberate near-term gap);
+ * that gap is what would have failed the project owner's own explicit save/reload test steps.
  */
-class SiteRepository {
-    private val _sites = MutableStateFlow<List<SolarSite>>(emptyList())
-    val sites: StateFlow<List<SolarSite>> = _sites
+class SiteRepository(private val dao: SiteDao) {
 
-    fun save(site: SolarSite) {
-        _sites.update { current -> current.filterNot { it.id == site.id } + site }
+    private val json = Json { ignoreUnknownKeys = true }
+
+    val sites: Flow<List<SolarSite>> = dao.observeAll().map { entities ->
+        entities.mapNotNull { decodeOrNull(it.siteJson) }
     }
 
-    fun get(id: String): SolarSite? = _sites.value.firstOrNull { it.id == id }
-
-    fun delete(id: String) {
-        _sites.update { current -> current.filterNot { it.id == id } }
+    private fun decodeOrNull(raw: String): SolarSite? = try {
+        json.decodeFromString(SolarSite.serializer(), raw)
+    } catch (e: Exception) {
+        null
     }
+
+    private fun entityFor(site: SolarSite) = SiteEntity(
+        id = site.id,
+        name = site.name,
+        address = site.address,
+        parish = site.parish,
+        town = site.town,
+        latitude = site.latitude,
+        longitude = site.longitude,
+        timestampMillis = site.timestampMillis,
+        roofPlaneCount = site.roofPlanes.size,
+        totalCapacityKw = site.totalCapacityKw,
+        siteJson = json.encodeToString(site)
+    )
+
+    suspend fun save(site: SolarSite) {
+        dao.upsert(entityFor(site))
+    }
+
+    suspend fun get(id: String): SolarSite? = dao.getById(id)?.let { decodeOrNull(it.siteJson) }
+
+    suspend fun delete(id: String) = dao.deleteById(id)
 }

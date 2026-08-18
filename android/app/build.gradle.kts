@@ -8,18 +8,17 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-// A81 (Phase 18): the Solar Site map screen needs a Google Maps API key. Read from
-// local.properties (already git-ignored, never committed) rather than hardcoded, so each
-// developer/installer drops in their own key: add a line `MAPS_API_KEY=your_key_here` to
-// android/local.properties. Left blank, the app still builds and runs — only the map tiles
-// themselves won't load; the manual site-entry flow needs no key at all.
+// "REPLACE THE CURRENT MAP IMPLEMENTATION" (2026-08-18): the Solar Site map now runs on
+// MapLibre Native + OpenFreeMap (see the `map` package) — no API key, billing account, or
+// local.properties entry required for the base map at all. local.properties itself is kept for
+// the credential placeholders below (manufacturer APIs, AI) and the future satellite-imagery
+// provider placeholder, none of which the base map depends on.
 val localProperties = Properties().apply {
     val localPropertiesFile = rootProject.file("local.properties")
     if (localPropertiesFile.exists()) {
         localPropertiesFile.inputStream().use { load(it) }
     }
 }
-val mapsApiKey: String = localProperties.getProperty("MAPS_API_KEY") ?: ""
 
 // A85 (Phase 23/24 — "NO PAID SERVICES / NO PRODUCTION API CREDENTIALS right now... use...
 // environment-variable placeholders... Never hard-code secrets"): same local.properties pattern as
@@ -38,6 +37,10 @@ val solarmanAppId = localProp("SOLARMAN_APP_ID")
 val solarmanAppSecret = localProp("SOLARMAN_APP_SECRET")
 val solarOfThingsApiKey = localProp("SOLAR_OF_THINGS_API_KEY")
 val aiApiKey = localProp("AI_API_KEY")
+// "FUTURE SATELLITE SUPPORT" (2026-08-18): same build-now-activate-later pattern as the
+// manufacturer-API keys above — blank by default, so SatelliteProvider stays NoSatelliteProvider
+// (map view only, honestly labeled unavailable) until a real licensed-imagery key is added here.
+val satelliteProviderApiKey = localProp("SATELLITE_PROVIDER_API_KEY")
 
 android {
     namespace = "com.lumix.estimator"
@@ -51,7 +54,6 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
 
         buildConfigField("String", "DEYE_API_KEY", "\"$deyeApiKey\"")
         buildConfigField("String", "DEYE_CLIENT_ID", "\"$deyeClientId\"")
@@ -62,6 +64,7 @@ android {
         buildConfigField("String", "SOLARMAN_APP_SECRET", "\"$solarmanAppSecret\"")
         buildConfigField("String", "SOLAR_OF_THINGS_API_KEY", "\"$solarOfThingsApiKey\"")
         buildConfigField("String", "AI_API_KEY", "\"$aiApiKey\"")
+        buildConfigField("String", "SATELLITE_PROVIDER_API_KEY", "\"$satelliteProviderApiKey\"")
     }
 
     buildTypes {
@@ -150,14 +153,18 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
 
-    // A81 (Phase 18): Solar Site satellite map + roof tracing (needs a MAPS_API_KEY in
-    // local.properties to actually render tiles — see the comment near the top of this file)
-    // and device location for the "My Location" button. Versions below are believed current as
-    // of writing but couldn't be verified against Google's Maven repo in this environment
-    // (network-blocked sandbox) — bump to latest in Android Studio if Gradle reports a newer
-    // one available.
-    implementation("com.google.maps.android:maps-compose:4.4.1")
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
+    // "REPLACE THE CURRENT MAP IMPLEMENTATION" (2026-08-18): the Solar Site map now renders on
+    // MapLibre Native's Android SDK (not the JS/web "MapLibre GL JS" the request named — that
+    // library is for browsers; this is the native Kotlin binding of the same open-source engine,
+    // consuming the identical style-JSON format, so the OpenFreeMap "Liberty" style URL is used
+    // unchanged — see com.lumix.estimator.map.OpenFreeMapProvider's own doc). Published to Maven
+    // Central under org.maplibre.gl — no Google Maven repo dependency, no API key, no billing
+    // account. Version below is believed current as of writing but, like the note this replaces,
+    // could not be verified against Maven Central in this environment (network-restricted
+    // sandbox) — bump to latest in Android Studio if Gradle reports a newer one available.
+    implementation("org.maplibre.gl:android-sdk:11.8.1")
+    // Device location for the "My Location" button — the Fused Location Provider, a distinct
+    // Play Services module from Maps itself; no API key or billing account either.
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
     testImplementation("junit:junit:4.13.2")

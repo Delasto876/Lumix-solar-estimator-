@@ -191,7 +191,9 @@ fun LumixNavHost(app: LumixApp) {
                                 pitchDegrees = plane.pitchDegrees,
                                 latitude = site?.latitude ?: 0.0,
                                 longitude = site?.longitude ?: 0.0
-                            )
+                            ),
+                            parish = site?.parish,
+                            town = site?.town
                         )
                         navController.navigate(ROUTE_WIZARD)
                     },
