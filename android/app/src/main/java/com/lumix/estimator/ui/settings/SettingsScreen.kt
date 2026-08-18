@@ -447,7 +447,7 @@ fun SettingsScreen(
 
             item {
                 Text(
-                    "Lumix Solar Estimator",
+                    "Lumix Solar Pro",
                     style = MaterialTheme.typography.labelSmall,
                     color = palette.textSecondary,
                     modifier = Modifier.padding(top = 4.dp)

@@ -6012,3 +6012,105 @@ qty/count/kW figures, never price, from the inverters involved.
 No real compile — the standing sandbox limitation this entire session has run under. Verification
 was brace/paren balance checks on every touched file (all matched) and the test-file grep sweep
 described above.
+
+## A92 — rebrand (name + green sun icon), front-page day-cycle animation, AC breaker price fix
+
+Four items from one message, including two reference images: a full written spec for a
+front-page "sun movement" animation, and a green sun-burst app-icon image.
+
+### 1. AC breaker price corrected
+"price for both ac breaker is 9k each not 98k" — `PriceList.acBreaker` 98,000 → 9,000 (the
+figure `MaterialTakeoffEngine` prices both HYBRID breaker lines from — see PriceList.kt's own
+updated doc comment on the field).
+
+### 2. App renamed to "Lumix Solar Pro"
+`strings.xml`'s `app_name` and the one other hardcoded occurrence (the small credit line at the
+bottom of Settings) both updated. `applicationId`/package name (`com.lumix.estimator`) was left
+untouched — renaming that is a materially bigger, riskier change than what was asked, and nothing
+about the app's identity depends on it matching the display name.
+
+### 3. App icon: a disclosed recreation, not the literal uploaded file
+**A real environment limitation, not a shortcut**: the two images attached to this request are
+visible to me in this conversation, but their raw bytes are not accessible as files anywhere in
+this sandbox — this environment has no mechanism to save a chat-attached image to disk for a tool
+to read, resize, or embed. I confirmed this by searching the whole filesystem for anything
+matching this turn's timestamp before concluding it wasn't there, rather than assuming.
+
+Given that constraint, the green sun-burst icon was **procedurally recreated** (Python/PIL,
+radial gradients + 12 flame-shaped rays + a dark rounded-square backdrop with a soft glow) to
+match the reference image's actual visual character — glossy green sphere, pointed bevelled
+rays, near-black background — rather than left as a placeholder or silently reusing the old
+yellow-sun-and-panel icon. Rendered once at 1024x1024 and downscaled into every required Android
+asset:
+- `mipmap-{m,h,x,xx,xxx}hdpi/ic_launcher.png` + `ic_launcher_round.png` — the full composited
+  icon (sun + dark background baked in), for pre-adaptive-icon launchers and as the round-icon
+  fallback.
+- `mipmap-{m,h,x,xx,xxx}hdpi/ic_launcher_background.png` + `ic_launcher_foreground.png` — a
+  proper two-layer adaptive icon (API 26+): background is the dark glow-backed square (no sun,
+  since the OS crops this layer to whatever mask shape the launcher uses); foreground is the sun
+  art alone on a transparent layer, deliberately scaled to ~70% so it stays within the
+  platform's recommended ~66dp safe-zone circle inside the 108dp adaptive-icon canvas and isn't
+  clipped by circular/squircle masks.
+- `mipmap-anydpi-v26/ic_launcher.xml`/`ic_launcher_round.xml` repointed from the old
+  `@drawable/ic_launcher_background`/`ic_launcher_foreground` (hand-drawn vector sun+panel icon)
+  to the new `@mipmap/...` PNG pair; the old vector drawables were deleted, not left dead.
+
+### 4. Front-page sun-movement day-cycle animation
+Same file-access constraint applied to the animation spec's own reference mockups (8 different
+times-of-day over a house photo) — those aren't accessible as files either, and this app's actual
+front page (`HomeScreen.kt`'s `SolarHeroVisual`) has never used a raster house photo as its base
+in the first place (it's a Compose vector illustration; the one raster house photo in this app,
+`bg_house_energy_routes.png`, belongs to the Simulation screen, which this spec explicitly says
+NOT to touch or link to — "This is NOT the simulator page," "Do not link this animation to the
+simulator time").
+
+Implemented the actual written requirements as a genuine procedural animation, layered onto the
+existing vector house (roof/wall/door/panels kept pixel-for-pixel as A88 left them — "do not
+change the house, roof, or surroundings" honored at the geometry level, since there was no photo
+to leave unchanged):
+- A self-contained ~48-second looping clock (`SolarHeroVisual`'s own `dayPhase`, `RepeatMode
+  .Restart`, spec's own "40 to 60 seconds" range), mapping real 24h clock fractions to the
+  spec's own 8 named keyframes exactly (5:30 pre-dawn / 6:30 sunrise / 9:00 morning / 12:00
+  midday / 15:00 afternoon / 17:30 sunset / 19:00 dusk / 22:00 night) — not an approximation of
+  the times, the literal same clock values.
+- Sky gradient (top+bottom stops per keyframe, linearly interpolated between them) sweeping
+  through the spec's own described palette: dark blue pre-dawn → warm sunrise orange → bright
+  blue morning/midday → softening afternoon blue → warm sunset orange → dusk purple → night navy.
+- Sun arcs east (screen-left) → highest point at midday → west (screen-right) exactly per the
+  spec's own explicit rule, using a sine-shaped height curve (real solar-elevation-like arc, not
+  a straight line) and a color shift from warm orange near the horizon to near-white at midday;
+  invisible below the horizon (before sunrise / after sunset) rather than incorrectly always-on.
+- House windows + door warm-lit at night/dusk/pre-dawn, dark through full daylight — "5:30 AM
+  Pre-dawn ... house lights on" / "7:00 PM Dusk ... house lights on" implemented as a literal
+  lit/unlit state, not just described.
+- A soft ground shadow that shifts horizontally opposite the sun and lengthens near sunrise/
+  sunset, shortens near midday — the spec's own "Shadows shift direction and length according to
+  sun position."
+- A small fixed star field, fading in through dusk/night and out through dawn — a natural
+  finishing touch matching "dark sky with subtle ambient lighting," not explicitly requested but
+  consistent with the described night frames.
+- No moving clouds (explicit "Do not include clouds moving"); no UI/text changes during the
+  cycle (explicit "Do not include UI changes during animation"); respects
+  `rememberReduceMotion()` by freezing on a fixed midday frame instead of animating — the spec's
+  own "offer subtle or static fallback."
+- The pre-existing `activity` parameter (quote-coverage-driven panel lighting, sun glow
+  intensity, and the sun→panel energy-particle flow) is untouched in meaning and still fully
+  live — it now multiplies against the new day-cycle's own brightness/visibility instead of a
+  fixed always-on sun, so an unquoted home's daytime sun reads dimmer/hazier than a fully-quoted
+  one, same as before this round, just time-aware now too.
+
+Reused the same visual language already established in `com.lumix.estimator.ui.simulation
+.EnvironmentOverlays.kt` (`SunIndicator`'s sun-arc math, `SceneAtmosphereOverlay`'s dusk/night
+color grade) for stylistic consistency across the app, but as entirely separate, self-contained
+code with zero dependency on that package's simulation-engine state — satisfying "Do not link
+this animation to the simulator time" literally, not just in spirit.
+
+### 5. Tests / verification
+No real compile (standing sandbox limitation). Verified: brace/paren balance on every touched
+`.kt` file; confirmed `SolarHeroVisual` has exactly one call site (`HomeScreen.kt`) and its public
+signature (`activity: Float, modifier: Modifier`) is unchanged, so no other file needed touching;
+confirmed the new adaptive-icon XML parses as valid XML and the mipmap PNG file set matches
+Android's standard per-density adaptive-icon/legacy-icon size table; grepped for any other
+hardcoded "98,000"/"Lumix Solar Estimator" references (none found beyond the two already fixed).
+Visually verified the generated icon by rendering it to PNG and inspecting it directly, at both
+full resolution and at actual xxxhdpi launcher size (48dp), before wiring it in.

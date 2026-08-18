@@ -104,8 +104,15 @@ data class PriceList(
     val dcCombiner3x3: Double = 28000.0,
     val pvDinSingleString: Double = 5500.0,
 
-    /** AC breaker (inverter output / JPS input pair) — replaces the old flat [pvDisconnect32A]/[dcBatteryBreaker100A] pattern; [MaterialTakeoffEngine] always uses 2 of these (one per side), per the spreadsheet's own AC_BREAKER row and the master prompt's "1 for inverter output and one for jps input." */
-    val acBreaker: Double = 98000.0,
+    /**
+     * AC breaker (inverter output / JPS input pair) — replaces the old flat [pvDisconnect32A]/
+     * [dcBatteryBreaker100A] pattern; [MaterialTakeoffEngine] always uses 2 of these (one per
+     * side), per the spreadsheet's own AC_BREAKER row and the master prompt's "1 for inverter
+     * output and one for jps input." 2026-08-18: the project owner corrected the per-unit price
+     * — "price for both ac breaker is 9k each not 98k" — J$98,000 was the spreadsheet's raw
+     * figure, replaced here with the real J$9,000/breaker rate.
+     */
+    val acBreaker: Double = 9000.0,
 
     // A89/Ph21: changeover/transfer switch, now 4 real amperage tiers (spreadsheet
     // CHANGEOVER_40/50/100/120) selected by [MaterialTakeoffEngine] from the system's real AC
