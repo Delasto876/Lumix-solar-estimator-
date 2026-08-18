@@ -50,12 +50,16 @@ object Catalog {
         return "${s.brand} ${s.model}$statusSuffix"
     }
 
+    // A89/Ph21: model strings below updated to match this round's EquipmentSpecs.kt renames
+    // (spreadsheet reconciliation, "USE THE LATEST ONE WITH THE LATEST PRICE") — spec()'s
+    // `.first{...}` throws if a model string here doesn't exist in EquipmentSpecs.inverters, so
+    // these MUST stay in lockstep with that file's own model strings.
     val hybridInverters: List<InverterOption> = listOf(
-        InverterOption("deye6k", displayName(spec("Deye", "SUN-6K-SG01LP1-US")), 6.0, SystemMode.HYBRID) { it.inverterDeye6k },
+        InverterOption("deye6k", displayName(spec("Deye", "SUN-6K-SG02LP2-US")), 6.0, SystemMode.HYBRID) { it.inverterDeye6k },
         InverterOption("deye8k", displayName(spec("Deye", "SUN-8K-SG01LP1-US")), 8.0, SystemMode.HYBRID) { it.inverterDeye8k },
         InverterOption("growatt10k", displayName(spec("Growatt", "SPH 10000TL-HU-US")), 10.0, SystemMode.HYBRID) { it.inverterGrowatt10k },
-        InverterOption("luxLxpLb12k", displayName(spec("LuxPower", "LXP-LB-US 12K")), 12.0, SystemMode.HYBRID) { it.inverterLuxpowerLxpLb12k },
-        InverterOption("luxGenLb13k", displayName(spec("LuxPower", "GEN-LB-US 13K")), 13.0, SystemMode.HYBRID) { it.inverterLuxpowerGenLb13k }
+        InverterOption("luxLxpLb12k", displayName(spec("LuxPower", "SNA-US 12K")), 12.0, SystemMode.HYBRID) { it.inverterLuxpowerLxpLb12k },
+        InverterOption("luxGenLb13k", displayName(spec("LuxPower", "LXP-LB-US 12K/13K")), 13.0, SystemMode.HYBRID) { it.inverterLuxpowerGenLb13k }
     )
 
     // No verified off-grid/grid-tie replacements were supplied in the 2026-08-13 equipment-database
@@ -76,9 +80,9 @@ object Catalog {
         InverterOption("luxGenLb6k", displayName(spec("LuxPower", "GEN-LB-US 6K")), 6.0, SystemMode.HYBRID) { it.inverterLuxpowerGenLb6k },
         InverterOption("luxGenLb8k", displayName(spec("LuxPower", "GEN-LB-US 8K")), 8.0, SystemMode.HYBRID) { it.inverterLuxpowerGenLb8k },
         InverterOption("luxGenLb10k", displayName(spec("LuxPower", "GEN-LB-US 10K")), 10.0, SystemMode.HYBRID) { it.inverterLuxpowerGenLb10k },
-        InverterOption("srneHesp4to6_5k", displayName(spec("SRNE", "HESP4860U140-HUS")), 6.0, SystemMode.HYBRID) { it.inverterSrneHesp4to6_5k },
-        InverterOption("srneHesp8k", displayName(spec("SRNE", "HESP 8K-US")), 8.0, SystemMode.HYBRID) { it.inverterSrneHesp8k },
-        InverterOption("srneHesp10k", displayName(spec("SRNE", "HESP 10K-US")), 10.0, SystemMode.HYBRID) { it.inverterSrneHesp10k },
+        InverterOption("srneHesp4to6_5k", displayName(spec("SRNE", "ASF4860U80-H")), 6.0, SystemMode.HYBRID) { it.inverterSrneHesp4to6_5k },
+        InverterOption("srneHesp8k", displayName(spec("SRNE", "ASF4880S180-H")), 8.0, SystemMode.HYBRID) { it.inverterSrneHesp8k },
+        InverterOption("srneHesp10k", displayName(spec("SRNE", "HES48100U200-H")), 10.0, SystemMode.HYBRID) { it.inverterSrneHesp10k },
         InverterOption("srneHesp12k", displayName(spec("SRNE", "HESP 12K-US")), 12.0, SystemMode.HYBRID) { it.inverterSrneHesp12k },
         InverterOption("growattSph8k", displayName(spec("Growatt", "SPH 8000TL-HU-US")), 8.0, SystemMode.HYBRID) { it.inverterGrowattSph8k }
     ) + offgridInverters + gridtieInverters

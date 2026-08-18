@@ -61,7 +61,11 @@ fun Step7Pricing(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> QuoteInputs) -
             NumberField(
                 label = "Delivery / Transport charge (J$)",
                 value = inputs.deliveryCharge,
-                onValueChange = { v -> onUpdate { it.copy(deliveryCharge = v) } },
+                // A89/Ph21: an explicit edit here now wins over SystemCalculator's own
+                // DeliveryCalculator-computed figure (distance-proportional off the Junction ->
+                // Santa Cruz baseline) — same "manually set wins" pattern peakSunHoursManuallySet
+                // already uses, so this pre-existing field keeps working exactly as before.
+                onValueChange = { v -> onUpdate { it.copy(deliveryCharge = v, deliveryChargeManuallySet = true) } },
                 modifier = Modifier.padding(top = 12.dp)
             )
         }

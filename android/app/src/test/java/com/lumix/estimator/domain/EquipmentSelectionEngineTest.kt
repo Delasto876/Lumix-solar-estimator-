@@ -294,9 +294,9 @@ class EquipmentSelectionEngineTest {
     // function StepSystemReview.kt now calls for every mode, including MANUAL.
 
     @Test
-    fun `scenario 10 - 6 x 615W on Deye SUN-6K-SG01LP1-US is PV-compatible, not exceeded`() {
+    fun `scenario 10 - 6 x 615W on Deye SUN-6K-SG02LP2-US is PV-compatible, not exceeded`() {
         val result = EquipmentSelectionEngine.checkPanelInverterCompatibility(
-            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US"
+            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US"
         )
         assertTrue("3.69 kW array should be well under Deye 6K's real 7.8 kW max PV input", result.powerOk)
         assertTrue("expected the full configuration to be valid: ${result.notes}", result.valid)
@@ -309,9 +309,9 @@ class EquipmentSelectionEngineTest {
     }
 
     @Test
-    fun `scenario 11 - 14 x 615W on Deye SUN-6K-SG01LP1-US exceeds real max PV input power`() {
+    fun `scenario 11 - 14 x 615W on Deye SUN-6K-SG02LP2-US exceeds real max PV input power`() {
         val result = EquipmentSelectionEngine.checkPanelInverterCompatibility(
-            panelWatts = 615, panelCount = 14, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US"
+            panelWatts = 615, panelCount = 14, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US"
         )
         assertEquals(8.61, result.arrayKw, 0.01)
         assertFalse("8.61 kW array should exceed Deye 6K's real 7.8 kW max PV input", result.powerOk)
@@ -345,11 +345,11 @@ class EquipmentSelectionEngineTest {
         // Direct EquipmentSelectionEngine-level proof of the A71 fix (PvElectricalModelTest has the
         // simulation-display-side version of the same scenario): under the OLD flat 90V floor,
         // 6 x 615W (Vmp 45.76V) split 3+3 across Deye 6K's 2 trackers (3 x 45.76 = 137.28V, clears
-        // 90V). Deye SUN-6K-SG01LP1-US's REAL MPPT floor (EquipmentSpecs) is 150V — 137.28V would
+        // 90V). Deye SUN-6K-SG02LP2-US's REAL MPPT floor (EquipmentSpecs) is 150V — 137.28V would
         // actually undervolt it, so the real per-model floor now correctly consolidates the whole
         // array onto a single tracker instead.
         val result = EquipmentSelectionEngine.checkPanelInverterCompatibility(
-            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US"
+            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US"
         )
         assertTrue("expected this configuration to still be electrically valid: ${result.notes}", result.valid)
         assertEquals(listOf(6), result.stringCounts)
@@ -432,10 +432,10 @@ class EquipmentSelectionEngineTest {
 
     @Test
     fun `real SRNE SR-EOS10B on a real Deye SUN-6K is voltage-compatible`() {
-        // SRNE SR-EOS10B: 44.8-58.4V. Deye SUN-6K-SG01LP1-US's real accepted battery-port range:
+        // SRNE SR-EOS10B: 44.8-58.4V. Deye SUN-6K-SG02LP2-US's real accepted battery-port range:
         // 40-60V (EquipmentSpecs). The 44.8-58.4V window sits fully inside it.
         val result = EquipmentSelectionEngine.checkBatteryVoltageCompatibility(
-            batteryName = "10 kWh LiFePO4 (SRNE SR-EOS10B)", inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US"
+            batteryName = "10 kWh LiFePO4 (SRNE SR-EOS10B)", inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US"
         )
         assertTrue("expected the real SRNE/Deye combination to be voltage-compatible", result.ok)
         assertEquals(44.8, result.batteryMinV!!, 0.01)

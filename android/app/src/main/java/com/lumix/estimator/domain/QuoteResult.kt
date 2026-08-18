@@ -2,13 +2,25 @@ package com.lumix.estimator.domain
 
 import kotlinx.serialization.Serializable
 
+/**
+ * A89/Ph21 (master prompt §"NEVER INVENT A PRICE... A BLANK PRICE MUST ALWAYS REMAIN BLANK UNTIL
+ * THE INSTALLER ENTERS IT"): [unitPrice] is nullable — null means the price list genuinely has no
+ * price for this item yet (only [PriceList.deliveryTollJmd] can produce this today), NOT that the
+ * item is free. [subtotal] deliberately does NOT treat null as 0 silently; UI must check
+ * [hasPrice] and render "Price not entered" rather than computing blank x qty = 0 — see
+ * [QuoteResult.missingPriceItems]/[QuoteResult.canFinalize], which block finalization on exactly
+ * this condition, and [SystemCalculator]'s own collection of these lines into that list.
+ */
 @Serializable
 data class MaterialLine(
     val name: String,
     val qty: Double,
-    val unitPrice: Double
+    val unitPrice: Double?,
+    /** The spreadsheet's own machine-readable Calculation Key (e.g. "RAIL_16FT") when this line maps to one — the key [QuoteInputs.materialOverrides] is keyed by. Null for lines with no spreadsheet counterpart (panels/inverters/batteries, which are keyed by their own catalog identity elsewhere). */
+    val calcKey: String? = null
 ) {
-    val subtotal: Double get() = qty * unitPrice
+    val hasPrice: Boolean get() = unitPrice != null
+    val subtotal: Double get() = qty * (unitPrice ?: 0.0)
 }
 
 @Serializable
@@ -195,7 +207,19 @@ data class QuoteResult(
      * quotes saved before this field existed.
      */
     val estimatedTypicalDailyPvKwh: Double? = null,
-    val estimatedConservativeDailyPvKwh: Double? = null
+    val estimatedConservativeDailyPvKwh: Double? = null,
+
+    /**
+     * A89/Ph21 (master prompt, repeated twice — "NEVER INVENT A PRICE. A BLANK PRICE MUST ALWAYS
+     * REMAIN BLANK UNTIL THE INSTALLER ENTERS IT... ESPECIALLY FOR INVERTERS"): the display names
+     * of every [MaterialLine] in [materials] whose [MaterialLine.unitPrice] is null — today this
+     * can only be the toll charge, when [QuoteInputs.deliveryIsTollRoute] is true and
+     * [PriceList.deliveryTollJmd] hasn't been entered (no currently-selectable inverter/panel/
+     * battery has a blank price). Empty for every quote where every priced line has a real figure.
+     */
+    val missingPriceItems: List<String> = emptyList(),
+    /** True only when [missingPriceItems] is empty — the UI's one gate for "can this quote be finalized/exported as final." */
+    val canFinalize: Boolean = true
 ) {
     val pvKw: Double get() = panelCount * panelWatts / 1000.0
     /** A81 (Phase 18, restored): see [energyOptimalPanelCount]'s own doc. */

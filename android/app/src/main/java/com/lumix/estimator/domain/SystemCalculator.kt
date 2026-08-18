@@ -11,6 +11,8 @@ import com.lumix.estimator.domain.simulation.defaultDailyEnergyKwh
 import com.lumix.estimator.domain.simulation.defaultEffectiveDailyHours
 import com.lumix.estimator.domain.simulation.WeatherEngine
 import com.lumix.estimator.domain.simulation.WeatherScenario
+import com.lumix.estimator.domain.pricing.DeliveryCalculator
+import com.lumix.estimator.domain.pricing.MaterialTakeoffEngine
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -723,116 +725,46 @@ object SystemCalculator {
         val panelUnitPrice = prices.panelPrice(panelW)
         val inverterCost = inverter.price(prices)
 
-        val batteryCostForWireRule = when {
-            input.quoteMode == QuoteMode.GUIDED || input.quoteMode == QuoteMode.LOAD -> {
-                if (chosenBattery != null && batteryModuleCount > 0) {
-                    when (effectiveSystemMode) {
-                        SystemMode.HYBRID -> when (chosenBattery.kwh) {
-                            5.0 -> prices.batteryLFP5k * batteryModuleCount
-                            10.0 -> prices.batteryLFP10k * batteryModuleCount
-                            15.0 -> prices.batteryLFP15k * batteryModuleCount
-                            else -> 0.0
-                        }
-                        SystemMode.OFFGRID -> prices.batteryAGM12V * batteryModuleCount
-                        SystemMode.GRIDTIE -> 0.0
-                    }
-                } else 0.0
-            }
-            else -> when (effectiveSystemMode) {
-                SystemMode.HYBRID -> input.manualBatt5k * prices.batteryLFP5k +
-                    input.manualBatt10k * prices.batteryLFP10k +
-                    input.manualBatt15k * prices.batteryLFP15k +
-                    input.manualBatt16k * prices.batteryLFP16k +
-                    input.manualBatt20k * prices.batteryLFP20k +
-                    (if (input.manualBattCustomKwh > 0 && input.manualBattCustomCount > 0) {
-                        input.manualBattCustomKwh * input.manualBattCustomCount * prices.batteryLFPCustomPerKwh
-                    } else 0.0)
-                SystemMode.OFFGRID -> input.manualAgmCount * prices.batteryAGM12V
-                SystemMode.GRIDTIE -> 0.0
-            }
-        }
-
-        val panelCost = panelCount * panelUnitPrice
-        val baseCostForWireRule = panelCost + inverterCost + batteryCostForWireRule
-        val bigSystem = baseCostForWireRule > 750000
-
-        // A51: real per-wattage rail layout instead of a flat "4 per row" assumption — a 700/720W
-        // module (1303mm/51.3in wide) only fits 3 to a 16ft rail; a 595-620W module (1134mm/44.6in)
-        // still fits 4, matching RailLayoutCalculator's own worked expectations.
+        // A89/Ph21 (master prompt — always-2-rails-per-set, confirmed with the project owner via
+        // AskUserQuestion 2026-08-18: "Force always-2-rails per your literal spec"): replaces the
+        // old roof-type-dependent 2-or-3-rail count. Duplicated here (not just inside
+        // MaterialTakeoffEngine, which independently computes and prices the same figures) purely
+        // to keep QuoteResult's pre-existing display fields (rows/railsPerRow/totalRails/...)
+        // populated — both read the identical RailLayoutCalculator call, so they can't drift.
         val panelWidthMm = EquipmentSpecs.panelSpecFor(panelW)?.dimensions?.widthMm ?: 1134.0
-        val panelsPerRow = RailLayoutCalculator.layoutFor(panelWidthMm).maxPracticalModules.coerceAtLeast(1)
-        val rows = if (panelCount > 0) ceil(panelCount / panelsPerRow.toDouble()).toInt() else 0
-        val railsPerRow = when (input.roofType) {
-            RoofType.SLAB -> 3
-            RoofType.ZINC -> if (input.zincCenterRail) 3 else 2
-            RoofType.SHINGLE -> 3
-        }
-        val totalRails = railsPerRow * rows
-        val midClampsPerRow = if (railsPerRow == 3) 9 else 6
-        val endClampsPerRow = 4
-        val totalMidClamps = midClampsPerRow * rows
-        val totalEndClamps = endClampsPerRow * rows
+        val panelsPerSet = RailLayoutCalculator.layoutFor(panelWidthMm).maxPracticalModules.coerceAtLeast(1)
+        val rows = if (panelCount > 0) ceil(panelCount / panelsPerSet.toDouble()).toInt() else 0
+        val railsPerRow = 2
+        val totalRails = rows * railsPerRow
+        val fullSets = if (panelCount > 0) panelCount / panelsPerSet else 0
+        val setsRemainder = if (panelCount > 0) panelCount % panelsPerSet else 0
+        fun midClampsForSet(panelsInSet: Int) = (2 * (panelsInSet - 1)).coerceAtLeast(0)
+        val totalMidClamps = fullSets * midClampsForSet(panelsPerSet) +
+            (if (setsRemainder > 0) midClampsForSet(setsRemainder) else 0)
+        val totalEndClamps = rows * 4
+        val totalBackLegs = if (input.roofType == RoofType.SLAB) rows * 4 else 0
+        val totalFrontLegs = if (input.roofType == RoofType.SLAB) rows * 4 else 0
+        val totalBolts = if (input.roofType == RoofType.SLAB) rows * 8 * 2 else 0
+        val totalLFoot = if (input.roofType == RoofType.ZINC) totalRails * 4 else 0
 
-        var totalBackLegs = 0
-        var totalFrontLegs = 0
-        var totalBolts = 0
-        var totalLFoot = 0
-
-        if (input.roofType == RoofType.SLAB) {
-            val backLegsPerRow = 6
-            val frontLegsPerRow = 3
-            totalBackLegs = backLegsPerRow * rows
-            totalFrontLegs = frontLegsPerRow * rows
-            totalBolts = (backLegsPerRow + frontLegsPerRow) * rows * 2
-        }
-        if (input.roofType == RoofType.ZINC) {
-            val lFeetPerRail = 4
-            totalLFoot = totalRails * lFeetPerRail
-        }
-
+        // No spreadsheet row for MC4 connectors (out of this round's scope) — a real necessary
+        // part, unchanged from its pre-existing formula.
         val mc4CountPairs = if (effectiveSystemMode == SystemMode.OFFGRID) 4 else 6
-        val weebCount = if (panelCount > 0) max(1, ceil(panelCount / 4.0).toInt()) else 0
 
-        val pvWireFt: Int
-        val wire10mmFt: Int
-        val wire6mmFt: Int
-        val battCableFt: Int
-        val battLugCount: Int
-        val drawBoxCount: Int
-        val pvcHalfBundleCount: Int
-        val pvcOneBundleCount: Int
-        val dcBattBreakerCount: Int
-        val pvDisconnectCount: Int
-        val dcSurgeCount = 1
-        val acSurgeCount = 1
-        val db8WayCount = 1
-        val din5Count = 1
-        val din8Count = 1
-        val trunkingCount = 1
-        val earthRodCount = 1
-
-        if (effectiveSystemMode == SystemMode.OFFGRID) {
-            pvWireFt = 80
-            battCableFt = 18
-            wire6mmFt = 50
-            wire10mmFt = 0
-            drawBoxCount = 4
-            pvcHalfBundleCount = 1
-            pvcOneBundleCount = 0
-            battLugCount = 6
-            dcBattBreakerCount = if (batteryModuleCount > 0) 1 else 0
-            pvDisconnectCount = 1
-        } else {
-            pvWireFt = if (bigSystem) 120 else 80
-            wire10mmFt = if (bigSystem) 150 else 60
-            wire6mmFt = if (bigSystem) 0 else 80
-            drawBoxCount = 6
-            pvcHalfBundleCount = 0
-            pvcOneBundleCount = 1
-            battCableFt = if (effectiveSystemMode == SystemMode.HYBRID && batteryModuleCount > 0) 10 else 0
-            battLugCount = if (effectiveSystemMode == SystemMode.HYBRID && batteryModuleCount > 0) 8 else 0
-            dcBattBreakerCount = if (effectiveSystemMode == SystemMode.HYBRID && batteryModuleCount > 0) 1 else 0
-            pvDisconnectCount = if (panelCount > 0) 1 else 0
+        // Off-grid keeps its own pre-existing AC-wiring/battery-cable convention — no spreadsheet/
+        // master-prompt rule addresses off-grid AC wiring specifically; see
+        // MaterialTakeoffEngine's own doc for why the new 80ft red/black/ground bundle below is
+        // HYBRID/GRIDTIE-only.
+        val wire6mmFt = if (effectiveSystemMode == SystemMode.OFFGRID) 50 else 0
+        val battCableFt = when {
+            effectiveSystemMode == SystemMode.OFFGRID -> 18
+            effectiveSystemMode == SystemMode.HYBRID && batteryModuleCount > 0 -> 10
+            else -> 0
+        }
+        val battLugCount = when {
+            effectiveSystemMode == SystemMode.OFFGRID -> 6
+            effectiveSystemMode == SystemMode.HYBRID && batteryModuleCount > 0 -> 8
+            else -> 0
         }
 
         val materials = mutableListOf<MaterialLine>()
@@ -875,57 +807,80 @@ object SystemCalculator {
             materials += MaterialLine("80A MPPT charge controller", chargeControllerCount.toDouble(), prices.chargeController80A)
         }
 
-        if (totalRails > 0) materials += MaterialLine("Mounting rail 16ft", totalRails.toDouble(), prices.mountingRail16ft)
-        if (totalMidClamps > 0) materials += MaterialLine("Mid clamp", totalMidClamps.toDouble(), prices.midClamp)
-        if (totalEndClamps > 0) materials += MaterialLine("End clamp", totalEndClamps.toDouble(), prices.endClamp)
-        if (input.roofType == RoofType.SLAB) {
-            if (totalBackLegs > 0) materials += MaterialLine("Adjustable back leg", totalBackLegs.toDouble(), prices.backLeg)
-            if (totalFrontLegs > 0) materials += MaterialLine("Front leg", totalFrontLegs.toDouble(), prices.frontLeg)
-            if (totalBolts > 0) materials += MaterialLine("Expansion bolt M6/M8", totalBolts.toDouble(), prices.m6m8Bolt)
-        }
-        if (input.roofType == RoofType.ZINC && totalLFoot > 0) {
-            materials += MaterialLine("L-FOOT bracket", totalLFoot.toDouble(), prices.lFoot)
-        }
-
         if (mc4CountPairs > 0) materials += MaterialLine("MC4 connector pair", mc4CountPairs.toDouble(), prices.mc4Pair)
-        if (weebCount > 0) materials += MaterialLine("WEEB clip", weebCount.toDouble(), prices.weebClip)
-
-        if (pvWireFt > 0) materials += MaterialLine("AWG10 PV wire (ft)", pvWireFt.toDouble(), prices.pvWirePerFt)
-        if (wire10mmFt > 0) materials += MaterialLine("10mm single wire (ft)", wire10mmFt.toDouble(), prices.ac10mmPerFt)
-        if (wire6mmFt > 0) materials += MaterialLine("6mm single wire (ft)", wire6mmFt.toDouble(), prices.ac6mmPerFt)
+        if (wire6mmFt > 0) materials += MaterialLine("6mm single wire, off-grid (ft)", wire6mmFt.toDouble(), prices.ac6mmPerFt)
         if (battCableFt > 0) materials += MaterialLine("#2/0 battery cable (ft)", battCableFt.toDouble(), prices.battCablePerFt)
         if (battLugCount > 0) materials += MaterialLine("Battery lugs", battLugCount.toDouble(), prices.battLug)
 
-        if (dcSurgeCount > 0) materials += MaterialLine("DC 1000V surge arrestor", dcSurgeCount.toDouble(), prices.dcSurge)
-        if (acSurgeCount > 0) materials += MaterialLine("AC 1000V surge arrestor", acSurgeCount.toDouble(), prices.acSurge)
-        if (dcBattBreakerCount > 0) materials += MaterialLine("100A DC battery breaker", dcBattBreakerCount.toDouble(), prices.dcBatteryBreaker100A)
-        if (pvDisconnectCount > 0) materials += MaterialLine("PV disconnect 32A", pvDisconnectCount.toDouble(), prices.pvDisconnect32A)
-
-        materials += MaterialLine("5-way DIN-rail box", din5Count.toDouble(), prices.dinRailBox5Way)
-        materials += MaterialLine("8-way DIN-rail box", din8Count.toDouble(), prices.dinRailBox8Way)
-        materials += MaterialLine("8-way distribution panel", db8WayCount.toDouble(), prices.db8Way)
-        materials += MaterialLine("Trunking", trunkingCount.toDouble(), prices.trunking)
-        materials += MaterialLine("Earth rod with clamp", earthRodCount.toDouble(), prices.earthRod)
-
-        var addTransferSwitch = false
-        var addChangeoverSwitch = false
-        if (input.quoteMode == QuoteMode.MANUAL && effectiveSystemMode == SystemMode.OFFGRID) {
-            if (input.manualOffgridUseAutoTransfer) addTransferSwitch = true else addChangeoverSwitch = true
+        // A89/Ph21 (master prompt — "ask if automatic switch or manual or no transfer switch"):
+        // resolved to one TransferSwitchMode for this quote. MANUAL+OFFGRID keeps its own
+        // pre-existing toggle (see TransferSwitchMode's own doc for why); every other combination
+        // reads the new universal field, which defaults to AUTOMATIC — the same behavior every
+        // other quote already had before this field existed.
+        val resolvedTransferSwitchMode = if (input.quoteMode == QuoteMode.MANUAL && effectiveSystemMode == SystemMode.OFFGRID) {
+            if (input.manualOffgridUseAutoTransfer) TransferSwitchMode.AUTOMATIC else TransferSwitchMode.MANUAL
         } else {
-            addTransferSwitch = true
+            input.transferSwitchMode
         }
-        if (addTransferSwitch) materials += MaterialLine("Transfer switch (63-125A auto/manual)", 1.0, prices.transferSwitch)
-        if (addChangeoverSwitch) materials += MaterialLine("Off-grid changeover switch", 1.0, prices.changeOverSwitchOffgrid)
 
-        if (drawBoxCount > 0) materials += MaterialLine("Draw box", drawBoxCount.toDouble(), prices.drawBox)
-        if (pvcHalfBundleCount > 0) materials += MaterialLine("PVC conduit 1/2\" bundle", pvcHalfBundleCount.toDouble(), prices.pvcConduitHalfBundle)
-        if (pvcOneBundleCount > 0) materials += MaterialLine("PVC conduit 1\" bundle", pvcOneBundleCount.toDouble(), prices.pvcConduitOneBundle)
+        // A89/Ph21: mounting hardware, PV wire bundle, DC string protection, AC wire bundle + AC
+        // breaker pair, changeover switch, trunking, distribution panel, battery DC connection,
+        // surge arresters, enclosures, conduit, grounding, misc, voltage regulator — the master
+        // prompt's own material-takeoff formulas, all priced from the real spreadsheet-sourced
+        // PriceList fields (see MaterialTakeoffEngine's own doc; never invents a price).
+        materials += MaterialTakeoffEngine.compute(
+            MaterialTakeoffEngine.TakeoffInput(
+                panelW = panelW,
+                panelCount = panelCount,
+                effectiveSystemMode = effectiveSystemMode,
+                roofType = input.roofType,
+                inverter = inverter,
+                batteryModuleCount = batteryModuleCount,
+                transferSwitchMode = resolvedTransferSwitchMode,
+                useVoltageRegulator = input.useVoltageRegulator,
+                use8WayDistributionPanel = input.use8WayDistributionPanel
+            ),
+            prices
+        )
 
-        val materialsTotal = materials.sumOf { it.subtotal }
+        // A89/Ph21 (master prompt §"QUANTITY AND PRICE OVERRIDES" — "quantity and price overrides
+        // at the quote level; catalog price stays unchanged"): applied last, on top of the
+        // engine's own calculated lines, keyed by MaterialLine.calcKey — never mutates prices, so
+        // every OTHER quote's catalog defaults are unaffected.
+        val finalMaterials: List<MaterialLine> = if (input.materialOverrides.isEmpty()) materials else materials.map { line ->
+            val override = line.calcKey?.let { input.materialOverrides[it] } ?: return@map line
+            line.copy(qty = override.qtyOverride ?: line.qty, unitPrice = override.priceOverride ?: line.unitPrice)
+        }
+
+        // A89/Ph21 (master prompt, repeated twice — "NEVER INVENT A PRICE... A BLANK PRICE MUST
+        // ALWAYS REMAIN BLANK UNTIL THE INSTALLER ENTERS IT"): every MaterialLine with no price,
+        // plus delivery's own toll line below — see QuoteResult.missingPriceItems/canFinalize.
+        val missingPriceItems = mutableListOf<String>()
+        finalMaterials.filterNot { it.hasPrice }.forEach { missingPriceItems += it.name }
+
+        val materialsTotal = finalMaterials.sumOf { it.subtotal }
         // A79 (spec Phase 16, §40 "Labour rates"): reads the now-configurable rate instead of a
         // hard-coded 0.15 literal — see PriceList.serviceRatePercent's own doc.
         val serviceCharge = materialsTotal * (prices.serviceRatePercent / 100.0)
-        val preDiscountTotal = materialsTotal + serviceCharge + input.deliveryCharge
+
+        // A89/Ph21 (master prompt §"DELIVERY"): proportional off the Junction -> Santa Cruz
+        // 28km/JMD 18,000 baseline, toll added separately only on a route that actually crosses
+        // one — see DeliveryCalculator's own doc. input.deliveryChargeManuallySet preserves
+        // Step7Pricing's pre-existing manual-entry text field: an installer who has directly typed
+        // a delivery figure there keeps exactly that figure (same "manually set wins" pattern
+        // QuoteInputs.peakSunHoursManuallySet already uses) instead of it being silently
+        // recalculated out from under them.
+        val deliveryResult = DeliveryCalculator.calculate(input.deliveryRouteDistanceKm, input.deliveryIsTollRoute, prices)
+        val resolvedDeliveryCharge = when {
+            input.deliveryChargeManuallySet -> input.deliveryCharge
+            deliveryResult.tollMissing -> deliveryResult.baseCharge
+            else -> deliveryResult.totalCharge ?: deliveryResult.baseCharge
+        }
+        if (!input.deliveryChargeManuallySet && deliveryResult.tollMissing) {
+            missingPriceItems += "Toll charge (route crosses a toll — enter the current official rate in Settings)"
+        }
+
+        val preDiscountTotal = materialsTotal + serviceCharge + resolvedDeliveryCharge
 
         var discountAmount = when (input.discountType) {
             DiscountType.PERCENT -> preDiscountTotal * (input.discountValue / 100.0)
@@ -971,14 +926,16 @@ object SystemCalculator {
             totalFrontLegs = totalFrontLegs,
             totalBolts = totalBolts,
             totalLFoot = totalLFoot,
-            materials = materials,
+            materials = finalMaterials,
             materialsTotal = materialsTotal,
             serviceCharge = serviceCharge,
-            deliveryCharge = input.deliveryCharge,
+            deliveryCharge = resolvedDeliveryCharge,
             subtotalBeforeDiscount = preDiscountTotal,
             discountAmount = discountAmount,
             taxAmount = taxAmount,
             grandTotal = grandTotal,
+            missingPriceItems = missingPriceItems,
+            canFinalize = missingPriceItems.isEmpty(),
             backupCapacityWarningKw = backupCapacityWarningKw,
             batteryMaxChargeKw = batteryMaxChargeKw,
             batteryMaxDischargeKw = batteryMaxDischargeKw,

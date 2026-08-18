@@ -10,19 +10,24 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class PriceList(
-    val inverterDeye6k: Double = 260000.0,
+    // A89/Ph21: Deye 6k, LuxPower 12k/13k and SRNE 6k/8k/10k below now carry the price-list
+    // spreadsheet's real JMD figures (Solar_Installer_Price_List_Template_2.xlsx) as their
+    // defaults — see the matching EquipmentSpecs.kt model-string reconciliation ("USE THE LATEST
+    // ONE WITH THE LATEST PRICE"). Every other field in this file is still the pre-existing
+    // placeholder pattern from A51's own doc above until real prices for those items arrive.
+    val inverterDeye6k: Double = 230000.0,
     val inverterDeye8k: Double = 340000.0,
     val inverterGrowatt10k: Double = 420000.0,
-    val inverterLuxpowerLxpLb12k: Double = 500000.0,
-    val inverterLuxpowerGenLb13k: Double = 560000.0,
+    val inverterLuxpowerLxpLb12k: Double = 300000.0,
+    val inverterLuxpowerGenLb13k: Double = 340000.0,
 
     // MANUAL-only (partially verified / needs verification) inverters — same placeholder pattern.
     val inverterLuxpowerGenLb6k: Double = 260000.0,
     val inverterLuxpowerGenLb8k: Double = 340000.0,
     val inverterLuxpowerGenLb10k: Double = 420000.0,
-    val inverterSrneHesp4to6_5k: Double = 280000.0,
-    val inverterSrneHesp8k: Double = 340000.0,
-    val inverterSrneHesp10k: Double = 420000.0,
+    val inverterSrneHesp4to6_5k: Double = 190000.0,
+    val inverterSrneHesp8k: Double = 275000.0,
+    val inverterSrneHesp10k: Double = 300000.0,
     val inverterSrneHesp12k: Double = 500000.0,
     val inverterGrowattSph8k: Double = 340000.0,
 
@@ -33,56 +38,124 @@ data class PriceList(
     val inverterOffgrid3_2kPowmr: Double = 100000.0,
     val chargeController80A: Double = 35000.0,
 
-    val batteryLFP5k: Double = 215000.0,
-    val batteryLFP10k: Double = 420000.0,
-    val batteryLFP15k: Double = 520000.0,
+    // A89/Ph21: 5/10/15/16 kWh prices now match the price-list spreadsheet's BAT-5/10/15/16 rows
+    // (JMD 155,000/290,000/310,000/325,000). No spreadsheet row exists for 20 kWh — batteryLFP20k
+    // below stays the pre-existing placeholder, per this round's scope decision not to touch
+    // fields the new spreadsheet simply doesn't mention.
+    val batteryLFP5k: Double = 155000.0,
+    val batteryLFP10k: Double = 290000.0,
+    val batteryLFP15k: Double = 310000.0,
     // A54: MANUAL mode's battery bank step previously only offered 5/10/15 kWh — added per
     // installer request ("make it 5, 10, 15, 16, 20 and a custom field"). 16k/20k are additional
     // MANUAL-only nominal-capacity classes (same "class label, not a matched real product" costing
     // pattern the existing 5/10/15 fields already use — see Catalog.kt's own doc on this).
-    val batteryLFP16k: Double = 555000.0,
+    val batteryLFP16k: Double = 325000.0,
     val batteryLFP20k: Double = 680000.0,
     /** Placeholder $/kWh rate for MANUAL mode's custom battery-capacity field — installer enters any kWh figure and a count; cost = kWh x count x this rate. */
     val batteryLFPCustomPerKwh: Double = 34000.0,
 
     val batteryAGM12V: Double = 45000.0,
 
-    val panel595W: Double = 20500.0,
-    val panel615W: Double = 21000.0,
-    val panel620W: Double = 21200.0,
+    // A89/Ph21: panel prices now match the price-list spreadsheet's Panels sheet exactly
+    // (P595/P615/P620/P700/P720 rows).
+    val panel595W: Double = 18500.0,
+    val panel615W: Double = 19000.0,
+    val panel620W: Double = 21000.0,
     val panel700W: Double = 24000.0,
-    val panel720W: Double = 24500.0,
+    val panel720W: Double = 26000.0,
 
+    // A89/Ph21: mounting-hardware prices below now match the price-list spreadsheet's Materials &
+    // Pricing sheet exactly (RAIL_16FT/MID_CLAMP/END_CLAMP/FRONT_LEG/BACK_LEG/L_FOOT/WEEB_CLIP).
     val mountingRail16ft: Double = 4500.0,
     val midClamp: Double = 200.0,
     val endClamp: Double = 200.0,
-    val lFoot: Double = 500.0,
-    val backLeg: Double = 2000.0,
-    val frontLeg: Double = 800.0,
+    val lFoot: Double = 450.0,
+    val backLeg: Double = 1500.0,
+    val frontLeg: Double = 1350.0,
     val m6m8Bolt: Double = 100.0,
+    /** No spreadsheet row (out of this round's scope) — a real necessary part [MaterialTakeoffEngine] still prices at this pre-existing placeholder. */
     val mc4Pair: Double = 500.0,
-    val weebClip: Double = 400.0,
+    val weebClip: Double = 300.0,
 
-    val pvWirePerFt: Double = 120.0,
-    val ac10mmPerFt: Double = 150.0,
+    // A89/Ph21: PV wire (red/black, #10 AWG) and AC wire (red/black/ground, 10mm) both price
+    // identically per color/conductor in the spreadsheet (PV_RED=PV_BLACK=100/ft;
+    // AC_RED=AC_BLACK=AC_GROUND=100/ft) — one field each, [MaterialTakeoffEngine] emits separate
+    // red/black(/ground) material lines at the same per-ft rate rather than duplicating fields.
+    val pvWirePerFt: Double = 100.0,
+    val ac10mmPerFt: Double = 100.0,
+    /** Off-grid-only AC wiring — no spreadsheet counterpart (out of this round's scope), unchanged from its pre-existing placeholder; [MaterialTakeoffEngine] keeps off-grid's own AC wire path separate from the spreadsheet-driven hybrid/grid-tie bundle above. */
     val ac6mmPerFt: Double = 100.0,
+    /** No spreadsheet row (out of this round's scope) — real necessary parts still priced at their pre-existing placeholders. */
     val battCablePerFt: Double = 1500.0,
     val battLug: Double = 250.0,
 
-    val dinRailBox5Way: Double = 4000.0,
-    val dinRailBox8Way: Double = 8000.0,
-    val dcSurge: Double = 18000.0,
-    val acSurge: Double = 18000.0,
-    val pvDisconnect32A: Double = 12000.0,
-    val dcBatteryBreaker100A: Double = 16000.0,
-    val trunking: Double = 12000.0,
-    val transferSwitch: Double = 27000.0,
-    val changeOverSwitchOffgrid: Double = 18000.0,
-    val earthRod: Double = 1500.0,
-    val db8Way: Double = 5000.0,
-    val drawBox: Double = 2000.0,
-    val pvcConduitHalfBundle: Double = 4800.0,
-    val pvcConduitOneBundle: Double = 10000.0,
+    // A89/Ph21: DC string protection (breaker/fuse by amperage tier) and PV combiner/DIN
+    // selection — new, from the spreadsheet's Protection rows. Selected by
+    // [MaterialTakeoffEngine] from real short-circuit current (string count -> 1 = single DIN
+    // box, 2 = 2x2 combiner, 3 = 3x3 combiner) rather than a flat fixed line.
+    val dcProtection15A: Double = 2200.0,
+    val dcProtection20A: Double = 2500.0,
+    val dcProtection25A: Double = 2500.0,
+    val dcProtection30A: Double = 2500.0,
+    val dcProtection40A: Double = 3000.0,
+    val dcCombiner2x2: Double = 19000.0,
+    val dcCombiner3x3: Double = 28000.0,
+    val pvDinSingleString: Double = 5500.0,
+
+    /** AC breaker (inverter output / JPS input pair) — replaces the old flat [pvDisconnect32A]/[dcBatteryBreaker100A] pattern; [MaterialTakeoffEngine] always uses 2 of these (one per side), per the spreadsheet's own AC_BREAKER row and the master prompt's "1 for inverter output and one for jps input." */
+    val acBreaker: Double = 98000.0,
+
+    // A89/Ph21: changeover/transfer switch, now 4 real amperage tiers (spreadsheet
+    // CHANGEOVER_40/50/100/120) selected by [MaterialTakeoffEngine] from the system's real AC
+    // load per NEC-style breaker-sizing logic — replaces the old single flat [transferSwitch]/
+    // [changeOverSwitchOffgrid] pair, which couldn't represent "the right size for this load."
+    val changeoverSwitch40A: Double = 15000.0,
+    val changeoverSwitch50A: Double = 17000.0,
+    val changeoverSwitch100A: Double = 25000.0,
+    val changeoverSwitch120A: Double = 28000.0,
+
+    val distPanel4Way: Double = 2500.0,
+    val distPanel8Way: Double = 3500.0,
+
+    // A89/Ph21: battery DC connection — a flat 250A breaker for every system regardless of
+    // battery type/brand (spreadsheet's own "Updated from 200 A" note), plus busbars/box only
+    // when more than one battery is present (2+ in parallel) — see MaterialTakeoffEngine's own
+    // doc for the exact rule (confirmed with the project owner: no inverter-brand exception).
+    val batteryBreaker250A: Double = 17000.0,
+    val batteryBusbarRed: Double = 2500.0,
+    val batteryBusbarBlack: Double = 2500.0,
+    val batteryBox12x12x6: Double = 10000.0,
+
+    val dcSurge: Double = 15000.0,
+    val acSurge: Double = 15000.0,
+    val pvcBox6x4x3: Double = 2000.0,
+    val pvcBox4x4x3: Double = 1500.0,
+    /** 4in when a changeover switch (manual or automatic) is selected, 3in when none — see [MaterialTakeoffEngine]. */
+    val trunking4Inch: Double = 6000.0,
+    val trunking3Inch: Double = 5000.0,
+    val pvcConduit1Inch: Double = 4000.0,
+    val flexConduit1_5Inch: Double = 2000.0,
+    val earthRod: Double = 2500.0,
+    /** Per-ft — spreadsheet's own MAT-GROUND-WIRE row prices this notably higher per ft than the PV/AC wire rows above; carried over as-given per the "never substitute a spreadsheet price" rule, not adjusted. */
+    val groundWirePerFt: Double = 3000.0,
+    val miscAllowance: Double = 5000.0,
+    /** Ask-only — added to a quote only when [QuoteInputs.useVoltageRegulator] is explicitly set. */
+    val voltageRegulator: Double = 18000.0,
+
+    /**
+     * A89/Ph21: the Junction (St. Elizabeth) -> Santa Cruz baseline [DeliveryCalculator] scales
+     * every other non-toll route's delivery charge from — spreadsheet's own DEL-BASE row.
+     */
+    val deliveryBaseChargeJmd: Double = 18000.0,
+    val deliveryBaselineDistanceKm: Double = 28.0,
+    /**
+     * The ONE genuinely nullable price in this file (spreadsheet's own DEL-TOLL row is blank —
+     * "use current official rate"). Null means exactly what the master prompt requires: any quote
+     * whose route crosses a toll cannot be finalized until the installer enters this — see
+     * [QuoteResult.missingPriceItems]/[QuoteResult.canFinalize]. Never defaulted to 0 or any
+     * invented figure.
+     */
+    val deliveryTollJmd: Double? = null,
 
     /**
      * A79 (spec Phase 16 — "improve settings/materials", §40's own "Labour rates"): previously
@@ -129,18 +202,18 @@ data class PriceFieldSpec(
 
 object PriceFields {
     val all: List<PriceFieldSpec> = listOf(
-        PriceFieldSpec("inverterDeye6k", "Deye SUN-6K-SG01LP1-US", "Hybrid Inverters (Verified)", { it.inverterDeye6k }, { p, v -> p.copy(inverterDeye6k = v) }),
+        PriceFieldSpec("inverterDeye6k", "Deye SUN-6K-SG02LP2-US (needs verification)", "Hybrid Inverters (Verified)", { it.inverterDeye6k }, { p, v -> p.copy(inverterDeye6k = v) }),
         PriceFieldSpec("inverterDeye8k", "Deye SUN-8K-SG01LP1-US", "Hybrid Inverters (Verified)", { it.inverterDeye8k }, { p, v -> p.copy(inverterDeye8k = v) }),
         PriceFieldSpec("inverterGrowatt10k", "Growatt SPH 10000TL-HU-US", "Hybrid Inverters (Verified)", { it.inverterGrowatt10k }, { p, v -> p.copy(inverterGrowatt10k = v) }),
-        PriceFieldSpec("inverterLuxpowerLxpLb12k", "LuxPower LXP-LB-US 12K", "Hybrid Inverters (Verified)", { it.inverterLuxpowerLxpLb12k }, { p, v -> p.copy(inverterLuxpowerLxpLb12k = v) }),
-        PriceFieldSpec("inverterLuxpowerGenLb13k", "LuxPower GEN-LB-US 13K", "Hybrid Inverters (Verified)", { it.inverterLuxpowerGenLb13k }, { p, v -> p.copy(inverterLuxpowerGenLb13k = v) }),
+        PriceFieldSpec("inverterLuxpowerLxpLb12k", "LuxPower SNA-US 12K (needs verification)", "Hybrid Inverters (Verified)", { it.inverterLuxpowerLxpLb12k }, { p, v -> p.copy(inverterLuxpowerLxpLb12k = v) }),
+        PriceFieldSpec("inverterLuxpowerGenLb13k", "LuxPower LXP-LB-US 12K/13K (needs verification)", "Hybrid Inverters (Verified)", { it.inverterLuxpowerGenLb13k }, { p, v -> p.copy(inverterLuxpowerGenLb13k = v) }),
 
         PriceFieldSpec("inverterLuxpowerGenLb6k", "LuxPower GEN-LB-US 6K (partially verified)", "Hybrid Inverters (Manual only)", { it.inverterLuxpowerGenLb6k }, { p, v -> p.copy(inverterLuxpowerGenLb6k = v) }),
         PriceFieldSpec("inverterLuxpowerGenLb8k", "LuxPower GEN-LB-US 8K (partially verified)", "Hybrid Inverters (Manual only)", { it.inverterLuxpowerGenLb8k }, { p, v -> p.copy(inverterLuxpowerGenLb8k = v) }),
         PriceFieldSpec("inverterLuxpowerGenLb10k", "LuxPower GEN-LB-US 10K (partially verified)", "Hybrid Inverters (Manual only)", { it.inverterLuxpowerGenLb10k }, { p, v -> p.copy(inverterLuxpowerGenLb10k = v) }),
-        PriceFieldSpec("inverterSrneHesp4to6_5k", "SRNE HESP 4-6.5K-HUS (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp4to6_5k }, { p, v -> p.copy(inverterSrneHesp4to6_5k = v) }),
-        PriceFieldSpec("inverterSrneHesp8k", "SRNE HESP 8K-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp8k }, { p, v -> p.copy(inverterSrneHesp8k = v) }),
-        PriceFieldSpec("inverterSrneHesp10k", "SRNE HESP 10K-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp10k }, { p, v -> p.copy(inverterSrneHesp10k = v) }),
+        PriceFieldSpec("inverterSrneHesp4to6_5k", "SRNE ASF4860U80-H (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp4to6_5k }, { p, v -> p.copy(inverterSrneHesp4to6_5k = v) }),
+        PriceFieldSpec("inverterSrneHesp8k", "SRNE ASF4880S180-H (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp8k }, { p, v -> p.copy(inverterSrneHesp8k = v) }),
+        PriceFieldSpec("inverterSrneHesp10k", "SRNE HES48100U200-H (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp10k }, { p, v -> p.copy(inverterSrneHesp10k = v) }),
         PriceFieldSpec("inverterSrneHesp12k", "SRNE HESP 12K-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterSrneHesp12k }, { p, v -> p.copy(inverterSrneHesp12k = v) }),
         PriceFieldSpec("inverterGrowattSph8k", "Growatt SPH 8000TL-HU-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterGrowattSph8k }, { p, v -> p.copy(inverterGrowattSph8k = v) }),
 
@@ -175,26 +248,53 @@ object PriceFields {
         PriceFieldSpec("mc4Pair", "MC4 connector pair", "Mounting Hardware", { it.mc4Pair }, { p, v -> p.copy(mc4Pair = v) }),
         PriceFieldSpec("weebClip", "WEEB clip", "Mounting Hardware", { it.weebClip }, { p, v -> p.copy(weebClip = v) }),
 
-        PriceFieldSpec("pvWirePerFt", "AWG10 PV wire (per ft)", "Wiring", { it.pvWirePerFt }, { p, v -> p.copy(pvWirePerFt = v) }),
-        PriceFieldSpec("ac10mmPerFt", "10mm single wire (per ft)", "Wiring", { it.ac10mmPerFt }, { p, v -> p.copy(ac10mmPerFt = v) }),
-        PriceFieldSpec("ac6mmPerFt", "6mm single wire (per ft)", "Wiring", { it.ac6mmPerFt }, { p, v -> p.copy(ac6mmPerFt = v) }),
+        PriceFieldSpec("pvWirePerFt", "PV DC wire, red or black (per ft, #10 AWG)", "Wiring", { it.pvWirePerFt }, { p, v -> p.copy(pvWirePerFt = v) }),
+        PriceFieldSpec("ac10mmPerFt", "AC wire, red/black/ground (per ft, 10mm)", "Wiring", { it.ac10mmPerFt }, { p, v -> p.copy(ac10mmPerFt = v) }),
+        PriceFieldSpec("ac6mmPerFt", "6mm single wire, off-grid only (per ft)", "Wiring", { it.ac6mmPerFt }, { p, v -> p.copy(ac6mmPerFt = v) }),
         PriceFieldSpec("battCablePerFt", "#2/0 battery cable (per ft)", "Wiring", { it.battCablePerFt }, { p, v -> p.copy(battCablePerFt = v) }),
         PriceFieldSpec("battLug", "Battery lug", "Wiring", { it.battLug }, { p, v -> p.copy(battLug = v) }),
+        PriceFieldSpec("groundWirePerFt", "Grounding wire (per ft)", "Wiring", { it.groundWirePerFt }, { p, v -> p.copy(groundWirePerFt = v) }),
 
-        PriceFieldSpec("dinRailBox5Way", "5-way DIN-rail box", "Boxes & Protection", { it.dinRailBox5Way }, { p, v -> p.copy(dinRailBox5Way = v) }),
-        PriceFieldSpec("dinRailBox8Way", "8-way DIN-rail box", "Boxes & Protection", { it.dinRailBox8Way }, { p, v -> p.copy(dinRailBox8Way = v) }),
-        PriceFieldSpec("dcSurge", "DC 1000V surge arrestor", "Boxes & Protection", { it.dcSurge }, { p, v -> p.copy(dcSurge = v) }),
-        PriceFieldSpec("acSurge", "AC 1000V surge arrestor", "Boxes & Protection", { it.acSurge }, { p, v -> p.copy(acSurge = v) }),
-        PriceFieldSpec("pvDisconnect32A", "PV disconnect 32A", "Boxes & Protection", { it.pvDisconnect32A }, { p, v -> p.copy(pvDisconnect32A = v) }),
-        PriceFieldSpec("dcBatteryBreaker100A", "100A DC battery breaker", "Boxes & Protection", { it.dcBatteryBreaker100A }, { p, v -> p.copy(dcBatteryBreaker100A = v) }),
-        PriceFieldSpec("trunking", "Trunking", "Boxes & Protection", { it.trunking }, { p, v -> p.copy(trunking = v) }),
-        PriceFieldSpec("transferSwitch", "Transfer switch (63-125A)", "Boxes & Protection", { it.transferSwitch }, { p, v -> p.copy(transferSwitch = v) }),
-        PriceFieldSpec("changeOverSwitchOffgrid", "Off-grid changeover switch", "Boxes & Protection", { it.changeOverSwitchOffgrid }, { p, v -> p.copy(changeOverSwitchOffgrid = v) }),
-        PriceFieldSpec("earthRod", "Earth rod with clamp", "Boxes & Protection", { it.earthRod }, { p, v -> p.copy(earthRod = v) }),
-        PriceFieldSpec("db8Way", "8-way distribution panel", "Boxes & Protection", { it.db8Way }, { p, v -> p.copy(db8Way = v) }),
-        PriceFieldSpec("drawBox", "Draw box", "Boxes & Protection", { it.drawBox }, { p, v -> p.copy(drawBox = v) }),
-        PriceFieldSpec("pvcConduitHalfBundle", "PVC conduit 1/2\" bundle", "Boxes & Protection", { it.pvcConduitHalfBundle }, { p, v -> p.copy(pvcConduitHalfBundle = v) }),
-        PriceFieldSpec("pvcConduitOneBundle", "PVC conduit 1\" bundle", "Boxes & Protection", { it.pvcConduitOneBundle }, { p, v -> p.copy(pvcConduitOneBundle = v) }),
+        PriceFieldSpec("dcProtection15A", "DC breaker/fuse 15A", "DC & AC Protection", { it.dcProtection15A }, { p, v -> p.copy(dcProtection15A = v) }),
+        PriceFieldSpec("dcProtection20A", "DC breaker/fuse 20A", "DC & AC Protection", { it.dcProtection20A }, { p, v -> p.copy(dcProtection20A = v) }),
+        PriceFieldSpec("dcProtection25A", "DC breaker/fuse 25A", "DC & AC Protection", { it.dcProtection25A }, { p, v -> p.copy(dcProtection25A = v) }),
+        PriceFieldSpec("dcProtection30A", "DC breaker/fuse 30A", "DC & AC Protection", { it.dcProtection30A }, { p, v -> p.copy(dcProtection30A = v) }),
+        PriceFieldSpec("dcProtection40A", "DC breaker/fuse 40A", "DC & AC Protection", { it.dcProtection40A }, { p, v -> p.copy(dcProtection40A = v) }),
+        PriceFieldSpec("dcCombiner2x2", "DC combiner box (2 in / 2 out)", "DC & AC Protection", { it.dcCombiner2x2 }, { p, v -> p.copy(dcCombiner2x2 = v) }),
+        PriceFieldSpec("dcCombiner3x3", "DC combiner box (3 in / 3 out)", "DC & AC Protection", { it.dcCombiner3x3 }, { p, v -> p.copy(dcCombiner3x3 = v) }),
+        PriceFieldSpec("pvDinSingleString", "PV DIN-rail box (single string)", "DC & AC Protection", { it.pvDinSingleString }, { p, v -> p.copy(pvDinSingleString = v) }),
+        PriceFieldSpec("acBreaker", "AC breaker (inverter output / JPS input)", "DC & AC Protection", { it.acBreaker }, { p, v -> p.copy(acBreaker = v) }),
+        PriceFieldSpec("dcSurge", "DC 1000V surge arrestor", "DC & AC Protection", { it.dcSurge }, { p, v -> p.copy(dcSurge = v) }),
+        PriceFieldSpec("acSurge", "AC 1000V surge arrestor", "DC & AC Protection", { it.acSurge }, { p, v -> p.copy(acSurge = v) }),
+
+        PriceFieldSpec("changeoverSwitch40A", "Changeover switch 40A", "Transfer & Distribution", { it.changeoverSwitch40A }, { p, v -> p.copy(changeoverSwitch40A = v) }),
+        PriceFieldSpec("changeoverSwitch50A", "Changeover switch 50A", "Transfer & Distribution", { it.changeoverSwitch50A }, { p, v -> p.copy(changeoverSwitch50A = v) }),
+        PriceFieldSpec("changeoverSwitch100A", "Changeover switch 100A", "Transfer & Distribution", { it.changeoverSwitch100A }, { p, v -> p.copy(changeoverSwitch100A = v) }),
+        PriceFieldSpec("changeoverSwitch120A", "Changeover switch 120A", "Transfer & Distribution", { it.changeoverSwitch120A }, { p, v -> p.copy(changeoverSwitch120A = v) }),
+        PriceFieldSpec("distPanel4Way", "AC distribution panel (4-way)", "Transfer & Distribution", { it.distPanel4Way }, { p, v -> p.copy(distPanel4Way = v) }),
+        PriceFieldSpec("distPanel8Way", "AC distribution panel (8-way)", "Transfer & Distribution", { it.distPanel8Way }, { p, v -> p.copy(distPanel8Way = v) }),
+        PriceFieldSpec("voltageRegulator", "Voltage regulator", "Transfer & Distribution", { it.voltageRegulator }, { p, v -> p.copy(voltageRegulator = v) }),
+
+        PriceFieldSpec("batteryBreaker250A", "Battery DC breaker (250A)", "Battery Connection", { it.batteryBreaker250A }, { p, v -> p.copy(batteryBreaker250A = v) }),
+        PriceFieldSpec("batteryBusbarRed", "Battery busbar, red (>1 battery)", "Battery Connection", { it.batteryBusbarRed }, { p, v -> p.copy(batteryBusbarRed = v) }),
+        PriceFieldSpec("batteryBusbarBlack", "Battery busbar, black (>1 battery)", "Battery Connection", { it.batteryBusbarBlack }, { p, v -> p.copy(batteryBusbarBlack = v) }),
+        PriceFieldSpec("batteryBox12x12x6", "Battery box, 12x12x6in (>1 battery)", "Battery Connection", { it.batteryBox12x12x6 }, { p, v -> p.copy(batteryBox12x12x6 = v) }),
+
+        PriceFieldSpec("pvcBox6x4x3", "PVC box, 6x4x3in", "Enclosures & Conduit", { it.pvcBox6x4x3 }, { p, v -> p.copy(pvcBox6x4x3 = v) }),
+        PriceFieldSpec("pvcBox4x4x3", "PVC box, 4x4x3in", "Enclosures & Conduit", { it.pvcBox4x4x3 }, { p, v -> p.copy(pvcBox4x4x3 = v) }),
+        PriceFieldSpec("trunking4Inch", "Trunking, 4in (with changeover switch)", "Enclosures & Conduit", { it.trunking4Inch }, { p, v -> p.copy(trunking4Inch = v) }),
+        PriceFieldSpec("trunking3Inch", "Trunking, 3in (no changeover switch)", "Enclosures & Conduit", { it.trunking3Inch }, { p, v -> p.copy(trunking3Inch = v) }),
+        PriceFieldSpec("pvcConduit1Inch", "PVC conduit, 1in", "Enclosures & Conduit", { it.pvcConduit1Inch }, { p, v -> p.copy(pvcConduit1Inch = v) }),
+        PriceFieldSpec("flexConduit1_5Inch", "Flex conduit, 1-1/2in (per ft)", "Enclosures & Conduit", { it.flexConduit1_5Inch }, { p, v -> p.copy(flexConduit1_5Inch = v) }),
+        PriceFieldSpec("earthRod", "Earth rod, 4ft, with clamp", "Enclosures & Conduit", { it.earthRod }, { p, v -> p.copy(earthRod = v) }),
+        PriceFieldSpec("miscAllowance", "Misc. allowance (screws, silicone)", "Enclosures & Conduit", { it.miscAllowance }, { p, v -> p.copy(miscAllowance = v) }),
+
+        // A89/Ph21: delivery pricing infrastructure — see DeliveryCalculator.kt. deliveryTollJmd
+        // is deliberately NOT listed here (it's nullable — "Price not entered" until the installer
+        // supplies the current official toll rate — and this generic Double-only field list has no
+        // nullable-aware Settings UI yet; still a domain-layer-settable field, just not wired into
+        // this particular list this round, per "do not redesign the UI during this phase").
+        PriceFieldSpec("deliveryBaseChargeJmd", "Delivery baseline (Junction -> Santa Cruz, 28km)", "Delivery", { it.deliveryBaseChargeJmd }, { p, v -> p.copy(deliveryBaseChargeJmd = v) }),
 
         // A79 (spec Phase 16, §40 "Labour rates" / "Tax settings"): the only two percentage-typed
         // fields in this list — see PriceFieldSpec.suffix's own doc for why the "%" is explicit.

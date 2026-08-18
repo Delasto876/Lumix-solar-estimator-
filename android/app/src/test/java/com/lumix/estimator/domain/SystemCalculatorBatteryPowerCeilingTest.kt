@@ -15,17 +15,18 @@ class SystemCalculatorBatteryPowerCeilingTest {
     fun `LuxPower 13K's real 10kW battery-port datasheet figure binds lower than its 13kW AC rating`() {
         // SRNE SR-EOS15B (Catalog's "15 kWh" tier): maxChargeA=200, maxDischargeA=200, voltageV=51.2
         // -> raw per-module figures of 200 x 51.2 / 1000 = 10.24kW each, uncapped. LuxPower
-        // GEN-LB-US 13K's own confirmed datasheet maxChargePowerKw/maxDischargePowerKw is 10.0kW -
-        // LOWER than both the raw 10.24kW battery figure AND its own 13kW AC rating. Before A72,
-        // only the 13kW AC rating was checked, so this scenario would have (wrongly) returned
-        // 10.24kW - a real battery figure, but not run through the real inverter-side ceiling that
-        // actually binds tighter here.
+        // LXP-LB-US 12K/13K's (A89/Ph21: renamed from GEN-LB-US 13K, same carried-over datasheet
+        // figures) own confirmed maxChargePowerKw/maxDischargePowerKw is 10.0kW - LOWER than both
+        // the raw 10.24kW battery figure AND its own 13kW AC rating. Before A72, only the 13kW AC
+        // rating was checked, so this scenario would have (wrongly) returned 10.24kW - a real
+        // battery figure, but not run through the real inverter-side ceiling that actually binds
+        // tighter here.
         val fifteenKwhTier = Catalog.hybridBatteries.first { it.name.contains("15 kWh") }
         val (chargeKw, dischargeKw) = SystemCalculator.resolvedBatteryPowerKw(
             chosenBattery = fifteenKwhTier,
             totalBatteryKwh = fifteenKwhTier.kwh,
             inverterKw = 13.0,
-            inverterName = "LuxPower GEN-LB-US 13K"
+            inverterName = "LuxPower LXP-LB-US 12K/13K"
         )
         assertEquals(10.0, chargeKw!!, 0.01)
         assertEquals(10.0, dischargeKw!!, 0.01)

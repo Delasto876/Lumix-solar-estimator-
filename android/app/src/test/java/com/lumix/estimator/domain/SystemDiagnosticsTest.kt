@@ -8,7 +8,7 @@ import org.junit.Test
 /**
  * A58 (spec §37–38 — "add a diagnostics panel... PV → PASS, INVERTER → PASS, BATTERY ENERGY →
  * PASS, BATTERY POWER → PASS, MPPT → PASS, VOC → PASS, VMP → PASS"): regression tests for
- * [SystemDiagnostics.checksFor]. Uses the exact 6×615W / 14×615W + real Deye SUN-6K-SG01LP1-US
+ * [SystemDiagnostics.checksFor]. Uses the exact 6×615W / 14×615W + real Deye SUN-6K-SG02LP2-US
  * regression pair already established in `EquipmentSelectionEngineTest.kt` (A52) — 6 panels pass
  * every electrical check, 14 panels exceed the inverter's real max PV input power — so the expected
  * PASS/FAIL outcomes here are exact, not estimated.
@@ -19,7 +19,7 @@ class SystemDiagnosticsTest {
         panelCount: Int,
         panelWatts: Int = 615,
         inverterKw: Double = 6.0,
-        inverterName: String = "Deye SUN-6K-SG01LP1-US",
+        inverterName: String = "Deye SUN-6K-SG02LP2-US",
         peakWatts: Double = 4000.0,
         totalBatteryKwh: Double = 0.0,
         batteryRequiredKwh: Double = 0.0,

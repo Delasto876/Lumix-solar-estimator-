@@ -41,6 +41,17 @@ enum class ManualModeType { BATTERY_LED, PANEL_LED, FULL_MANUAL }
 enum class DiscountType { NONE, PERCENT, FIXED }
 
 /**
+ * A89/Ph21 (master prompt — "ask if automatic switch or manual or no transfer switch"): the
+ * universal 3-way ask, for every [QuoteMode]/[SystemMode] combination — not just MANUAL+OFFGRID's
+ * pre-existing [QuoteInputs.manualOffgridUseAutoTransfer] toggle, which this supersedes for every
+ * OTHER combination (see that field's own doc for why it's still read as-is for its one original
+ * UI path this round, rather than silently going dead). AUTOMATIC sizes to one of 40/50/100/120A by
+ * the system's real AC load (NEC-style breaker-sizing logic) — see [MaterialTakeoffEngine].
+ */
+@Serializable
+enum class TransferSwitchMode { NONE, MANUAL, AUTOMATIC }
+
+/**
  * A29/A48/A54: the ONE master appliance catalog for the wizard side (Guided/Load-Based/Manual all
  * share this single `StepHouseholdAppliances` step — see `WizardScreen.kt`'s step dispatch,
  * which doesn't branch by mode for step 6). Each entry's name is the exact same one the
@@ -266,7 +277,35 @@ data class QuoteInputs(
     val manualBattCustomKwh: Double = 0.0,
     val manualBattCustomCount: Int = 0,
     val manualAgmCount: Int = 0,
+    /** Read only for QuoteMode.MANUAL + SystemMode.OFFGRID — see [TransferSwitchMode]'s own doc for why every other combination now reads [transferSwitchMode] instead. */
     val manualOffgridUseAutoTransfer: Boolean = true,
+    /** A89/Ph21: the universal transfer-switch ask — see [TransferSwitchMode]'s own doc. Defaults to AUTOMATIC, matching the pre-existing behavior every GUIDED/LOAD/non-offgrid-MANUAL quote already had (a transfer switch was always added) before this field existed. */
+    val transferSwitchMode: TransferSwitchMode = TransferSwitchMode.AUTOMATIC,
+    /** A89/Ph21 (master prompt — "voltage regulator ask if using changeover switch or jps as backup"): an explicit installer decision, never auto-added — see [MaterialTakeoffEngine]. */
+    val useVoltageRegulator: Boolean = false,
+    /** A89/Ph21 (master prompt — "use a 4 way distribution panel for all systems unless changed to a 8 way distribution panel in set up"): false = 4-way default, matching the spreadsheet's own "Default"/"Selectable" framing. No UI sets this yet — same deferral as [deliveryRouteDistanceKm]. */
+    val use8WayDistributionPanel: Boolean = false,
+
+    /**
+     * A89/Ph21 (master prompt §"DELIVERY" — proportional pricing off the Junction (St. Elizabeth)
+     * -> Santa Cruz 28km/JMD 18,000 baseline): one-way route distance for THIS quote's delivery.
+     * No wizard UI sets this yet (deferred — "do not redesign the UI during this phase"; a future
+     * phase should wire this to a real distance source, architected via [DeliveryCalculator] to
+     * accept a manual figure now and a routing API later, per the project owner's own explicit
+     * choice to defer live routing). Defaults to the baseline distance itself, so an un-set quote
+     * prices delivery at exactly the baseline JMD 18,000 rather than an arbitrary distance.
+     */
+    val deliveryRouteDistanceKm: Double = 28.0,
+    /** Whether this quote's route crosses a toll — see [DeliveryCalculator]. No UI yet (same deferral as [deliveryRouteDistanceKm]). */
+    val deliveryIsTollRoute: Boolean = false,
+    /**
+     * A89/Ph21: true once the installer has directly overridden [deliveryCharge] in Step7Pricing's
+     * pre-existing text field — same "manually set stops auto-computation from overwriting it"
+     * pattern as [peakSunHoursManuallySet]. False (the default) means [deliveryCharge] is instead
+     * computed fresh each time from [deliveryRouteDistanceKm]/[deliveryIsTollRoute] via
+     * [DeliveryCalculator] — see [SystemCalculator.calculate]'s own wiring.
+     */
+    val deliveryChargeManuallySet: Boolean = false,
     /**
      * A49: the exact warning message text(s) the installer has explicitly accepted via MANUAL
      * mode's "ACCEPT WITH WARNING" gate (see StepSystemReview.kt). A set rather than a plain
@@ -284,6 +323,17 @@ data class QuoteInputs(
     val discountType: DiscountType = DiscountType.NONE,
     val discountValue: Double = 0.0,
 
+    /**
+     * A89/Ph21 (master prompt §"QUANTITY AND PRICE OVERRIDES" — "quantity and price overrides at
+     * the quote level; catalog price stays unchanged"): per-line-item overrides for THIS quote
+     * only, keyed by [MaterialLine.calcKey]. Never mutates [PriceList] — the catalog price/default
+     * quantity [MaterialTakeoffEngine] computes stays the source of truth for every OTHER quote.
+     * No UI sets this yet ("do not redesign the UI during this phase") — domain plumbing only,
+     * verified by [MaterialTakeoffEngineOverrideTest]/equivalent, ready for a future Settings/
+     * Review-step control to write into.
+     */
+    val materialOverrides: Map<String, MaterialOverride> = emptyMap(),
+
     val customerName: String = "",
     val customerContact: String = "",
     val customerEmail: String = "",
@@ -292,3 +342,10 @@ data class QuoteInputs(
 ) {
     val backupHours: Double get() = (backupHoursPreset?.toDouble()) ?: backupHoursCustom
 }
+
+/** See [QuoteInputs.materialOverrides]'s own doc. Either field left null means "use the calculated value" for that one aspect. */
+@Serializable
+data class MaterialOverride(
+    val qtyOverride: Double? = null,
+    val priceOverride: Double? = null
+)

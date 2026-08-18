@@ -159,8 +159,10 @@ object QuotePdfGenerator {
             ensureSpace(14f)
             canvas.drawText(truncate(m.name, 40), colItem, y, bodyPaint)
             canvas.drawText(formatQty(m.qty), colQty, y, bodyPaint)
-            canvas.drawText(formatCurrency(m.unitPrice), colUnit, y, bodyPaint)
-            canvas.drawText(formatCurrency(m.subtotal), colSub, y, bodyPaint)
+            // A89/Ph21: "NEVER INVENT A PRICE... A BLANK PRICE MUST ALWAYS REMAIN BLANK" — never
+            // formatCurrency(0.0) a missing price; see MaterialLine.unitPrice's own doc.
+            canvas.drawText(if (m.hasPrice) formatCurrency(m.unitPrice!!) else "Price not entered", colUnit, y, bodyPaint)
+            canvas.drawText(if (m.hasPrice) formatCurrency(m.subtotal) else "-", colSub, y, bodyPaint)
             y += 14f
         }
 

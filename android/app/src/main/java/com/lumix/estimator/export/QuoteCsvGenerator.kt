@@ -52,7 +52,13 @@ object QuoteCsvGenerator {
 
             appendLine(csvRow("Item", "Qty", "Unit Price", "Subtotal"))
             result.materials.forEach { m ->
-                appendLine(csvRow(m.name, "%.2f".format(m.qty), "%.2f".format(m.unitPrice), "%.2f".format(m.subtotal)))
+                // A89/Ph21: never format a missing price as a number — see MaterialLine.unitPrice's own doc.
+                val unitCell = if (m.hasPrice) "%.2f".format(m.unitPrice) else "Price not entered"
+                val subCell = if (m.hasPrice) "%.2f".format(m.subtotal) else ""
+                appendLine(csvRow(m.name, "%.2f".format(m.qty), unitCell, subCell))
+            }
+            if (!result.canFinalize) {
+                appendLine(csvRow("WARNING", "Cannot finalize: ${result.missingPriceItems.joinToString("; ")}"))
             }
             appendLine()
 

@@ -27,11 +27,11 @@ class PvElectricalModelTest {
         // down) — still two genuinely different string lengths, so still a valid "not hardcoded"
         // demonstration.
         val threePanels = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 3, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 3, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 25.0, potentialPvKw = 1.5, realizedPvKw = 1.5
         )
         val sixPanels = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 25.0, potentialPvKw = 3.0, realizedPvKw = 3.0
         )
         val voltage3 = PvElectricalModel.blendedVoltage(threePanels)
@@ -46,7 +46,7 @@ class PvElectricalModelTest {
         // A71: 8 panels (not 6 — see test 1's own note) is the smallest count on Deye SUN-6K's
         // real 150V MPPT floor that actually clears a 2-way split: 4 x 45.76 = 183.04V per tracker.
         val readouts = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 8, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 8, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 25.0, potentialPvKw = 4.0, realizedPvKw = 4.0
         )
         assertEquals(2, readouts.size)
@@ -67,7 +67,7 @@ class PvElectricalModelTest {
         // exactly the "MPPT1=X, MPPT2=unused" case the spec itself describes, now driven by this
         // inverter's own real datasheet floor rather than a one-size-fits-all guess.
         val readouts = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 25.0, potentialPvKw = 3.0, realizedPvKw = 3.0
         )
         assertEquals(2, readouts.size)
@@ -94,7 +94,7 @@ class PvElectricalModelTest {
     @Test
     fun `uneven panel count distributes the remainder across the first trackers`() {
         val readouts = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 13, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 13, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 25.0, potentialPvKw = 3.0, realizedPvKw = 3.0
         )
         assertEquals(2, readouts.size)
@@ -107,11 +107,11 @@ class PvElectricalModelTest {
     @Test
     fun `higher cell temperature lowers string voltage`() {
         val cool = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 25.0, potentialPvKw = 3.0, realizedPvKw = 3.0
         )
         val hot = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 45.0, potentialPvKw = 3.0, realizedPvKw = 3.0
         )
         assertTrue(
@@ -128,7 +128,7 @@ class PvElectricalModelTest {
     @Test
     fun `zero potential production means zero voltage - night`() {
         val readouts = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 25.0, potentialPvKw = 0.0, realizedPvKw = 0.0
         )
         readouts.forEach {
@@ -145,11 +145,11 @@ class PvElectricalModelTest {
         // power — representing full sun + full battery + tiny load (heavy curtailment) vs. full
         // sun + full utilization. Voltage must be identical in both; only power should differ.
         val heavilyCurtailed = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 35.0, potentialPvKw = 3.0, realizedPvKw = 0.1
         )
         val fullyUtilized = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 35.0, potentialPvKw = 3.0, realizedPvKw = 3.0
         )
         assertEquals(
@@ -163,11 +163,11 @@ class PvElectricalModelTest {
     @Test
     fun `string Isc and Imp are the panel's own values, never multiplied by panel count`() {
         val sixPanels = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 25.0, potentialPvKw = 3.0, realizedPvKw = 3.0
         )
         val twelvePanels = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 12, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 12, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 25.0, potentialPvKw = 6.0, realizedPvKw = 6.0
         )
         // 615W DAS panel's real Isc is 14.11A regardless of how many panels are in the string.
@@ -187,7 +187,7 @@ class PvElectricalModelTest {
         // Per-tracker Vmp: 45.76 x 7 = 320.32V, 45.76 x 6 = 274.56V.
         // Blended = (320.32 x 7 + 274.56 x 6) / 13 = 299.2V.
         val readouts = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 13, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 13, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 25.0, potentialPvKw = 6.5, realizedPvKw = 6.5
         )
         assertEquals(299.2, PvElectricalModel.blendedVoltage(readouts), 0.5)
@@ -197,7 +197,7 @@ class PvElectricalModelTest {
     @Test
     fun `zero panel count returns an empty breakdown`() {
         val readouts = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 0, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG01LP1-US",
+            panelWatts = 615, panelCount = 0, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US",
             cellTempC = 25.0, potentialPvKw = 0.0, realizedPvKw = 0.0
         )
         assertTrue(readouts.isEmpty())

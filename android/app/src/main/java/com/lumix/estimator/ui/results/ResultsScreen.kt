@@ -383,8 +383,21 @@ fun ResultsScreen(
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 Text(m.name, modifier = Modifier.weight(2f), style = MaterialTheme.typography.bodyMedium)
                                 Text(formatQty(m.qty), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                Text(formatCurrency(m.subtotal), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                // A89/Ph21: never show a missing price as "$0.00" — see MaterialLine.unitPrice's own doc.
+                                if (m.hasPrice) {
+                                    Text(formatCurrency(m.subtotal), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                } else {
+                                    Text("Price not entered", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                                }
                             }
+                        }
+                        if (!result.canFinalize) {
+                            Text(
+                                "This quote cannot be finalized until every price above is entered.",
+                                modifier = Modifier.padding(top = 8.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
                         }
                     }
                 }

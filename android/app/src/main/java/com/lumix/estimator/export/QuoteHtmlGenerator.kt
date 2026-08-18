@@ -74,7 +74,13 @@ object QuoteHtmlGenerator {
 
             append("<h2>Material Breakdown</h2><table><thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Subtotal</th></tr></thead><tbody>")
             result.materials.forEach { m ->
-                append("<tr><td>${m.name}</td><td>${formatQty(m.qty)}</td><td>${formatCurrency(m.unitPrice)}</td><td>${formatCurrency(m.subtotal)}</td></tr>")
+                // A89/Ph21: never format a missing price as currency — see MaterialLine.unitPrice's own doc.
+                val unitCell = if (m.hasPrice) formatCurrency(m.unitPrice!!) else "<strong>Price not entered</strong>"
+                val subCell = if (m.hasPrice) formatCurrency(m.subtotal) else "-"
+                append("<tr><td>${m.name}</td><td>${formatQty(m.qty)}</td><td>$unitCell</td><td>$subCell</td></tr>")
+            }
+            if (!result.canFinalize) {
+                append("<p style=\"color:#b91c1c;font-weight:bold;\">This quote cannot be finalized: ${result.missingPriceItems.joinToString(", ")} — price not yet entered.</p>")
             }
             append("</tbody></table>")
 
