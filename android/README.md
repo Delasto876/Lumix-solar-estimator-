@@ -6526,3 +6526,26 @@ SDK/emulator/device in this environment — could not run the app, capture real 
 observe live network requests/response codes. Everything above is either static code inspection
 (the User-Agent finding) or new logging code that produces real evidence once run on an actual
 device/emulator, not a live-verified result from this round.
+
+## A101 — map Part 1 fix: MapTiler User-Agent (user confirmed: "yes fix")
+
+Applied the fix the Part 1 diagnosis identified: `ensureMapLibreInitialized` (`MapLibreMapView.kt`,
+called once at startup from `LumixApp.onCreate`, before any `MapView` exists) now registers a
+custom `OkHttpClient` via `org.maplibre.android.module.http.HttpRequestUtil.setOkHttpClient(...)`,
+with an interceptor that sets `User-Agent: LumixSolarEstimator` on every request (`.header(...)`,
+not `.addHeader`, so it replaces rather than duplicates whatever MapLibre's own client would
+otherwise send). Registered *before* `MapLibre.getInstance(context)` so the native HTTP layer picks
+it up before any request can go out — confirmed via grep this is the only `MapView`/
+`MapLibre.getInstance` call site in the app, so there's no ordering race.
+
+**Verification note (this file's standing disclosure applies again here):** `okhttp3.OkHttpClient`
+and `HttpRequestUtil` are expected to resolve as a transitive dependency of
+`org.maplibre.gl:android-sdk` (its own default HTTP backend has been OkHttp-based since its Mapbox
+GL Native lineage) — not confirmed by an actual compile in this sandbox. If it doesn't resolve on a
+real build, add `implementation("com.squareup.okhttp3:okhttp:4.12.0")` explicitly to
+`app/build.gradle.kts` — the one other thing to check first if this file doesn't compile.
+
+Once run on a real device: the `LumixMapDiag` Logcat tag (from A100's Part 1 instrumentation) will
+show whether style requests now succeed. If they still fail, the failure text logged there will
+show the real reason (still not a User-Agent issue, so likely the key itself or a MapTiler-side
+restriction detail not yet accounted for) — the next diagnostic step, not guessed at here.

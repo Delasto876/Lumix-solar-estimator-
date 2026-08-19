@@ -11,9 +11,11 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import okhttp3.OkHttpClient
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.module.http.HttpRequestUtil
 
 /**
  * "REPLACE THE CURRENT MAP IMPLEMENTATION... MAPLIBRE GL JS" (2026-08-18): GL JS is a browser/
@@ -114,7 +116,46 @@ private class MapViewHolder {
 
 private fun mutableMapViewHolder() = MapViewHolder()
 
-/** Blocking, one-time MapLibre runtime init — must happen before any [MapView] is created. Safe to call more than once (MapLibre's own instance getter is idempotent). */
+/**
+ * 2026-08-19 map Part 1 fix: the MapTiler key is restricted to the User-Agent string
+ * `"LumixSolarEstimator"` — the Part 1 diagnosis found this app had ZERO User-Agent configuration
+ * anywhere (confirmed by a repo-wide grep for `User-Agent`/`OkHttp`/`HttpRequestUtil`, zero hits),
+ * so every MapTiler request was going out with MapLibre's own default User-Agent instead, which a
+ * User-Agent-restricted key rejects outright (401/403) regardless of whether the key value itself
+ * is correct. This is that fix.
+ */
+private const val LUMIX_USER_AGENT = "LumixSolarEstimator"
+
+/**
+ * Blocking, one-time MapLibre runtime init — must happen before any [MapView] is created. Safe to
+ * call more than once (MapLibre's own instance getter is idempotent; re-registering the same
+ * OkHttp client below is harmless).
+ *
+ * **Verification note**: `org.maplibre.android.module.http.HttpRequestUtil.setOkHttpClient(...)`
+ * is MapLibre Native Android's documented public extension point for supplying a custom
+ * `okhttp3.OkHttpClient` (carried over unchanged from its Mapbox GL Native lineage, where the SDK's
+ * own default HTTP backend has been OkHttp-based for years) — `okhttp3.*` is therefore expected to
+ * already be on the classpath as a transitive dependency of `org.maplibre.gl:android-sdk`, not a
+ * new dependency this file adds. This could NOT be confirmed by an actual compile in this sandbox
+ * (see this file's own class-level "Verification note"); if `okhttp3`/`HttpRequestUtil` don't
+ * resolve when this is finally built, add `implementation("com.squareup.okhttp3:okhttp:4.12.0")`
+ * explicitly to `app/build.gradle.kts` — this is the one other spot besides the class doc's own
+ * warning to check first.
+ */
 fun ensureMapLibreInitialized(context: Context) {
+    // Must be set BEFORE MapLibre.getInstance below, so the native HTTP layer picks up this
+    // client from the very first request — there's no safe way to swap it in after the fact once
+    // a request may already be in flight. `.header(...)` (not `.addHeader`) replaces any existing
+    // User-Agent MapLibre's own client-builder chain might otherwise have set, so this is always
+    // the exact, single value sent — never a duplicate header.
+    val client = OkHttpClient.Builder()
+        .addInterceptor { chain ->
+            val requestWithUserAgent = chain.request().newBuilder()
+                .header("User-Agent", LUMIX_USER_AGENT)
+                .build()
+            chain.proceed(requestWithUserAgent)
+        }
+        .build()
+    HttpRequestUtil.setOkHttpClient(client)
     org.maplibre.android.MapLibre.getInstance(context)
 }
