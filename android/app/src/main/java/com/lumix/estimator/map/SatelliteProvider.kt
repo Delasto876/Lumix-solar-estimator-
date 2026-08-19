@@ -30,7 +30,7 @@ object NoSatelliteProvider : SatelliteProvider {
  * real aerial/satellite imagery, served as a MapLibre-compatible style-JSON URL (same format
  * [com.lumix.estimator.map.OpenFreeMapProvider] already uses), so it drops into the exact same
  * `MapLibreMapView`/`setStyle` plumbing with no special-casing. [configure] is called once at
- * startup ([com.lumix.estimator.LumixApp.onCreate]) with `BuildConfig.SATELLITE_PROVIDER_API_KEY`
+ * startup ([com.lumix.estimator.LumixApp.onCreate]) with `BuildConfig.MAPTILER_API_KEY`
  * (itself sourced from `android/local.properties` — never hardcoded, never committed), the same
  * "read BuildConfig.* in exactly one place" pattern [com.lumix.estimator.domain.ai.AiConfig] and
  * [com.lumix.estimator.domain.monitoring.MonitoringConfig] already use, so this object stays plain
@@ -39,8 +39,8 @@ object NoSatelliteProvider : SatelliteProvider {
  * free OpenFreeMap "Streets" view as the default instead — the app never breaks for a build with no
  * key configured.
  *
- * To activate: get a free MapTiler API key at https://cloud.maptiler.com/account/keys/ and add
- * `SATELLITE_PROVIDER_API_KEY=<your key>` to `android/local.properties`.
+ * To activate: add `MAPTILER_API_KEY=<your key>` to `android/local.properties` (create the file if
+ * it doesn't already exist — it's gitignored, so it's never committed).
  */
 object MapTilerSatelliteProvider : SatelliteProvider {
     @Volatile private var apiKey: String = ""

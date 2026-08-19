@@ -37,10 +37,11 @@ val solarmanAppId = localProp("SOLARMAN_APP_ID")
 val solarmanAppSecret = localProp("SOLARMAN_APP_SECRET")
 val solarOfThingsApiKey = localProp("SOLAR_OF_THINGS_API_KEY")
 val aiApiKey = localProp("AI_API_KEY")
-// "FUTURE SATELLITE SUPPORT" (2026-08-18): same build-now-activate-later pattern as the
-// manufacturer-API keys above — blank by default, so SatelliteProvider stays NoSatelliteProvider
-// (map view only, honestly labeled unavailable) until a real licensed-imagery key is added here.
-val satelliteProviderApiKey = localProp("SATELLITE_PROVIDER_API_KEY")
+// Satellite imagery (2026-08-18, provider chosen: MapTiler — see MapTilerSatelliteProvider's own
+// doc): same build-now-activate-later pattern as the manufacturer-API keys above — blank by
+// default, so SatelliteProvider stays NoSatelliteProvider (map view only, honestly labeled
+// unavailable) until a real key is added to android/local.properties as MAPTILER_API_KEY.
+val mapTilerApiKey = localProp("MAPTILER_API_KEY")
 
 android {
     namespace = "com.lumix.estimator"
@@ -64,7 +65,7 @@ android {
         buildConfigField("String", "SOLARMAN_APP_SECRET", "\"$solarmanAppSecret\"")
         buildConfigField("String", "SOLAR_OF_THINGS_API_KEY", "\"$solarOfThingsApiKey\"")
         buildConfigField("String", "AI_API_KEY", "\"$aiApiKey\"")
-        buildConfigField("String", "SATELLITE_PROVIDER_API_KEY", "\"$satelliteProviderApiKey\"")
+        buildConfigField("String", "MAPTILER_API_KEY", "\"$mapTilerApiKey\"")
     }
 
     buildTypes {

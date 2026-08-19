@@ -54,6 +54,6 @@ class LumixApp : Application() {
         AiConfig.configure(BuildConfig.AI_API_KEY)
         // 2026-08-18 ("let satellite view be the default view"): same read-once pattern as
         // AiConfig above — see MapTilerSatelliteProvider's own doc.
-        MapTilerSatelliteProvider.configure(BuildConfig.SATELLITE_PROVIDER_API_KEY)
+        MapTilerSatelliteProvider.configure(BuildConfig.MAPTILER_API_KEY)
     }
 }

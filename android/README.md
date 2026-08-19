@@ -6445,7 +6445,7 @@ the user which provider to use; they chose **MapTiler Satellite** and to add a r
   MapTiler's hosted `satellite` style (`https://api.maptiler.com/maps/satellite/style.json?key=...`),
   a MapLibre-compatible style-JSON URL exactly like `OpenFreeMapProvider`'s, so it needs zero special
   handling anywhere the style URL is consumed (raster vs. vector is transparent to `MapLibreMapView`).
-  Configured once at startup (`LumixApp.onCreate`) from `BuildConfig.SATELLITE_PROVIDER_API_KEY` — the
+  Configured once at startup (`LumixApp.onCreate`) from `BuildConfig.MAPTILER_API_KEY` — the
   exact same "read `BuildConfig.*` in one place only" pattern `AiConfig`/`MonitoringConfig` already
   use, so the provider object itself stays plain Kotlin and testable. The `build.gradle.kts` plumbing
   for this key already existed (from the original "build now, activate later" round) — no build file
@@ -6456,9 +6456,37 @@ the user which provider to use; they chose **MapTiler Satellite** and to add a r
   with "Streets" exactly as it did before this change, so every existing/other build is unaffected.
 
 **To activate:** get a free MapTiler key at https://cloud.maptiler.com/account/keys/ and add
-`SATELLITE_PROVIDER_API_KEY=<your key>` to `android/local.properties` (never committed).
+`MAPTILER_API_KEY=<your key>` to `android/local.properties` (never committed).
 
 **Verification caveat:** unchanged from A96/A97 above — this file still can't be compiled in this
 sandbox; the MapTiler style-URL format is per MapTiler's own published documentation, not verified
 against a live response in this environment. Run `./gradlew assembleDebug` and confirm imagery
 actually loads once a real key is dropped in.
+
+## A99 — MapTiler key activated: property renamed, secure setup verified
+
+The user provided a real MapTiler key (shared only in chat, never pasted into a tool call). Per
+their explicit last instruction, the key itself was **not** written to any file by this round —
+`local.properties` stays theirs to complete by hand, so it never has to be typed a second time.
+
+- Renamed the placeholder property end-to-end: `SATELLITE_PROVIDER_API_KEY` → **`MAPTILER_API_KEY`**
+  (in `app/build.gradle.kts`'s `localProp(...)` read, its `buildConfigField`, `SatelliteProvider.kt`'s
+  doc, and the `LumixApp.onCreate` call site) — now provider-specific like every other credential in
+  this app (`DEYE_API_KEY`, `LUXPOWER_API_KEY`, etc.), since MapTiler is the committed choice, not a
+  placeholder for an unknown future provider anymore.
+- Verified security posture before touching anything: `android/.gitignore` already excludes
+  `local.properties` (confirmed with `git check-ignore -v`, which matched); `git grep`+filesystem grep
+  across the whole repo for the literal key string returned zero hits, confirming it was never
+  present in any tracked or untracked file.
+- `android/local.properties` does not exist in this repo/sandbox and was deliberately left
+  uncreated — the build already handles a missing file identically to an empty one
+  (`Properties().apply { if (file.exists()) load(it) }`), so nothing depends on it existing yet, and
+  `MapTilerSatelliteProvider.isConfigured` stays `false` (falls back to "Streets") until the one line
+  below is added.
+
+**Exact line to add to `android/local.properties`** (create the file if it doesn't exist; one
+`KEY=value` line, same format as every other credential already documented in that file):
+
+```
+MAPTILER_API_KEY=<your MapTiler key>
+```
