@@ -6592,3 +6592,57 @@ many styles exist now or are added later.
 is a straightforward, low-risk color/background change (same pattern already applied once and
 presumably confirmed by the user for the switcher), but "now visible" isn't independently
 re-confirmed on a real device this round.
+
+## A103 — map Part 4: real drag-to-move vertex + edit-phase Undo/Redo
+
+User's Part 4 report: the roof trace tool doesn't support dragging/adjusting individual points,
+and has no Undo/Redo while editing an already-closed polygon — "Fix these so a user can trace a
+rough outline, then drag any vertex to correct it, and step backward/forward through their edits."
+
+**MOVE POINT — replaced the old tap-then-tap flow with a real press-and-drag gesture.** This app
+deliberately doesn't use MapLibre's classic `addMarker` annotations API (see `MapLibreMapView`'s
+own class doc — every marker/vertex is a `GeoJsonSource` + `CircleLayer` instead), so there's no
+first-class "draggable point" callback to hook into. Implemented by hand instead:
+- `MapLibreMapView`'s `onMapReady` callback is widened from `(MapLibreMap, Style) -> Unit` to
+  `(MapLibreMap, Style, MapView) -> Unit` so the caller can reach the raw Android `View`.
+- `SolarSiteMapScreen` attaches a `View.OnTouchListener` directly to that `MapView`
+  (`handleVertexDragTouch`). On `ACTION_DOWN` it hit-tests every roof vertex via
+  `MapLibreMap.projection.toScreenLocation`, within a 28dp touch-target radius (`kotlin.math.hypot`
+  on screen-pixel distance); on `ACTION_MOVE` it converts the finger's screen position back to a
+  map coordinate via `projection.fromScreenLocation` and live-updates that vertex; on
+  `ACTION_UP`/`ACTION_CANCEL` it ends the drag. The listener returns `true` only while an actual
+  vertex drag is in progress — every other touch (`false`) passes straight through to MapLibre's
+  own pan/zoom/tap handling underneath, unaffected.
+- MOVE mode's instructional text updated: "Press and drag a point to reposition it" (was "Tap a
+  point, then tap where it should move to").
+
+**Undo/Redo — real, separate history for the editing phase.** The pre-existing `redoStack` in
+`RoofDrawingService` is append-only-vertex granularity — correct for the DRAWING phase's
+tap-to-add-a-point flow, meaningless once a polygon is already closed and being edited (there's no
+"last added vertex" to pop). Added a second, snapshot-based history for editing
+(`editUndoStack`/`editRedoStack`, each entry a full vertex-list copy taken immediately before a
+mutation) that backs `deleteVertex`, `insertVertexAfter`, and the new drag flow:
+- `beginVertexDrag(index)` — called once on drag-start, takes the ONE undo snapshot for the whole
+  gesture. `updateVertexDragPosition(index, point)` — called on every subsequent move frame, does
+  *not* snapshot again (a drag fires many move events per second; snapshotting each would turn one
+  correction into dozens of undo steps). One drag gesture = exactly one undo step, regardless of
+  how far the finger travels. `endVertexDrag()` just clears the highlight.
+- `editUndo()`/`editRedo()` swap the live vertex list with the top of the opposite stack, pushing
+  the current state onto the other side first (so redo survives an undo, and vice versa).
+- `RoofEditingControls` gained Undo/Redo buttons, wired to `roofController.editUndo()`/`editRedo()`
+  and gated on `canUndoEdit`/`canRedoEdit` (disabled, not hidden, when the respective stack is
+  empty) — sits above the existing Clear Roof/Redraw/Done row.
+- All four places that reset the editable vertex buffer (`startDrawing`, `clear`, `cancelDrawing`,
+  `startEditing`) also clear both new stacks, so a fresh trace or a fresh edit session never
+  inherits undo history from an unrelated earlier one.
+
+**Not touched:** DELETE POINT and ADD POINT already routed through `pushEditSnapshot()` — no
+behavior change there beyond now being undoable, which was already the intent when those methods
+were written.
+
+**Verification caveat (unchanged):** this sandbox still cannot compile/run the app (no reachable
+Android Gradle Plugin — see this README's standing disclosure). The touch-hit-test math and
+snapshot-stack logic were traced by hand against MapLibre's documented `projection` API and
+`View.OnTouchListener` contract, but real-device drag feel (touch-target radius, whether the
+listener's `true`/`false` return correctly leaves normal map panning untouched) is not independently
+confirmed this round.

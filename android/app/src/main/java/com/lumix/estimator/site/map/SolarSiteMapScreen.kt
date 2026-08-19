@@ -1,6 +1,8 @@
 package com.lumix.estimator.site.map
 
 import android.Manifest
+import android.graphics.PointF
+import android.view.MotionEvent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -56,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.location.DeviceLocationManager
@@ -86,6 +89,7 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.FillLayer
@@ -95,6 +99,7 @@ import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
+import kotlin.math.hypot
 import org.maplibre.geojson.Polygon as GeoJsonPolygon
 
 private val pitchOptions: List<Double?> = listOf(null, 0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0)
@@ -300,6 +305,13 @@ fun SolarSiteMapScreen(
     var tileLoadErrorDetail by remember { mutableStateOf<String?>(null) }
     var editMode by remember { mutableStateOf(RoofEditMode.NONE) }
     var selectedStyleUrl by remember { mutableStateOf(mapStyleOptions().first().styleUrl) }
+    // 2026-08-19 (map Part 4, drag-to-move): which vertex index the raw touch listener below is
+    // currently mid-drag on, if any — mirrors roofController.selectedVertexIndex but is tracked
+    // here too since the touch listener isn't itself a @Composable and needs a stable place to
+    // read/write across ACTION_DOWN/MOVE/UP without recomposing on every move frame.
+    var draggingVertexIndex by remember { mutableStateOf<Int?>(null) }
+    val density = LocalDensity.current
+    val vertexTouchTargetPx = with(density) { 28.dp.toPx() }
 
     var searchQuery by remember { mutableStateOf(state.draftAddress ?: "") }
     var searchError by remember { mutableStateOf(false) }
@@ -404,25 +416,12 @@ fun SolarSiteMapScreen(
     fun handleMapClick(point: GeoPoint) {
         when {
             roofController.isDrawing -> roofController.addVertex(point)
-            roofController.isEditing && editMode == RoofEditMode.MOVE -> {
-                if (roofController.selectedVertexIndex != null) {
-                    roofController.moveSelectedVertexTo(point)
-                    roofController.clearSelection()
-                } else {
-                    // Nearest existing vertex within a small tolerance selects it; otherwise no-op —
-                    // MOVE POINT only relocates a vertex the installer actually tapped near.
-                    val nearest = roofController.vertices.withIndex().minByOrNull { (_, v) ->
-                        (v.latitude - point.latitude) * (v.latitude - point.latitude) +
-                            (v.longitude - point.longitude) * (v.longitude - point.longitude)
-                    }
-                    val toleranceDegSq = 0.00005 * 0.00005 * 200 // generous finger-sized tap tolerance
-                    if (nearest != null) {
-                        val d = (nearest.value.latitude - point.latitude) * (nearest.value.latitude - point.latitude) +
-                            (nearest.value.longitude - point.longitude) * (nearest.value.longitude - point.longitude)
-                        if (d < toleranceDegSq) roofController.selectVertex(nearest.index)
-                    }
-                }
-            }
+            // 2026-08-19 (map Part 4): MOVE is now a real press-and-drag gesture, handled entirely
+            // by the raw touch listener wired in onMapReady below (it consumes the touch stream
+            // itself before MapLibre's own click-gesture recognizer ever sees it, so this branch
+            // never actually fires for a real drag) — a plain tap that wasn't a drag (e.g. the
+            // user's finger didn't land within a vertex's touch target) intentionally does nothing.
+            roofController.isEditing && editMode == RoofEditMode.MOVE -> {}
             roofController.isEditing && editMode == RoofEditMode.DELETE -> {
                 val nearest = roofController.vertices.withIndex().minByOrNull { (_, v) ->
                     (v.latitude - point.latitude) * (v.latitude - point.latitude) +
@@ -438,11 +437,50 @@ fun SolarSiteMapScreen(
         }
     }
 
+    // 2026-08-19 (map Part 4, "drag any vertex to correct it"): a raw View.OnTouchListener on the
+    // MapView itself — see MapLibreMapView's own class doc for why (this app deliberately doesn't
+    // use MapLibre's annotation-marker API, so there's no first-class "draggable point" to
+    // delegate to). Returns true only while an actual vertex drag is in progress, so MapLibre's
+    // own pan/zoom/tap gesture recognizer is left completely alone for every other touch.
+    fun handleVertexDragTouch(map: MapLibreMap, event: MotionEvent): Boolean {
+        if (!roofController.isEditing || editMode != RoofEditMode.MOVE) return false
+        return when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                val touchPoint = PointF(event.x, event.y)
+                val hit = roofController.vertices.withIndex().minByOrNull { (_, v) ->
+                    val screen = map.projection.toScreenLocation(v.toLatLng())
+                    hypot((screen.x - touchPoint.x).toDouble(), (screen.y - touchPoint.y).toDouble())
+                }
+                val hitIndex = hit?.let { (index, v) ->
+                    val screen = map.projection.toScreenLocation(v.toLatLng())
+                    val distancePx = hypot((screen.x - touchPoint.x).toDouble(), (screen.y - touchPoint.y).toDouble())
+                    if (distancePx <= vertexTouchTargetPx) index else null
+                }
+                if (hitIndex != null) roofController.beginVertexDrag(hitIndex)
+                draggingVertexIndex = hitIndex
+                hitIndex != null
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val index = draggingVertexIndex ?: return false
+                val newLatLng = map.projection.fromScreenLocation(PointF(event.x, event.y))
+                roofController.updateVertexDragPosition(index, newLatLng.toGeoPoint())
+                true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val wasDragging = draggingVertexIndex != null
+                if (wasDragging) roofController.endVertexDrag()
+                draggingVertexIndex = null
+                wasDragging
+            }
+            else -> false
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         MapLibreMapView(
             styleUrl = selectedStyleUrl,
             modifier = Modifier.fillMaxSize(),
-            onMapReady = { map, style ->
+            onMapReady = { map, style, view ->
                 mapLibreMap = map
                 tileLoadError = false
                 tileLoadErrorDetail = null
@@ -457,6 +495,11 @@ fun SolarSiteMapScreen(
                     handleMapClick(latLng.toGeoPoint())
                     true
                 }
+
+                // 2026-08-19 (map Part 4): consumes the touch stream itself (returns true) only
+                // while an actual vertex drag is in progress; returning false for everything else
+                // lets MapLibre's own View dispatch the event onward for normal pan/zoom/tap.
+                view.setOnTouchListener { _, event -> handleVertexDragTouch(map, event) }
             },
             onStyleLoadFailed = { errorMessage ->
                 tileLoadError = true
@@ -627,7 +670,11 @@ fun SolarSiteMapScreen(
                         val vertices = roofController.finishEditing()
                         if (vertices.size >= 3) roofFormVertices = vertices
                         editMode = RoofEditMode.NONE
-                    }
+                    },
+                    onUndo = roofController::editUndo,
+                    onRedo = roofController::editRedo,
+                    canUndo = roofController.canUndoEdit,
+                    canRedo = roofController.canRedoEdit
                 )
                 else -> SiteAnalysisPanel(
                     hasLocation = state.hasLocation,
@@ -853,7 +900,11 @@ private fun RoofEditingControls(
     onModeChange: (RoofEditMode) -> Unit,
     onClear: () -> Unit,
     onRedraw: () -> Unit,
-    onDone: () -> Unit
+    onDone: () -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    canUndo: Boolean,
+    canRedo: Boolean
 ) {
     val palette = LocalLumixPalette.current
     GlassSurface(shape = RoundedCornerShape(LumixRadius.lg)) {
@@ -861,7 +912,8 @@ private fun RoofEditingControls(
             Text(
                 when (mode) {
                     RoofEditMode.NONE -> "Editing roof — choose an action below"
-                    RoofEditMode.MOVE -> "Tap a point, then tap where it should move to"
+                    // 2026-08-19 (map Part 4): MOVE is now a real press-and-drag, not tap-then-tap.
+                    RoofEditMode.MOVE -> "Press and drag a point to reposition it"
                     RoofEditMode.DELETE -> "Tap a point to delete it"
                     RoofEditMode.ADD -> "Tap the map to add a new point"
                 },
@@ -872,6 +924,13 @@ private fun RoofEditingControls(
                 ModeChip("Move", mode == RoofEditMode.MOVE, Modifier.weight(1f)) { onModeChange(if (mode == RoofEditMode.MOVE) RoofEditMode.NONE else RoofEditMode.MOVE) }
                 ModeChip("Delete", mode == RoofEditMode.DELETE, Modifier.weight(1f)) { onModeChange(if (mode == RoofEditMode.DELETE) RoofEditMode.NONE else RoofEditMode.DELETE) }
                 ModeChip("Add", mode == RoofEditMode.ADD, Modifier.weight(1f)) { onModeChange(if (mode == RoofEditMode.ADD) RoofEditMode.NONE else RoofEditMode.ADD) }
+            }
+            // 2026-08-19 (map Part 4, "step backward/forward through their edits"): undo/redo the
+            // editing-phase snapshot history (RoofDrawingService.editUndo/editRedo) — separate from
+            // the DRAWING-phase undo already offered by RoofDrawingControls above.
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                LumixSecondaryButton(text = "Undo", onClick = onUndo, enabled = canUndo, modifier = Modifier.weight(1f))
+                LumixSecondaryButton(text = "Redo", onClick = onRedo, enabled = canRedo, modifier = Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 LumixSecondaryButton(text = "Clear Roof", onClick = onClear, modifier = Modifier.weight(1f))

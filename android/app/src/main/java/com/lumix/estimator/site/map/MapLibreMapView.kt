@@ -46,7 +46,16 @@ import org.maplibre.android.module.http.HttpRequestUtil
 fun MapLibreMapView(
     styleUrl: String,
     modifier: Modifier = Modifier,
-    onMapReady: (MapLibreMap, Style) -> Unit,
+    /**
+     * 2026-08-19 map Part 4 ("drag any vertex to correct it"): widened to also hand back the raw
+     * [MapView] — MapLibre's public annotation API is deliberately unused here (see this file's own
+     * class doc), so a real drag gesture needs the caller to attach its own `View.OnTouchListener`
+     * directly on the map's Android `View` and do its own screen<->LatLng hit-testing via
+     * `MapLibreMap.projection`; there's no first-class "draggable point" callback to delegate to
+     * instead. [MapView] is stable for the whole composable's lifetime (created once in [factory]
+     * below), so the caller only needs to attach its listener once, here.
+     */
+    onMapReady: (MapLibreMap, Style, MapView) -> Unit,
     /**
      * 2026-08-19 map diagnostics (Part 1): carries MapLibre's own [errorMessage] through instead of
      * discarding it — `OnDidFailLoadingMapListener.onDidFailLoadingMap(String)` is the stable
@@ -89,7 +98,7 @@ fun MapLibreMapView(
                 Log.d("LumixMapDiag", "requesting style: $styleUrl")
                 map.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
                     Log.d("LumixMapDiag", "style loaded OK: $styleUrl")
-                    onMapReady(map, style)
+                    onMapReady(map, style, view)
                 }
             }
             // This listener is registered once on the persistent MapView, so it also fires for
