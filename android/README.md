@@ -6693,3 +6693,49 @@ two missing pre-emptive UI moments.
 already-used domain functions with the same inputs those functions' existing call sites already
 pass, so the risk surface is narrow, but the UI itself is not confirmed rendering on a real device
 this round.
+
+## A105 — map Part 6: distance/A-to-B measurement tool
+
+User's Part 6 request: "Add a way to pin two points and measure the distance between them on the
+map (useful for cable runs, roof-to-inverter placement distance, etc.)"
+
+**New, independent map mode — not part of `RoofDrawingService`.** A measurement is just two points
+and a distance, with no drawing/undo history worth its own state machine, so this is plain
+`remember` state in `SolarSiteMapScreen` (`measureModeActive`, `measurePointA`, `measurePointB`),
+toggled by a new "Measure" floating control (ruler icon, same `MapControlButton` shell as the
+other floating controls — `active = measureModeActive` gives it the same yellow-highlight state
+the 3D toggle already uses). Turning the mode off clears any in-progress pins — nothing about a
+measurement is saved, unlike a traced roof, so there's nothing to preserve.
+
+**Tap flow:** first tap places point A, second tap places point B and shows the distance; a third
+tap starts over from a fresh point A (rather than requiring an explicit Clear first — matches how
+a real measuring tool naturally gets reused for a second measurement). `handleMapClick`'s existing
+`when` gives roof tracing/editing priority over measuring — a roof session already in progress
+always wins a tap, so the two modes can never fight over the same click.
+
+**Rendering:** two new `GeoJsonSource`/layer pairs (`lumix-measure-points` as a `CircleLayer`,
+`lumix-measure-line` as a dashed `LineLayer`), both a distinct blue (`#4DA6FF`) so a measurement
+reads as clearly different from the yellow roof outline/vertices or the red drag-selected vertex —
+added in `addRoofTracingLayers` (so they survive a runtime style swap, same as every other layer
+this screen manages) and pushed every recomposition from the same `SideEffect` block that already
+syncs the roof/pin layers.
+
+**Distance math:** `haversineMeters(GeoPoint, GeoPoint)` — standard great-circle distance. No
+existing distance helper in this codebase applied here (`DeliveryCalculator.distanceKm` is a
+routing-network estimate between named locations for delivery pricing, not a point-to-point
+geometric calculation; `PanelLayoutOptimizer`'s local-meters projection is a different, roof-local
+coordinate system). Displayed in both meters and feet (`"%.1f m  (%.1f ft)"`), since Jamaica
+construction/electrical trade practice mixes both units depending on context (cable run length vs.
+a specification sheet in feet).
+
+**Bottom panel:** a new `MeasureControls` composable, same `GlassSurface` card shell and
+Clear/Done button row pattern as `RoofEditingControls`/`RoofDrawingControls` — instructional text
+tracks which point is still needed ("Tap the map to place the first/second point"), then shows the
+distance once both points exist. Wired into the screen's existing bottom-panel `when` block,
+between the roof-editing branch and the default `SiteAnalysisPanel`.
+
+**Verification caveat (unchanged):** sandbox still can't compile/run. `PropertyFactory.lineDasharray`
+is used for the first time in this codebase (every other line layer here is solid) — this is a
+standard MapLibre/Mapbox style-spec property (`line-dasharray`), but unlike the rest of this
+round's changes, it's not already proven-in-use elsewhere in this app, so it's the one part of this
+change worth a second look if the dashed line doesn't render as expected on a real device.

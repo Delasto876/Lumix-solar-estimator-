@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.ThreeDRotation
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Icon
@@ -100,7 +101,11 @@ import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
+import kotlin.math.asin
+import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.sin
+import kotlin.math.sqrt
 import org.maplibre.geojson.Polygon as GeoJsonPolygon
 
 private val pitchOptions: List<Double?> = listOf(null, 0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0)
@@ -123,6 +128,11 @@ private const val SRC_ROOF_VERTICES = "lumix-roof-vertices"
 private const val LYR_ROOF_VERTICES = "lumix-roof-vertices-layer"
 private const val SRC_ROOF_SELECTED_VERTEX = "lumix-roof-selected-vertex"
 private const val LYR_ROOF_SELECTED_VERTEX = "lumix-roof-selected-vertex-layer"
+// 2026-08-19 (map Part 6, "pin two points and measure the distance between them"):
+private const val SRC_MEASURE_LINE = "lumix-measure-line"
+private const val LYR_MEASURE_LINE = "lumix-measure-line-layer"
+private const val SRC_MEASURE_POINTS = "lumix-measure-points"
+private const val LYR_MEASURE_POINTS = "lumix-measure-points-layer"
 
 /**
  * Every GeoJsonSource this screen manages, resolved once when the style finishes loading. Uses
@@ -138,11 +148,28 @@ private class MapLayerRefs(style: Style) {
     val roofOutline: GeoJsonSource = style.getSource(SRC_ROOF_OUTLINE) as GeoJsonSource
     val roofVertices: GeoJsonSource = style.getSource(SRC_ROOF_VERTICES) as GeoJsonSource
     val roofSelectedVertex: GeoJsonSource = style.getSource(SRC_ROOF_SELECTED_VERTEX) as GeoJsonSource
+    val measureLine: GeoJsonSource = style.getSource(SRC_MEASURE_LINE) as GeoJsonSource
+    val measurePoints: GeoJsonSource = style.getSource(SRC_MEASURE_POINTS) as GeoJsonSource
 }
 
 private fun GeoPoint.toLatLng() = LatLng(latitude, longitude)
 private fun LatLng.toGeoPoint() = GeoPoint(latitude, longitude)
 private fun GeoPoint.toGeoJsonPoint(): Point = Point.fromLngLat(longitude, latitude)
+
+/**
+ * 2026-08-19 (map Part 6, "measure the distance between them"): standard great-circle distance —
+ * accurate enough for the cable-run/roof-to-inverter placement distances this is meant for (tens
+ * to low hundreds of meters), where the earth's curvature is a rounding error either way.
+ */
+private fun haversineMeters(a: GeoPoint, b: GeoPoint): Double {
+    val earthRadiusM = 6371000.0
+    val lat1 = Math.toRadians(a.latitude)
+    val lat2 = Math.toRadians(b.latitude)
+    val dLat = Math.toRadians(b.latitude - a.latitude)
+    val dLon = Math.toRadians(b.longitude - a.longitude)
+    val h = sin(dLat / 2).let { it * it } + cos(lat1) * cos(lat2) * sin(dLon / 2).let { it * it }
+    return 2 * earthRadiusM * asin(sqrt(h.coerceIn(0.0, 1.0)))
+}
 
 private fun ringOf(vertices: List<GeoPoint>): List<Point> {
     val points = vertices.map { it.toGeoJsonPoint() }
@@ -266,6 +293,25 @@ private fun addRoofTracingLayers(style: Style) {
             PropertyFactory.circleStrokeWidth(2f)
         )
     )
+    // 2026-08-19 (map Part 6): a distinct blue so a measurement is never confused for the
+    // yellow roof outline or the red drag-selected vertex.
+    style.addSource(GeoJsonSource(SRC_MEASURE_LINE, FeatureCollection.fromFeatures(emptyList())))
+    style.addLayer(
+        LineLayer(LYR_MEASURE_LINE, SRC_MEASURE_LINE).withProperties(
+            PropertyFactory.lineColor(Color(0xFF4DA6FF).toArgb()),
+            PropertyFactory.lineWidth(3f),
+            PropertyFactory.lineDasharray(arrayOf(2f, 1.5f))
+        )
+    )
+    style.addSource(GeoJsonSource(SRC_MEASURE_POINTS, FeatureCollection.fromFeatures(emptyList())))
+    style.addLayer(
+        CircleLayer(LYR_MEASURE_POINTS, SRC_MEASURE_POINTS).withProperties(
+            PropertyFactory.circleRadius(7f),
+            PropertyFactory.circleColor(Color(0xFF4DA6FF).toArgb()),
+            PropertyFactory.circleStrokeColor(Color(0xFFFFFFFF).toArgb()),
+            PropertyFactory.circleStrokeWidth(2f)
+        )
+    )
 }
 
 /**
@@ -313,6 +359,15 @@ fun SolarSiteMapScreen(
     var draggingVertexIndex by remember { mutableStateOf<Int?>(null) }
     val density = LocalDensity.current
     val vertexTouchTargetPx = with(density) { 28.dp.toPx() }
+
+    // 2026-08-19 (map Part 6, "pin two points and measure the distance between them ... useful
+    // for cable runs, roof-to-inverter placement distance, etc."): deliberately independent of
+    // the roof-tracing state machine above — a separate on/off mode toggled from a floating
+    // control, not something that needs its own RoofDrawingService-style undo history (there's
+    // only ever at most 2 points).
+    var measureModeActive by remember { mutableStateOf(false) }
+    var measurePointA by remember { mutableStateOf<GeoPoint?>(null) }
+    var measurePointB by remember { mutableStateOf<GeoPoint?>(null) }
 
     var searchQuery by remember { mutableStateOf(state.draftAddress ?: "") }
     var searchError by remember { mutableStateOf(false) }
@@ -412,6 +467,17 @@ fun SolarSiteMapScreen(
                 FeatureCollection.fromFeatures(emptyList())
             }
         )
+        val measurePoints = listOfNotNull(measurePointA, measurePointB)
+        refs.measurePoints.setGeoJson(pointFeatures(measurePoints))
+        refs.measureLine.setGeoJson(
+            if (measurePoints.size == 2) {
+                FeatureCollection.fromFeatures(
+                    listOf(Feature.fromGeometry(org.maplibre.geojson.LineString.fromLngLats(measurePoints.map { it.toGeoJsonPoint() })))
+                )
+            } else {
+                FeatureCollection.fromFeatures(emptyList())
+            }
+        )
     }
 
     fun handleMapClick(point: GeoPoint) {
@@ -433,6 +499,13 @@ fun SolarSiteMapScreen(
             roofController.isEditing && editMode == RoofEditMode.ADD -> {
                 val afterIndex = roofController.selectedVertexIndex ?: (roofController.vertices.size - 1)
                 roofController.insertVertexAfter(afterIndex, point)
+            }
+            // 2026-08-19 (map Part 6): only reachable once roof tracing/editing above has already
+            // claimed the tap — a roof session in progress always takes priority over measuring.
+            measureModeActive -> when {
+                measurePointA == null -> measurePointA = point
+                measurePointB == null -> measurePointB = point
+                else -> { measurePointA = point; measurePointB = null }
             }
             else -> mapController.selectLocation(point)
         }
@@ -631,6 +704,20 @@ fun SolarSiteMapScreen(
                 },
                 contentDescription = "My location"
             ) { Icon(Icons.Default.MyLocation, contentDescription = null) }
+            // 2026-08-19 (map Part 6): turning measure mode off also clears any in-progress pins —
+            // leaving a stale point pinned after leaving the mode would be confusing, and there's
+            // nothing to preserve (measurements aren't saved anywhere, unlike a traced roof).
+            MapControlButton(
+                onClick = {
+                    measureModeActive = !measureModeActive
+                    if (!measureModeActive) {
+                        measurePointA = null
+                        measurePointB = null
+                    }
+                },
+                contentDescription = "Measure distance",
+                active = measureModeActive
+            ) { Icon(Icons.Default.Straighten, contentDescription = null) }
         }
 
         if (compassManager.isAvailable) {
@@ -676,6 +763,16 @@ fun SolarSiteMapScreen(
                     onRedo = roofController::editRedo,
                     canUndo = roofController.canUndoEdit,
                     canRedo = roofController.canRedoEdit
+                )
+                measureModeActive -> MeasureControls(
+                    pointA = measurePointA,
+                    pointB = measurePointB,
+                    onClear = { measurePointA = null; measurePointB = null },
+                    onDone = {
+                        measureModeActive = false
+                        measurePointA = null
+                        measurePointB = null
+                    }
                 )
                 else -> SiteAnalysisPanel(
                     hasLocation = state.hasLocation,
@@ -936,6 +1033,38 @@ private fun RoofEditingControls(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 LumixSecondaryButton(text = "Clear Roof", onClick = onClear, modifier = Modifier.weight(1f))
                 LumixSecondaryButton(text = "Redraw", onClick = onRedraw, modifier = Modifier.weight(1f))
+                LumixPrimaryButton(text = "Done", onClick = onDone, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** "Add a way to pin two points and measure the distance between them" (2026-08-19, map Part 6). */
+@Composable
+private fun MeasureControls(pointA: GeoPoint?, pointB: GeoPoint?, onClear: () -> Unit, onDone: () -> Unit) {
+    val palette = LocalLumixPalette.current
+    GlassSurface(shape = RoundedCornerShape(LumixRadius.lg)) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                when {
+                    pointA == null -> "Tap the map to place the first point"
+                    pointB == null -> "Tap the map to place the second point"
+                    else -> "Tap the map to start a new measurement"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = palette.textPrimary
+            )
+            if (pointA != null && pointB != null) {
+                val meters = haversineMeters(pointA, pointB)
+                Text(
+                    "%.1f m  (%.1f ft)".format(meters, meters * 3.28084),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.solarYellowText
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                LumixSecondaryButton(text = "Clear", onClick = onClear, modifier = Modifier.weight(1f))
                 LumixPrimaryButton(text = "Done", onClick = onDone, modifier = Modifier.weight(1f))
             }
         }
