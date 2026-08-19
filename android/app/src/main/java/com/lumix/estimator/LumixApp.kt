@@ -2,6 +2,8 @@ package com.lumix.estimator
 
 import android.app.Application
 import android.util.Log
+import com.google.android.gms.maps.MapsInitializer
+import com.google.android.gms.maps.OnMapsSdkInitializedCallback
 import com.lumix.estimator.auth.GoogleIdentityConfig
 import com.lumix.estimator.data.AppDatabase
 import com.lumix.estimator.data.CodeStandardRepository
@@ -30,6 +32,24 @@ class LumixApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 2026-08-19 ("map closes when i select it in app, it closes the apk"): the real cause —
+        // com.google.android.gms.maps.model.BitmapDescriptorFactory (used by
+        // SolarSiteMapScreen's buildMapMarkerIcons to draw the small dot marker icons) is backed
+        // by a remote delegate the Maps SDK only wires up once its runtime has actually started;
+        // calling it beforehand throws a NullPointerException. That call happens inside a
+        // `remember` block that runs synchronously during the map screen's very first
+        // composition — BEFORE the GoogleMap composable itself has had a chance to create the
+        // native map view and trigger that startup. MapsInitializer.initialize eagerly starts the
+        // Maps SDK runtime here at app launch instead, once, well before any screen could possibly
+        // reach that code — the same role ensureMapLibreInitialized(this) played for the MapLibre
+        // engine this replaced (removed in that switch; this restores the equivalent for Google's
+        // own SDK, which was the actual gap, not something the map-specific fixes since then had
+        // touched).
+        MapsInitializer.initialize(this, MapsInitializer.Renderer.LATEST, object : OnMapsSdkInitializedCallback {
+            override fun onMapsSdkInitialized(renderer: MapsInitializer.Renderer) {
+                Log.d("LumixMapDiag", "Maps SDK initialized, renderer=$renderer")
+            }
+        })
         val db = AppDatabase.get(this)
         quoteRepository = QuoteRepository(db.quoteDao())
         priceRepository = PriceRepository(this)

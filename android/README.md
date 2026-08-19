@@ -6969,3 +6969,43 @@ fix here is a well-reasoned response to the user's description, not a confirmed 
 from logs or a repro. Please confirm after a real build: pins staying put through zoom/pan, the
 confirm sheet scrolling to its Add Roof Plane button with the keyboard up, and the button rows
 reading as evenly-aligned.
+
+## A109 — fixed: app crashed immediately on opening the map
+
+User: "map closes when i select it in app, it closes the apk" — a real regression from the Google
+Maps switch, and a genuine gap this time, not a caveat.
+
+**Root cause:** `com.google.android.gms.maps.model.BitmapDescriptorFactory` (used by
+`SolarSiteMapScreen`'s `buildMapMarkerIcons` to draw the small colored dot marker icons — see
+A107's own doc for why not the default teardrop pin) is backed by a remote delegate the Maps SDK
+only wires up once its runtime has actually started. Calling it before that throws a
+`NullPointerException` — a long-documented Google Maps SDK gotcha. That call happens inside a
+`remember` block that runs synchronously during the map screen's very first composition, BEFORE
+the `GoogleMap` composable itself has had any chance to create the native map view and trigger
+that startup — so the very first time the screen tried to build its marker icons, before the map
+even existed yet, the app crashed.
+
+**Why this was missed in A107:** switching engines correctly removed
+`ensureMapLibreInitialized(this)` (MapLibre Native's own one-time runtime init call) from
+`LumixApp.onCreate()`, but nothing was added back in its place for Google's SDK — the map screen
+itself (style/camera/marker code) got a careful port, but the app-startup init call it silently
+depended on did not.
+
+**Fix:** `LumixApp.onCreate()` now calls `MapsInitializer.initialize(this, MapsInitializer
+.Renderer.LATEST, callback)` — the standard, documented fix for this exact crash pattern, and the
+direct Google-SDK equivalent of the `ensureMapLibreInitialized` call this replaced. Runs once at
+app launch, well before any screen could reach the marker-icon code.
+
+**If this doesn't fully resolve it:** the next most likely cause is `MAPS_API_KEY` itself being
+blank or invalid rather than simply unconfigured — an empty-but-present key can, in some Play
+Services versions, throw a harder exception than the graceful "blank map + `MapKeyMissingBanner`"
+this app is designed to fall back to. If the crash persists after this fix, the real next step is
+an actual Logcat stack trace (`adb logcat -s AndroidRuntime`, or Android Studio's own crash
+dialog) — everything in this project's map-related fixes so far has been diagnosed from the
+description alone (no device access in this sandbox), and a real stack trace is the fastest way to
+stop guessing and pin down anything further precisely.
+
+**Verification caveat (unchanged):** could not be run on a device. This IS the standard, correct
+fix for the documented `BitmapDescriptorFactory`-before-init crash and matches the exact mechanism
+the symptom describes, but it's still not a confirmed-by-repro fix — please confirm the map opens
+without crashing after this.
