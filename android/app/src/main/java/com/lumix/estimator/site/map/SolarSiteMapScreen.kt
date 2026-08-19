@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -92,6 +94,7 @@ import com.lumix.estimator.map.KnownPlace
 import com.lumix.estimator.network.NetworkConnectivityObserver
 import com.lumix.estimator.sensors.CompassManager
 import com.lumix.estimator.site.GeoPoint
+import com.lumix.estimator.site.PanelOrientation
 import com.lumix.estimator.site.ShadeAndExclusionSection
 import com.lumix.estimator.site.SolarCompassBadge
 import com.lumix.estimator.site.SolarSiteViewModel
@@ -347,8 +350,7 @@ fun SolarSiteMapScreen(
             onMapClick = { latLng -> handleMapClick(latLng.toGeoPoint()) }
         ) {
             mapController.selectedLocation?.let { loc ->
-                val pinState = remember(loc) { MarkerState(position = loc.toLatLng()) }
-                Marker(state = pinState, icon = markerIcons.selectedLocation, anchor = Offset(0.5f, 0.5f))
+                StaticGeoMarker(point = loc, icon = markerIcons.selectedLocation)
             }
 
             // Already-confirmed roof planes (from this session or an earlier one).
@@ -402,10 +404,13 @@ fun SolarSiteMapScreen(
                     pattern = listOf(Dash(30f), Gap(20f))
                 )
             }
-            measurePoints.forEach { point ->
-                key(point) {
-                    val ptState = remember(point) { MarkerState(position = point.toLatLng()) }
-                    Marker(state = ptState, icon = markerIcons.measurePoint, anchor = Offset(0.5f, 0.5f))
+            // key(index), not key(point): the SAME two slots (first pin, second pin) should keep
+            // stable marker identity across a measurement, not get torn down and recreated the
+            // instant either point moves — see StaticGeoMarker's own doc for why identity churn is
+            // the thing to avoid, not just "does the value look different."
+            measurePoints.forEachIndexed { index, point ->
+                key(index) {
+                    StaticGeoMarker(point = point, icon = markerIcons.measurePoint)
                 }
             }
         }
@@ -654,6 +659,36 @@ fun SolarSiteMapScreen(
 }
 
 /**
+ * 2026-08-19 ("when i set a point and zoom or move the map the point moves and does not stick to
+ * the area on the map that was pinned"): a non-draggable dot marker for a fixed geographic point
+ * (the selected-site pin, a measurement point) that stays correctly anchored through zoom/pan.
+ *
+ * The earlier version of this screen built each such marker's [MarkerState] via
+ * `remember(point) { MarkerState(...) }` — keying `remember` on the point's own value recreates a
+ * brand-new [MarkerState] (and tears down + re-adds the underlying native marker) every time that
+ * value's identity changes, which is the wrong tool here: Compose can legitimately re-run this
+ * composable's slot for reasons that have nothing to do with the point actually moving (recomposi-
+ * tion triggered by sibling state elsewhere in the same `GoogleMap` content block), and a marker
+ * that gets torn down and re-added mid-gesture is exactly what reads as "not sticking" during a
+ * zoom/pan. [markerState] is now `remember`ed with STABLE identity (no key at all — this
+ * composable's own call site is the only identity it needs) and its position is instead updated
+ * IN PLACE via [SideEffect] whenever [point] differs from what's currently shown, matching
+ * [RoofVertexMarker]'s own (already-correct, because it has to survive an active drag) pattern —
+ * unifying both marker kinds onto the one approach that's actually safe against Compose recomposing
+ * for unrelated reasons.
+ */
+@Composable
+private fun StaticGeoMarker(point: GeoPoint, icon: BitmapDescriptor) {
+    val markerState = remember { MarkerState(position = point.toLatLng()) }
+    SideEffect {
+        if (markerState.position != point.toLatLng()) {
+            markerState.position = point.toLatLng()
+        }
+    }
+    Marker(state = markerState, icon = icon, anchor = Offset(0.5f, 0.5f))
+}
+
+/**
  * 2026-08-19 ("change map to google map, ... drag any vertex to correct it"): a roof-trace vertex
  * rendered as a small dot [Marker] (see [buildMapMarkerIcons]'s own doc for why not the default
  * pin) that is draggable in-place via the Maps Compose SDK's own native marker-drag support —
@@ -847,10 +882,10 @@ private fun RoofDrawingControls(
                 color = palette.textPrimary
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                LumixSecondaryButton(text = "Undo", onClick = onUndo, enabled = vertexCount > 0, modifier = Modifier.weight(1f))
-                LumixSecondaryButton(text = "Clear", onClick = onClear, enabled = vertexCount > 0, modifier = Modifier.weight(1f))
-                LumixSecondaryButton(text = "Cancel", onClick = onCancel, modifier = Modifier.weight(1f))
-                LumixPrimaryButton(text = "Done", onClick = onDone, enabled = vertexCount >= 3, modifier = Modifier.weight(1f))
+                LumixSecondaryButton(text = "Undo", onClick = onUndo, enabled = vertexCount > 0, modifier = Modifier.weight(1f), compact = true)
+                LumixSecondaryButton(text = "Clear", onClick = onClear, enabled = vertexCount > 0, modifier = Modifier.weight(1f), compact = true)
+                LumixSecondaryButton(text = "Cancel", onClick = onCancel, modifier = Modifier.weight(1f), compact = true)
+                LumixPrimaryButton(text = "Done", onClick = onDone, enabled = vertexCount >= 3, modifier = Modifier.weight(1f), compact = true)
             }
         }
     }
@@ -888,13 +923,13 @@ private fun RoofEditingControls(
                 ModeChip("Add", mode == RoofEditMode.ADD, Modifier.weight(1f)) { onModeChange(if (mode == RoofEditMode.ADD) RoofEditMode.NONE else RoofEditMode.ADD) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                LumixSecondaryButton(text = "Undo", onClick = onUndo, enabled = canUndo, modifier = Modifier.weight(1f))
-                LumixSecondaryButton(text = "Redo", onClick = onRedo, enabled = canRedo, modifier = Modifier.weight(1f))
+                LumixSecondaryButton(text = "Undo", onClick = onUndo, enabled = canUndo, modifier = Modifier.weight(1f), compact = true)
+                LumixSecondaryButton(text = "Redo", onClick = onRedo, enabled = canRedo, modifier = Modifier.weight(1f), compact = true)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                LumixSecondaryButton(text = "Clear Roof", onClick = onClear, modifier = Modifier.weight(1f))
-                LumixSecondaryButton(text = "Redraw", onClick = onRedraw, modifier = Modifier.weight(1f))
-                LumixPrimaryButton(text = "Done", onClick = onDone, modifier = Modifier.weight(1f))
+                LumixSecondaryButton(text = "Clear", onClick = onClear, modifier = Modifier.weight(1f), compact = true)
+                LumixSecondaryButton(text = "Redraw", onClick = onRedraw, modifier = Modifier.weight(1f), compact = true)
+                LumixPrimaryButton(text = "Done", onClick = onDone, modifier = Modifier.weight(1f), compact = true)
             }
         }
     }
@@ -925,8 +960,8 @@ private fun MeasureControls(pointA: GeoPoint?, pointB: GeoPoint?, onClear: () ->
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                LumixSecondaryButton(text = "Clear", onClick = onClear, modifier = Modifier.weight(1f))
-                LumixPrimaryButton(text = "Done", onClick = onDone, modifier = Modifier.weight(1f))
+                LumixSecondaryButton(text = "Clear", onClick = onClear, modifier = Modifier.weight(1f), compact = true)
+                LumixPrimaryButton(text = "Done", onClick = onDone, modifier = Modifier.weight(1f), compact = true)
             }
         }
     }
@@ -979,12 +1014,12 @@ private fun SiteAnalysisPanel(
                         color = palette.textPrimary
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                        LumixSecondaryButton(text = "Trace Roof", onClick = onTraceRoof, modifier = Modifier.weight(1f))
+                        LumixSecondaryButton(text = "Trace Roof", onClick = onTraceRoof, modifier = Modifier.weight(1f), compact = true)
                         if (canEditRoof) {
-                            LumixSecondaryButton(text = "Edit Roof", onClick = onEditRoof, modifier = Modifier.weight(1f))
+                            LumixSecondaryButton(text = "Edit Roof", onClick = onEditRoof, modifier = Modifier.weight(1f), compact = true)
                         }
                         if (roofPlaneCount > 0) {
-                            LumixPrimaryButton(text = "Save Site", onClick = onSaveSite, modifier = Modifier.weight(1f))
+                            LumixPrimaryButton(text = "Save Site", onClick = onSaveSite, modifier = Modifier.weight(1f), compact = true)
                         }
                     }
                 }
@@ -1022,8 +1057,20 @@ private fun RoofConfirmForm(
     var exposurePercent by remember { mutableStateOf(100.0) }
     var excludedAreaM2 by remember { mutableStateOf(0.0) }
 
+    // 2026-08-19 ("the result pop up is chopped off at the bottom and i cannot scroll to see all
+    // data"): this form's content (8 fields + the panel-fit preview + the shade/exclusion section
+    // + the Cancel/Add Roof Plane row) routinely exceeds a ModalBottomSheet's visible height,
+    // especially with the keyboard up for a NumberField — but the Column had no scroll modifier at
+    // all, so anything past the visible edge was simply unreachable. verticalScroll makes the
+    // whole form scrollable; navigationBarsPadding + imePadding keep the last row (and the panel-
+    // fit line above it) clear of the nav bar and the keyboard instead of hiding behind either.
     Column(
-        modifier = Modifier.fillMaxWidth().padding(20.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp)
+            .navigationBarsPadding()
+            .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Confirm Roof Plane", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
@@ -1081,18 +1128,45 @@ private fun RoofConfirmForm(
                 null
             }
         }
+        // 2026-08-19 ("also use data from panel to use in sizing the panels when giving back data
+        // as to how much panels can be used in a specific area that is mapped and mapping can be
+        // irregularly shaped, measure how much panels can be fit in that area vertically"): this
+        // was already computed above via PanelLayoutOptimizer.optimize, which packs real panel
+        // rectangles against the traced polygon's EXACT outline (point-in-polygon + setback +
+        // exclusion-zone checks, not a bounding-box estimate — so an irregular roof shape is
+        // handled correctly) and tries BOTH orientations — vertical (portrait) rows and horizontal
+        // (landscape) rows — keeping whichever seats more panels. Given a bigger, more prominent
+        // callout here (was a single small line of `labelSmall` text, easy to miss scrolling past
+        // it) since it's the actual answer to "how many panels fit," not a minor detail.
         if (panelFitPreview != null) {
             val fitKw = panelFitPreview.panelCount * panelWattage / 1000.0
-            Text(
-                if (panelFitPreview.panelCount > 0) {
-                    "Fits %d panel(s) at this size and setback (~%.2f kWp), %s orientation."
-                        .format(panelFitPreview.panelCount, fitKw, panelFitPreview.orientation.name.lowercase())
-                } else {
-                    "No panels fit this roof at this size/setback — try a smaller panel or a smaller setback."
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = if (panelFitPreview.panelCount > 0) palette.textSecondary else palette.warningRedText
-            )
+            val orientationLabel = when (panelFitPreview.orientation) {
+                PanelOrientation.PORTRAIT -> "vertical (portrait) rows"
+                PanelOrientation.LANDSCAPE -> "horizontal (landscape) rows"
+            }
+            GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        if (panelFitPreview.panelCount > 0) {
+                            "Fits %d panel(s)  ·  ~%.2f kWp".format(panelFitPreview.panelCount, fitKw)
+                        } else {
+                            "No panels fit this roof at this size/setback"
+                        },
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (panelFitPreview.panelCount > 0) palette.textPrimary else palette.warningRedText
+                    )
+                    Text(
+                        if (panelFitPreview.panelCount > 0) {
+                            "Best fit uses $orientationLabel — both vertical and horizontal layouts were checked against this roof's exact traced outline (not just a rectangle around it)."
+                        } else {
+                            "Neither vertical nor horizontal rows fit at this panel size and setback — try a smaller panel or a smaller setback."
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textSecondary
+                    )
+                }
+            }
         }
 
         ShadeAndExclusionSection(

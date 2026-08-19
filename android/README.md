@@ -6911,3 +6911,61 @@ highest-risk file in this session to actually build — please run `./gradlew as
 and report back the exact error if anything doesn't resolve; `MarkerState.dragState`/`DragState`
 in particular is the one API called out in this round's own code comments as worth double-checking
 first if drag-to-move doesn't behave as described.
+
+## A108 — Google Maps follow-up: pin drift, chopped-off confirm sheet, button polish
+
+User feedback after the Google Maps switch: pins didn't stay anchored to the map while zooming/
+panning, the roof-confirm popup was chopped off at the bottom with no way to scroll, the roof-edit
+button rows looked "crooked," and a request to reinforce that panel-fit sizing already accounts
+for irregular roof shapes and both panel orientations.
+
+**Pin/marker drift.** The selected-location pin and the two measurement-point markers were each
+built via `remember(point) { MarkerState(position = ...) }` — keying `remember` on the point's own
+value recreates a brand-new `MarkerState` (tearing down and re-adding the underlying native
+marker) every time Compose reruns that call site for ANY reason, not just when the point actually
+moved. A marker torn down and re-added while the map is mid-zoom/pan is exactly what reads as "not
+sticking." New `StaticGeoMarker` composable: stable identity (no key at all), position updated IN
+PLACE via a `SideEffect` only when it actually differs from what's shown — the same pattern
+`RoofVertexMarker` (map Part 4's drag-to-move) already used because it has to survive an active
+drag without the SDK fighting the user's finger. All three marker kinds (site pin, measurement
+points, roof vertices) now share one correct approach instead of two different ones, one of which
+was fragile. Measurement points also switched from `key(point)` to `key(index)` — the first/second
+pin slots should keep stable identity across a measurement, not get recreated the instant either
+point moves.
+
+**Roof-confirm popup — chopped off, no scroll.** `RoofConfirmForm`'s `Column` (azimuth, pitch,
+panel width/height/wattage, setback, the panel-fit preview, the shade/exclusion section, Cancel/
+Add Roof Plane) had no `verticalScroll` at all — on a `ModalBottomSheet`, content taller than the
+visible sheet area was simply unreachable, worse with the keyboard up for a `NumberField`. Added
+`.verticalScroll(rememberScrollState())` plus `navigationBarsPadding()`/`imePadding()` so the last
+row and the panel-fit line above it stay clear of the nav bar and keyboard instead of hiding behind
+either.
+
+**"Crooked" buttons.** Real cause, not cosmetic-only: `RoofDrawingControls`' Undo/Clear/Cancel/Done
+row put 4 equal-`weight(1f)` buttons in one row at the base 24dp horizontal padding — too little
+width per button on a typical phone screen, so `Text`'s default unlimited-line behavior let some
+labels wrap to a second line while shorter ones on the same row didn't. Different button heights on
+one row reads as "crooked." Fixed at the component level, not just this one screen: `LumixButtonBase`
+gained a `compact` parameter (tighter padding, smaller type) plus **unconditional** `maxLines = 1` +
+ellipsis (no button anywhere can silently wrap to two lines again), and a soft drop shadow on every
+non-Ghost button — flat, shadowless buttons were the one thing missing for a "premium" feel; Ghost
+stays flat by design since it's meant to read as a bare label, not a raised surface. Applied
+`compact = true` everywhere this screen crowds 3-4 buttons onto one row: `RoofDrawingControls`,
+both `RoofEditingControls` rows, `MeasureControls`, and `SiteAnalysisPanel`'s Trace/Edit/Save row.
+
+**Panel-fit-in-irregular-area sizing — already correct, made more visible.** Audited
+`PanelLayoutOptimizer.optimize` again: it packs real panel rectangles against the traced polygon's
+EXACT outline (point-in-polygon + setback + exclusion-zone checks — not a bounding-box estimate,
+so an irregular roof shape is already handled correctly), and already tries BOTH orientations —
+vertical (portrait) rows and horizontal (landscape) rows — keeping whichever seats more panels. This
+was already built in map Part 5; the likely reason it read as missing is that its result lived as a
+single small `labelSmall` line inside the exact `RoofConfirmForm` that was chopped off above. Given
+a bigger, clearly-labeled callout instead (bold panel count + kWp, then which orientation won and
+an explicit statement that both were checked against the roof's real outline) so the answer to "how
+many panels fit" is now hard to miss rather than requiring scroll access that didn't exist.
+
+**Verification caveat (unchanged, same as A107):** none of this could be run on a device — every
+fix here is a well-reasoned response to the user's description, not a confirmed root-cause diagnosis
+from logs or a repro. Please confirm after a real build: pins staying put through zoom/pan, the
+confirm sheet scrolling to its Add Roof Plane button with the keyboard up, and the button rows
+reading as evenly-aligned.

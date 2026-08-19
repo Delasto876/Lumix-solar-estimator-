@@ -26,9 +26,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.ui.theme.LocalLumixPalette
@@ -45,6 +47,15 @@ private fun LumixButtonBase(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     loading: Boolean = false,
+    // 2026-08-19 ("buttons such as cancel, done and redo and undo is crocked"): the real cause —
+    // 3-4 equal-`weight(1f)` buttons sharing one row (RoofDrawingControls' Undo/Clear/Cancel/Done,
+    // RoofEditingControls' own rows) left too little width per button at the base 24dp horizontal
+    // padding, so `Text`'s default unlimited-lines behavior let some labels wrap to a second line
+    // while shorter ones on the same row didn't — different button heights on the same row reads
+    // as "crooked." `compact` is a real, distinct button treatment (tighter padding, smaller type,
+    // hard single-line truncation) for dense toolbar rows like those, not a hack — every button on
+    // a shared row now has the same fixed height regardless of label length.
+    compact: Boolean = false,
     leadingIcon: (@Composable () -> Unit)? = null
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -57,10 +68,15 @@ private fun LumixButtonBase(
 
     val shape: Shape = RoundedCornerShape(LumixRadius.pill)
     val (bgColor, contentColor, borderColor) = buttonColors(tone)
+    // A soft drop shadow (absent before — every button was perfectly flat) is what actually reads
+    // as "premium" on a solid-fill pill button; Ghost stays flat by design (it's meant to look
+    // like a bare label, not a raised surface), and a disabled button never casts one.
+    val elevation = if (enabled && tone != LumixButtonTone.Ghost) (if (pressed) 1.dp else 4.dp) else 0.dp
 
     Box(
         modifier = modifier
             .scale(scale)
+            .shadow(elevation = elevation, shape = shape, clip = false)
             .clip(shape)
             .background(if (enabled) bgColor else bgColor.copy(alpha = 0.35f))
             .then(if (borderColor != null) Modifier.border(1.dp, borderColor, shape) else Modifier)
@@ -70,7 +86,12 @@ private fun LumixButtonBase(
                 enabled = enabled && !loading,
                 onClick = onClick
             )
-            .padding(PaddingValues(horizontal = 24.dp, vertical = 14.dp)),
+            .padding(
+                PaddingValues(
+                    horizontal = if (compact) 12.dp else 24.dp,
+                    vertical = if (compact) 10.dp else 14.dp
+                )
+            ),
         contentAlignment = Alignment.Center
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -87,7 +108,9 @@ private fun LumixButtonBase(
                 text,
                 color = if (enabled) contentColor else contentColor.copy(alpha = 0.6f),
                 fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.titleSmall
+                style = if (compact) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -110,8 +133,9 @@ fun LumixPrimaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    loading: Boolean = false
-) = LumixButtonBase(text, onClick, LumixButtonTone.Primary, modifier, enabled, loading)
+    loading: Boolean = false,
+    compact: Boolean = false
+) = LumixButtonBase(text, onClick, LumixButtonTone.Primary, modifier, enabled, loading, compact)
 
 @Composable
 fun LumixSecondaryButton(
@@ -119,24 +143,27 @@ fun LumixSecondaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    loading: Boolean = false
-) = LumixButtonBase(text, onClick, LumixButtonTone.Secondary, modifier, enabled, loading)
+    loading: Boolean = false,
+    compact: Boolean = false
+) = LumixButtonBase(text, onClick, LumixButtonTone.Secondary, modifier, enabled, loading, compact)
 
 @Composable
 fun LumixGhostButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
-) = LumixButtonBase(text, onClick, LumixButtonTone.Ghost, modifier, enabled, false)
+    enabled: Boolean = true,
+    compact: Boolean = false
+) = LumixButtonBase(text, onClick, LumixButtonTone.Ghost, modifier, enabled, false, compact)
 
 @Composable
 fun LumixDangerButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
-) = LumixButtonBase(text, onClick, LumixButtonTone.Danger, modifier, enabled, false)
+    enabled: Boolean = true,
+    compact: Boolean = false
+) = LumixButtonBase(text, onClick, LumixButtonTone.Danger, modifier, enabled, false, compact)
 
 /** A round icon-only button with the same spring press feedback as the text buttons. */
 @Composable
