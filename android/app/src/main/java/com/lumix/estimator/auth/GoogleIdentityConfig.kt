@@ -4,7 +4,7 @@ package com.lumix.estimator.auth
  * 2026-08-19 ("do this google sign in/OAuth" — scope confirmed as identity-capture only: a
  * "Sign in with Google" button in Settings that fills in the installer's name/email, nothing
  * gated, no backend): same blank-by-default, "read BuildConfig in exactly one place" pattern as
- * [com.lumix.estimator.domain.ai.AiConfig]/[com.lumix.estimator.map.MapTilerSatelliteProvider].
+ * [com.lumix.estimator.domain.ai.AiConfig]/[com.lumix.estimator.map.GoogleMapsConfig].
  * [com.lumix.estimator.LumixApp.onCreate] calls [configure] once at startup with
  * `BuildConfig.GOOGLE_WEB_CLIENT_ID`, itself sourced from `android/local.properties` (see
  * `app/build.gradle.kts`) — never hardcoded, never committed.

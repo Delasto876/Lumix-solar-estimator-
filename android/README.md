@@ -6803,3 +6803,111 @@ libraries at all (no network access to Maven Central here). The API surface used
 Credential Manager "Sign in with Google" integration guide, but — like `MapLibreMapView.kt`'s own
 standing disclosure — this is the one new file this round where a real `./gradlew assembleDebug`
 should be run first if anything doesn't resolve.
+
+## A107 — map engine switched to Google Maps SDK (reverses the MapLibre round)
+
+User: "change map to google map, i am going to use google map api in the app." This reverses the
+earlier "REPLACE THE CURRENT MAP IMPLEMENTATION" round (MapLibre Native + MapTiler/OpenFreeMap),
+which had moved off Google Maps specifically to avoid needing an API key/billing account. The user
+now has (or is getting) a real Google Maps key, so that original constraint no longer applies.
+Confirmed with the user before starting: identity-capture-style placeholder wiring (a blank
+`MAPS_API_KEY` the app builds against now, real key added to `local.properties` later), not a key
+supplied in this session.
+
+**Every roof-tracing/measurement feature built across map Parts 1-6 this session was ported, not
+dropped** — satellite/terrain switching, roof tracing with drag-to-move + Undo/Redo, the live
+panel-fit preview, and the A-to-B distance tool all work the same way on the new engine.
+
+**Setup (required before the map renders anything):**
+1. A Google Maps API key, restricted in Google Cloud Console to the **Maps SDK for Android** API,
+   and to this app's package name (`com.lumix.estimator.debug` for debug builds,
+   `com.lumix.estimator` for release) + SHA-1 signing fingerprint — the same two facts
+   `GoogleIdentityConfig`'s Android OAuth client needed; see that file's doc for how to find them.
+   This is a plain **API key**, not an OAuth client — a different, simpler credential type from
+   the Sign-In-with-Google one added last round.
+2. Add to `android/local.properties`:
+   ```
+   MAPS_API_KEY=<your key>
+   ```
+3. That's it — Gradle threads it into both `AndroidManifest.xml` (as the
+   `com.google.android.geo.API_KEY` meta-data the Maps SDK reads directly, via a
+   `manifestPlaceholders["MAPS_API_KEY"]` in `app/build.gradle.kts`) and `BuildConfig` (for
+   `GoogleMapsConfig`'s own masked presence-check log + the in-app "not configured" banner). Blank
+   by default — the map area stays blank with an explanatory banner instead of silently failing,
+   until a real key is added.
+
+**Removed:** `MapLibreMapView.kt`, `SatelliteProvider.kt` (`MapTilerSatelliteProvider`/
+`NoSatelliteProvider`), `BaseMapProvider.kt` (`OpenFreeMapProvider`), the `org.maplibre.gl`
+dependency, and `MapController`'s dead `MapLayer` enum (already-unused, superseded by Google
+Maps' own `MapType`). **Added:** `play-services-maps` + `maps-compose` (Google's official Jetpack
+Compose bindings — `GoogleMap`/`Marker`/`Polygon`/`Polyline` composables), `GoogleMapsConfig.kt`
+(same read-once-in-`LumixApp.onCreate` pattern every other credential in this app uses).
+
+**`SolarSiteMapScreen.kt` — what actually changed under the hood, feature by feature:**
+- **Roof fill/outline** (both the actively-traced/edited roof and every saved plane): was
+  `GeoJsonSource` + `FillLayer`/`LineLayer` pairs, manually pushed via a `SideEffect` on every
+  recomposition. Now a single declarative `Polygon(points, fillColor, strokeColor, strokeWidth)`
+  composable per shape — Maps Compose handles both fill and stroke in one call, and there's no
+  more manual GeoJSON-feature-building or imperative source-pushing at all.
+- **Roof vertices** (map Part 4's drag-to-move + Undo/Redo): the MapLibre version had no
+  annotation-marker API, so dragging needed a hand-rolled `View.OnTouchListener` +
+  `MapLibreMap.projection` screen-coordinate hit-testing. Google Maps Compose has REAL native
+  marker dragging (`Marker(draggable = true)`, tracked via `MarkerState.dragState`), so
+  `RoofVertexMarker` (new) uses that directly — genuinely simpler and more precise than the code
+  it replaces, not just a port. DELETE mode similarly upgraded from a "nearest tapped point"
+  distance approximation to an exact `Marker.onClick` hit on the vertex actually tapped.
+  `RoofDrawingService`'s undo/redo/drag state machine (map Part 4's own domain logic) is
+  completely engine-agnostic and needed **zero changes** — proof the earlier layering (domain
+  logic vs. map-rendering code) was done right the first time.
+- **Vertices render as small colored dots, not default teardrop pins** — a vertex is a point on a
+  line, not "a place," and Maps Compose has no built-in circular-marker primitive (`Circle` draws
+  a geographic-radius circle sized in meters, not a fixed-pixel screen marker) — so
+  `dotBitmapDescriptor` procedurally draws the same small-circle-with-outline look the old
+  `CircleLayer` rendered, once per color/size combination via `BitmapDescriptorFactory
+  .fromBitmap`, cached with `remember`.
+- **Base-map/satellite/terrain switching**: was a `MapStyleOption` list of MapTiler/OpenFreeMap
+  style URLs, gated behind whether a MapTiler key existed. Now Google Maps' own native `MapType`
+  enum (NORMAL/SATELLITE/TERRAIN/HYBRID) — always available, no separate imagery-provider key
+  needed beyond the one Maps API key. Satellite stays the default, per the original "let satellite
+  view be the default view" decision — only the provider changed, not that choice.
+- **Traffic — a real toggle now, not a flagged gap.** Map Part 2 explicitly declined to add a
+  Traffic button because neither MapLibre nor MapTiler had any live-traffic data source at all.
+  Google Maps' SDK has genuine built-in traffic data (`MapProperties.isTrafficEnabled`), so this
+  round adds a real Traffic toggle to the floating controls — directly resolving that earlier,
+  explicitly-documented limitation now that the underlying capability actually exists.
+- **Distance measurement** (map Part 6): the dashed blue line is now a `Polyline` with a
+  `pattern = listOf(Dash(30f), Gap(20f))` instead of `PropertyFactory.lineDasharray` — same visual
+  result, native Maps Compose API. `haversineMeters` (the actual distance math) is engine-agnostic
+  and unchanged.
+- **Camera control** (zoom/pan/3D tilt): `MapLibreMap`/`CameraUpdateFactory`/`CameraPosition` had
+  an API MapLibre deliberately mirrors from Google's own SDK (a historical Mapbox-lineage design
+  choice) — `CameraPositionState`/`CameraUpdateFactory`/`CameraPosition.Builder` translate almost
+  1:1, including `zoomIn()`/`zoomOut()`/`newLatLngZoom()`/`.tilt()` all existing under the same
+  names in Google's real API.
+- **"Tile failed to load" detection**: MapLibre exposed a real `onDidFailLoadingMap` callback this
+  screen used for Part 1's diagnostics (a 401/403 from a bad key surfaced as actual error text).
+  Google's Maps SDK has no public Compose-level equivalent — an invalid/missing key instead
+  renders blank gray tiles and logs internally to Logcat, not to app code. `MapKeyMissingBanner`
+  (new) replaces the old reactive `TileErrorBanner` with a pre-emptive check instead
+  (`GoogleMapsConfig.isConfigured`) — still "never a silently blank map with no explanation," just
+  detected before the fact rather than after, since the SDK doesn't offer an after-the-fact hook.
+
+**Not changed:** `RoofDrawingService.kt` (all of Part 4's drag/undo/redo domain logic),
+`PanelLayoutOptimizer`/`RoofGeometryEngine` (Part 5's panel-fit math), `haversineMeters` (Part 6's
+distance math), `MapController`'s `selectedLocation`/`is3D` state, `RoofConfirmForm`/
+`SiteAnalysisPanel`/`RoofDrawingControls`/`RoofEditingControls`/`MeasureControls`/`ModeChip` (all
+pure Compose UI with zero map-engine dependency) — confirming the map-rendering layer really was
+cleanly separated from both the domain logic and the non-map UI, which is exactly why swapping the
+underlying engine touched only `SolarSiteMapScreen.kt` and a handful of small config/plumbing
+files, not the roof-tracing feature's actual logic.
+
+**Verification caveat (unchanged, if anything more relevant than usual this round):** sandbox still
+can't compile/run — no Android SDK, and this round additionally can't be verified against the real
+`com.google.maps.android:maps-compose`/`play-services-maps` libraries at all (no Maven Central
+access here). The API surface used (`GoogleMap`, `MapProperties`, `MapUiSettings`,
+`CameraPositionState`, `Marker`/`MarkerState`/`DragState`, `Polygon`, `Polyline`, `Dash`/`Gap`) is
+written from Google's own published Maps Compose documentation and samples, but this is easily the
+highest-risk file in this session to actually build — please run `./gradlew assembleDebug` first
+and report back the exact error if anything doesn't resolve; `MarkerState.dragState`/`DragState`
+in particular is the one API called out in this round's own code comments as worth double-checking
+first if drag-to-move doesn't behave as described.

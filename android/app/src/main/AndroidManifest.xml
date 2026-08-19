@@ -16,6 +16,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.LumixEstimator">
 
+        <!-- 2026-08-19 ("change map to google map"): the Maps SDK reads its key from here at
+             runtime, not from BuildConfig — ${MAPS_API_KEY} is a manifest placeholder resolved by
+             Gradle from android/local.properties (see app/build.gradle.kts's mapsApiKey doc).
+             Blank by default; the map won't render tiles until a real key is added. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${MAPS_API_KEY}" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

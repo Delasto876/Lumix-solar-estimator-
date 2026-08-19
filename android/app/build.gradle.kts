@@ -8,11 +8,12 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-// "REPLACE THE CURRENT MAP IMPLEMENTATION" (2026-08-18): the Solar Site map now runs on
-// MapLibre Native + OpenFreeMap (see the `map` package) — no API key, billing account, or
-// local.properties entry required for the base map at all. local.properties itself is kept for
-// the credential placeholders below (manufacturer APIs, AI) and the future satellite-imagery
-// provider placeholder, none of which the base map depends on.
+// 2026-08-19 ("change map to google map, i am going to use google map api in the app"): the
+// Solar Site map now runs on the Google Maps SDK for Android (via `com.google.maps.android
+// :maps-compose`) — reverses the earlier "REPLACE THE CURRENT MAP IMPLEMENTATION" round that
+// moved off Google Maps specifically to avoid needing an API key/billing account. The user now
+// has (or is getting) a real Maps key, so that constraint no longer applies. local.properties
+// carries the key the same blank-by-default way as every other credential below.
 val localProperties = Properties().apply {
     val localPropertiesFile = rootProject.file("local.properties")
     if (localPropertiesFile.exists()) {
@@ -37,11 +38,15 @@ val solarmanAppId = localProp("SOLARMAN_APP_ID")
 val solarmanAppSecret = localProp("SOLARMAN_APP_SECRET")
 val solarOfThingsApiKey = localProp("SOLAR_OF_THINGS_API_KEY")
 val aiApiKey = localProp("AI_API_KEY")
-// Satellite imagery (2026-08-18, provider chosen: MapTiler — see MapTilerSatelliteProvider's own
-// doc): same build-now-activate-later pattern as the manufacturer-API keys above — blank by
-// default, so SatelliteProvider stays NoSatelliteProvider (map view only, honestly labeled
-// unavailable) until a real key is added to android/local.properties as MAPTILER_API_KEY.
-val mapTilerApiKey = localProp("MAPTILER_API_KEY")
+// 2026-08-19 ("change map to google map"): a Google Maps SDK for Android key — a plain API key
+// (not an OAuth client), restricted in Google Cloud Console to the "Maps SDK for Android" API and
+// to this app's package name + SHA-1 (same two facts GoogleIdentityConfig's Android OAuth client
+// needed — see that file's doc for how to find them). Read into a manifest placeholder below
+// (the Maps SDK reads its key from AndroidManifest.xml's own `com.google.android.geo.API_KEY`
+// meta-data, not from BuildConfig at runtime — unlike every other credential in this file) AND
+// into BuildConfig, purely so GoogleMapsConfig can log a masked presence-check the same way
+// MAPTILER_API_KEY's Part 1 diagnostics did.
+val mapsApiKey = localProp("MAPS_API_KEY")
 // 2026-08-19 ("do this google sign in/OAuth" — identity-capture only, see GoogleIdentityConfig's
 // own doc): a "Web application" type OAuth 2.0 client ID from Google Cloud Console — NOT the
 // "Android" type client (package name + SHA-1) that also has to exist in the same Cloud project
@@ -70,8 +75,14 @@ android {
         buildConfigField("String", "SOLARMAN_APP_SECRET", "\"$solarmanAppSecret\"")
         buildConfigField("String", "SOLAR_OF_THINGS_API_KEY", "\"$solarOfThingsApiKey\"")
         buildConfigField("String", "AI_API_KEY", "\"$aiApiKey\"")
-        buildConfigField("String", "MAPTILER_API_KEY", "\"$mapTilerApiKey\"")
+        buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
+        // The Maps SDK itself reads this manifest placeholder (see AndroidManifest.xml's
+        // com.google.android.geo.API_KEY meta-data) — a blank value here is a legal-but-useless
+        // key the SDK will reject at runtime, same "build now, activate later" shape as every
+        // other credential in this app; the map just won't render tiles until a real key lands in
+        // local.properties, same as MapLibre needed a real MapTiler key for satellite before this.
+        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
     buildTypes {
@@ -160,16 +171,17 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
 
-    // "REPLACE THE CURRENT MAP IMPLEMENTATION" (2026-08-18): the Solar Site map now renders on
-    // MapLibre Native's Android SDK (not the JS/web "MapLibre GL JS" the request named — that
-    // library is for browsers; this is the native Kotlin binding of the same open-source engine,
-    // consuming the identical style-JSON format, so the OpenFreeMap "Liberty" style URL is used
-    // unchanged — see com.lumix.estimator.map.OpenFreeMapProvider's own doc). Published to Maven
-    // Central under org.maplibre.gl — no Google Maven repo dependency, no API key, no billing
-    // account. Version below is believed current as of writing but, like the note this replaces,
-    // could not be verified against Maven Central in this environment (network-restricted
-    // sandbox) — bump to latest in Android Studio if Gradle reports a newer one available.
-    implementation("org.maplibre.gl:android-sdk:11.8.1")
+    // 2026-08-19 ("change map to google map, i am going to use google map api in the app"): the
+    // Solar Site map now renders on the real Google Maps SDK for Android, via its official
+    // Jetpack Compose bindings — GoogleMap/Marker/Polygon/Polyline composables instead of hand-
+    // rolled GeoJsonSource/style-layer plumbing. play-services-maps is the SDK itself;
+    // maps-compose is the Compose wrapper Google publishes for it. Requires a real
+    // MAPS_API_KEY in local.properties to render tiles — see this file's own mapsApiKey doc.
+    // Versions believed current as of writing but, like every other dependency version in this
+    // file, could not be verified against Maven Central in this network-restricted sandbox —
+    // bump to latest in Android Studio if Gradle reports newer ones available.
+    implementation("com.google.android.gms:play-services-maps:19.0.0")
+    implementation("com.google.maps.android:maps-compose:6.1.2")
     // Device location for the "My Location" button — the Fused Location Provider, a distinct
     // Play Services module from Maps itself; no API key or billing account either.
     implementation("com.google.android.gms:play-services-location:21.3.0")

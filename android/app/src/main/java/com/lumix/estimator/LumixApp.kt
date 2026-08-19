@@ -11,9 +11,8 @@ import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.ai.AiConfig
 import com.lumix.estimator.domain.monitoring.MonitoringConfig
 import com.lumix.estimator.domain.monitoring.MonitoringCredentials
-import com.lumix.estimator.map.MapTilerSatelliteProvider
+import com.lumix.estimator.map.GoogleMapsConfig
 import com.lumix.estimator.site.SiteRepository
-import com.lumix.estimator.site.map.ensureMapLibreInitialized
 
 class LumixApp : Application() {
     lateinit var quoteRepository: QuoteRepository
@@ -31,10 +30,6 @@ class LumixApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        // "REPLACE THE CURRENT MAP IMPLEMENTATION" (2026-08-18): MapLibre Native's one-time
-        // runtime init, before any MapView is created — no API key/token argument, unlike the
-        // old Mapbox-lineage `Mapbox.getInstance(context, token)` pattern this otherwise mirrors.
-        ensureMapLibreInitialized(this)
         val db = AppDatabase.get(this)
         quoteRepository = QuoteRepository(db.quoteDao())
         priceRepository = PriceRepository(this)
@@ -54,20 +49,20 @@ class LumixApp : Application() {
             solarOfThings = MonitoringCredentials.SolarOfThings(BuildConfig.SOLAR_OF_THINGS_API_KEY)
         )
         AiConfig.configure(BuildConfig.AI_API_KEY)
-        // 2026-08-18 ("let satellite view be the default view"): same read-once pattern as
-        // AiConfig above — see MapTilerSatelliteProvider's own doc.
-        MapTilerSatelliteProvider.configure(BuildConfig.MAPTILER_API_KEY)
         // 2026-08-19 ("do this google sign in/OAuth"): same read-once pattern — see
         // GoogleIdentityConfig's own doc for why this is a Web (not Android) client ID.
         GoogleIdentityConfig.configure(BuildConfig.GOOGLE_WEB_CLIENT_ID)
-        // 2026-08-19 map diagnostics (Part 1 — "confirm BuildConfig.MAPTILER_API_KEY is non-empty
-        // at runtime, log it masked"): length + first 4 chars only, NEVER the full key, so this is
+        // 2026-08-19 ("change map to google map"): same read-once pattern — see GoogleMapsConfig's
+        // own doc for why this value is ALSO baked into AndroidManifest.xml as a separate manifest
+        // placeholder (the Maps SDK reads the manifest directly, not BuildConfig).
+        GoogleMapsConfig.configure(BuildConfig.MAPS_API_KEY)
+        // 2026-08-19 map diagnostics: length + first 4 chars only, NEVER the full key, so this is
         // safe to leave in even if Logcat output is ever pasted somewhere. `adb logcat -s
         // LumixMapDiag` filters to just this line on a real device/emulator.
-        val mapTilerKey = BuildConfig.MAPTILER_API_KEY
+        val mapsKey = BuildConfig.MAPS_API_KEY
         Log.d(
             "LumixMapDiag",
-            "MAPTILER_API_KEY: configured=${mapTilerKey.isNotBlank()}, length=${mapTilerKey.length}, prefix=${mapTilerKey.take(4)}"
+            "MAPS_API_KEY: configured=${mapsKey.isNotBlank()}, length=${mapsKey.length}, prefix=${mapsKey.take(4)}"
         )
     }
 }

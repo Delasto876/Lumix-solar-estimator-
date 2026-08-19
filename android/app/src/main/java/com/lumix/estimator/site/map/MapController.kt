@@ -6,25 +6,17 @@ import androidx.compose.runtime.setValue
 import com.lumix.estimator.site.GeoPoint
 
 /**
- * "The application should support: MAP, SATELLITE as separate layers" (2026-08-18) — replaces the
- * earlier NORMAL/SATELLITE/HYBRID trio (a Google Maps SDK concept) now that satellite imagery is
- * its own, currently-unconfigured [com.lumix.estimator.map.SatelliteProvider] rather than a mode
- * the base map itself can render.
+ * Map UI state (selected pin, tilt) — kept separate from roof-drawing state and the simulation
+ * engine. 2026-08-19 ("change map to google map"): the earlier MAP/SATELLITE `MapLayer` enum this
+ * class tracked is gone — base-map style switching is now Google Maps' own native `MapType`
+ * (NORMAL/SATELLITE/TERRAIN/HYBRID), tracked locally in [SolarSiteMapScreen] the same way
+ * `selectedStyleUrl` was for the MapLibre style switcher, not duplicated here.
  */
-enum class MapLayer { MAP, SATELLITE }
-
-/** Map UI state (layer, selected pin, tilt) — kept separate from roof-drawing state and the simulation engine. */
 class MapController {
-    var layer by mutableStateOf(MapLayer.MAP)
-        private set
     var selectedLocation by mutableStateOf<GeoPoint?>(null)
         private set
     var is3D by mutableStateOf(false)
         private set
-
-    fun setLayer(newLayer: MapLayer) {
-        layer = newLayer
-    }
 
     fun selectLocation(point: GeoPoint) {
         selectedLocation = point
