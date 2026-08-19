@@ -55,6 +55,7 @@ import com.lumix.estimator.location.DeviceLocationManager
 import com.lumix.estimator.map.AndroidGeocodingProvider
 import com.lumix.estimator.map.GeocodeResult
 import com.lumix.estimator.map.KnownPlace
+import com.lumix.estimator.map.MapTilerSatelliteProvider
 import com.lumix.estimator.map.OpenFreeMapProvider
 import com.lumix.estimator.network.NetworkConnectivityObserver
 import com.lumix.estimator.sensors.CompassManager
@@ -165,17 +166,24 @@ private fun savedPlanesOutlineFeatures(planes: List<RoofPlane>): FeatureCollecti
 
 /**
  * 2026-08-18 map-view switcher: the base-map looks the installer can flip between with a labeled
- * button. All are OpenFreeMap public vector styles (no API key, no billing — same source family as
- * [OpenFreeMapProvider]), so switching is a real style swap, not a dead "satellite unavailable"
- * toast. [label] is kept to one clear word so the control never wraps/overlaps into unreadable text.
+ * button. [label] is kept to one clear word so the control never wraps/overlaps into unreadable text.
  */
 private data class MapStyleOption(val label: String, val styleUrl: String)
 
-private val MAP_STYLE_OPTIONS = listOf(
-    MapStyleOption("Streets", "https://tiles.openfreemap.org/styles/liberty"),
-    MapStyleOption("Bright", "https://tiles.openfreemap.org/styles/bright"),
-    MapStyleOption("Light", "https://tiles.openfreemap.org/styles/positron")
-)
+/**
+ * 2026-08-18 ("let satellite view be the default view"): Satellite (real aerial imagery via
+ * [MapTilerSatelliteProvider]) is prepended — and therefore the default, since this list's
+ * `.first()` seeds the initial selection below — only when a real MapTiler key has actually been
+ * configured; see that provider's own doc for how to activate it. Without a key, this list starts
+ * with "Streets" exactly as before, so a build with no key configured is completely unaffected. The
+ * other three are OpenFreeMap public vector styles (no API key, no billing).
+ */
+private fun mapStyleOptions(): List<MapStyleOption> = buildList {
+    MapTilerSatelliteProvider.styleUrlOrNull()?.let { add(MapStyleOption("Satellite", it)) }
+    add(MapStyleOption("Streets", "https://tiles.openfreemap.org/styles/liberty"))
+    add(MapStyleOption("Bright", "https://tiles.openfreemap.org/styles/bright"))
+    add(MapStyleOption("Light", "https://tiles.openfreemap.org/styles/positron"))
+}
 
 /**
  * Adds every roof-tracing [GeoJsonSource] + its style layer to [style]. Extracted so it can run both
@@ -273,7 +281,7 @@ fun SolarSiteMapScreen(
     var layerRefs by remember { mutableStateOf<MapLayerRefs?>(null) }
     var tileLoadError by remember { mutableStateOf(false) }
     var editMode by remember { mutableStateOf(RoofEditMode.NONE) }
-    var selectedStyleUrl by remember { mutableStateOf(MAP_STYLE_OPTIONS.first().styleUrl) }
+    var selectedStyleUrl by remember { mutableStateOf(mapStyleOptions().first().styleUrl) }
 
     var searchQuery by remember { mutableStateOf(state.draftAddress ?: "") }
     var searchError by remember { mutableStateOf(false) }
@@ -688,9 +696,9 @@ private fun TileErrorBanner() {
 }
 
 /**
- * 2026-08-18 map-view switcher: a compact segmented control to flip the base map between the
- * [MAP_STYLE_OPTIONS] OpenFreeMap styles. Each option is one weight()-ed cell so the labels share
- * the width evenly and never overlap or wrap into unreadable text on a narrow phone.
+ * 2026-08-18 map-view switcher: a compact segmented control to flip the base map between
+ * [mapStyleOptions]. Each option is one weight()-ed cell so the labels share the width evenly and
+ * never overlap or wrap into unreadable text on a narrow phone.
  */
 @Composable
 private fun MapStyleSwitcher(selectedStyleUrl: String, onSelect: (String) -> Unit) {
@@ -707,7 +715,7 @@ private fun MapStyleSwitcher(selectedStyleUrl: String, onSelect: (String) -> Uni
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        MAP_STYLE_OPTIONS.forEach { option ->
+        mapStyleOptions().forEach { option ->
             val selected = option.styleUrl == selectedStyleUrl
             Box(
                 modifier = Modifier

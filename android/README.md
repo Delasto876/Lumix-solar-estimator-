@@ -6437,9 +6437,28 @@ backing (`#E6141414`) behind the whole control, near-white unselected labels (`#
 near-black label on solid yellow (`#FFD84D`) for the selected option — fixed, high-contrast colors
 rather than theme/map-dependent ones, so every label is readable at any pan/zoom or theme.
 
-**Not changed this round — flagged for the user:** "let satellite view be default" wasn't
-implemented. This codebase has an explicit prior decision (`SatelliteProvider.kt`, from the original
-map-replacement round): real satellite imagery requires a paid/licensed provider (Google/Esri/
-MapTiler — API key + billing), and "Do not implement a paid provider yet." None of the three current
-styles (Streets/Bright/Light) are aerial photography — they're all OpenFreeMap vector street maps, so
-there's no genuine satellite option to default to without that decision being revisited.
+**Satellite view — resolved as a follow-up, same round:** the project's own prior decision
+(`SatelliteProvider.kt`) deferred real aerial imagery because it needs a paid/licensed provider. Asked
+the user which provider to use; they chose **MapTiler Satellite** and to add a real key. Implemented:
+
+- `MapTilerSatelliteProvider` (`map/SatelliteProvider.kt`) — reads a `styleUrlOrNull()` built from
+  MapTiler's hosted `satellite` style (`https://api.maptiler.com/maps/satellite/style.json?key=...`),
+  a MapLibre-compatible style-JSON URL exactly like `OpenFreeMapProvider`'s, so it needs zero special
+  handling anywhere the style URL is consumed (raster vs. vector is transparent to `MapLibreMapView`).
+  Configured once at startup (`LumixApp.onCreate`) from `BuildConfig.SATELLITE_PROVIDER_API_KEY` — the
+  exact same "read `BuildConfig.*` in one place only" pattern `AiConfig`/`MonitoringConfig` already
+  use, so the provider object itself stays plain Kotlin and testable. The `build.gradle.kts` plumbing
+  for this key already existed (from the original "build now, activate later" round) — no build file
+  changes needed.
+- `mapStyleOptions()` in `SolarSiteMapScreen.kt` now prepends "Satellite" — and since the switcher's
+  initial selection is `mapStyleOptions().first()`, satellite becomes the **default view** — but only
+  when `MapTilerSatelliteProvider.isConfigured` (a real key present). Without a key, the list starts
+  with "Streets" exactly as it did before this change, so every existing/other build is unaffected.
+
+**To activate:** get a free MapTiler key at https://cloud.maptiler.com/account/keys/ and add
+`SATELLITE_PROVIDER_API_KEY=<your key>` to `android/local.properties` (never committed).
+
+**Verification caveat:** unchanged from A96/A97 above — this file still can't be compiled in this
+sandbox; the MapTiler style-URL format is per MapTiler's own published documentation, not verified
+against a live response in this environment. Run `./gradlew assembleDebug` and confirm imagery
+actually loads once a real key is dropped in.

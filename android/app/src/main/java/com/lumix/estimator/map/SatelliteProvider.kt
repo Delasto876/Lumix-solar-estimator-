@@ -6,11 +6,11 @@ package com.lumix.estimator.map
  * imagery. Keep the base-map provider separate from the satellite imagery provider." OpenFreeMap
  * is a vector road-map style only; it has no aerial photography layer.
  *
- * No implementation is wired in yet — "Do not implement a paid provider yet." [NoSatelliteProvider]
- * is the current default, always reporting unavailable. A future Google Maps/Esri/MapTiler/other
- * licensed-imagery integration only has to implement this interface and be swapped in at the one
- * call site that reads it; nothing about the drawing/geocoding/routing code depends on which
- * satellite provider (if any) is configured.
+ * [NoSatelliteProvider] is the fallback when no key is configured. [MapTilerSatelliteProvider] is
+ * the real implementation (2026-08-18, "let satellite view be the default view" — the user's own
+ * explicit choice of provider, superseding the earlier "do not implement a paid provider yet"
+ * placeholder). Any future alternative (Esri/Google/other) only has to implement this interface and
+ * be swapped in at the one call site that reads it.
  */
 interface SatelliteProvider {
     val name: String
@@ -23,4 +23,34 @@ object NoSatelliteProvider : SatelliteProvider {
     override val name: String = "None configured"
     override val isConfigured: Boolean = false
     override fun styleUrlOrNull(): String? = null
+}
+
+/**
+ * 2026-08-18 ("let satellite view be the default view"): MapTiler's hosted "satellite" style —
+ * real aerial/satellite imagery, served as a MapLibre-compatible style-JSON URL (same format
+ * [com.lumix.estimator.map.OpenFreeMapProvider] already uses), so it drops into the exact same
+ * `MapLibreMapView`/`setStyle` plumbing with no special-casing. [configure] is called once at
+ * startup ([com.lumix.estimator.LumixApp.onCreate]) with `BuildConfig.SATELLITE_PROVIDER_API_KEY`
+ * (itself sourced from `android/local.properties` — never hardcoded, never committed), the same
+ * "read BuildConfig.* in exactly one place" pattern [com.lumix.estimator.domain.ai.AiConfig] and
+ * [com.lumix.estimator.domain.monitoring.MonitoringConfig] already use, so this object stays plain
+ * Kotlin and testable. A blank key (the default until a real MapTiler key is added to
+ * `local.properties`) means [isConfigured] is false and [SolarSiteMapScreen] falls back to its
+ * free OpenFreeMap "Streets" view as the default instead — the app never breaks for a build with no
+ * key configured.
+ *
+ * To activate: get a free MapTiler API key at https://cloud.maptiler.com/account/keys/ and add
+ * `SATELLITE_PROVIDER_API_KEY=<your key>` to `android/local.properties`.
+ */
+object MapTilerSatelliteProvider : SatelliteProvider {
+    @Volatile private var apiKey: String = ""
+
+    fun configure(apiKey: String) {
+        this.apiKey = apiKey
+    }
+
+    override val name: String = "MapTiler Satellite"
+    override val isConfigured: Boolean get() = apiKey.isNotBlank()
+    override fun styleUrlOrNull(): String? =
+        apiKey.takeIf { it.isNotBlank() }?.let { "https://api.maptiler.com/maps/satellite/style.json?key=$it" }
 }

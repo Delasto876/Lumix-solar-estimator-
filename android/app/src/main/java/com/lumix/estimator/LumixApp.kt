@@ -9,6 +9,7 @@ import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.ai.AiConfig
 import com.lumix.estimator.domain.monitoring.MonitoringConfig
 import com.lumix.estimator.domain.monitoring.MonitoringCredentials
+import com.lumix.estimator.map.MapTilerSatelliteProvider
 import com.lumix.estimator.site.SiteRepository
 import com.lumix.estimator.site.map.ensureMapLibreInitialized
 
@@ -51,5 +52,8 @@ class LumixApp : Application() {
             solarOfThings = MonitoringCredentials.SolarOfThings(BuildConfig.SOLAR_OF_THINGS_API_KEY)
         )
         AiConfig.configure(BuildConfig.AI_API_KEY)
+        // 2026-08-18 ("let satellite view be the default view"): same read-once pattern as
+        // AiConfig above — see MapTilerSatelliteProvider's own doc.
+        MapTilerSatelliteProvider.configure(BuildConfig.SATELLITE_PROVIDER_API_KEY)
     }
 }
