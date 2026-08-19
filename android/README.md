@@ -6646,3 +6646,50 @@ snapshot-stack logic were traced by hand against MapLibre's documented `projecti
 `View.OnTouchListener` contract, but real-device drag feel (touch-target radius, whether the
 listener's `true`/`false` return correctly leaves normal map panning untouched) is not independently
 confirmed this round.
+
+## A104 — map Part 5: live panel-fit preview + pre-emptive roof-cap warning
+
+User's Part 5 request: once a roof is traced and a panel model/size is picked, compute how many
+panels of that size actually fit (real rectangle packing, not raw `area / panelArea`, since panels
+are rectangular and need spacing/setback) and warn/reject when the chosen count doesn't fit —
+explicitly not relying only on a post-hoc check after the fact.
+
+**Confirmed before writing anything:** `PanelLayoutOptimizer` (rectangle packing with setback,
+exclusion zones, both orientations) already existed and was already wired into
+`SolarSiteViewModel.addTracedRoofPlane`. `SystemCalculator.calculate` already silently caps a
+roof-constrained quote's final panel count (`RoofConstraint.maxCapacityKw` converted to a count of
+whatever panel wattage was actually selected, evened down) — this round didn't touch that
+capping logic, it was already correct. The actual gap was UI: no live feedback at either of the
+two points an installer picks panel size/count.
+
+**Gap 1 — `RoofConfirmForm` (right after tracing a roof, `SolarSiteMapScreen.kt`):** width/
+height/wattage/setback/azimuth were all editable but nothing showed how many panels that
+combination would actually seat. Added a live preview, recomputed via `remember(vertices,
+panelWidthM, panelHeightM, setbackM, azimuth)` calling `PanelLayoutOptimizer.optimize` directly
+(the same call `addTracedRoofPlane` makes once confirmed) — "Fits N panel(s) ... (~X.XX kWp),
+[portrait/landscape] orientation" in the normal text color, or a `warningRedText` "No panels fit
+this roof at this size/setback" if the combination doesn't seat even one. Wattage is deliberately
+excluded from the `remember` key (it doesn't affect the packing geometry, only the displayed kWp),
+so editing it doesn't re-run the rectangle-packing loop.
+
+**Gap 2 — `StepPanels.kt` (MANUAL mode's wizard step where an installer types a panel count):**
+this is the step `SystemCalculator`'s roof cap can silently reduce, with zero warning surfaced
+until `ResultsScreen`'s existing `RoofConstraintBanner` — after Calculate has already run. Added
+a pre-emptive check, right where the installer is still typing: mirrors `SystemCalculator`'s own
+cap math exactly (`floor(roofConstraint.maxCapacityKw * 1000 / manualPanelWatts)`, evened down) so
+the number shown here always matches what the quote will actually do. When the typed count exceeds
+it, a warning card appears (same `⚠` + `warningRedText` pattern `StepSystemReview`'s manual-warning
+gate already uses) naming the roof, the real max for the selected wattage, and stating plainly that
+the quote will be capped. **Deliberately non-blocking** — MANUAL mode's existing rule is "never
+silently replace the installer's chosen equipment," and `SystemCalculator` still applies its real
+cap regardless of whether this warning is heeded, so the quote is never wrong even if ignored; this
+only removes the surprise of discovering it after the fact.
+
+**Not changed:** `PanelLayoutOptimizer` itself, `SystemCalculator`'s capping math, and
+`ResultsScreen`'s `RoofConstraintBanner` — all three were already correct; this round only adds the
+two missing pre-emptive UI moments.
+
+**Verification caveat (unchanged):** sandbox still can't compile/run — both additions call existing,
+already-used domain functions with the same inputs those functions' existing call sites already
+pass, so the risk surface is narrow, but the UI itself is not confirmed rendering on a real device
+this round.

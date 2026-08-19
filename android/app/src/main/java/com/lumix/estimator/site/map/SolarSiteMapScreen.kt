@@ -74,6 +74,7 @@ import com.lumix.estimator.site.RoofPlane
 import com.lumix.estimator.site.ShadeAndExclusionSection
 import com.lumix.estimator.site.SolarCompassBadge
 import com.lumix.estimator.site.SolarSiteViewModel
+import com.lumix.estimator.site.geometry.PanelLayoutOptimizer
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
 import com.lumix.estimator.site.geometry.ShadeEstimator
 import com.lumix.estimator.site.geometry.ShadeObstructionType
@@ -1068,6 +1069,41 @@ private fun RoofConfirmForm(
         }
         NumberField(label = "Panel wattage", value = panelWattage, onValueChange = { panelWattage = it }, allowDecimal = false, suffix = "W")
         NumberField(label = "Setback from edges (m)", value = setbackM, onValueChange = { setbackM = it }, suffix = "m")
+
+        // 2026-08-19 (map Part 5, "compute max panels that fit ... given the traced polygon's
+        // area ... and the panel's physical dimensions"): a live rectangle-packing preview, not
+        // just raw area math — reuses the same PanelLayoutOptimizer already wired into
+        // SolarSiteViewModel.addTracedRoofPlane, recomputed here so the installer sees the real
+        // fit *before* confirming, while width/height/setback/azimuth are still editable.
+        val panelFitPreview = remember(vertices, panelWidthM, panelHeightM, setbackM, azimuth) {
+            if (panelWidthM > 0.0 && panelHeightM > 0.0) {
+                PanelLayoutOptimizer.optimize(
+                    PanelLayoutOptimizer.Input(
+                        vertices = vertices,
+                        panelWidthM = panelWidthM,
+                        panelHeightM = panelHeightM,
+                        panelWattage = panelWattage,
+                        setbackM = setbackM,
+                        alignmentAzimuthDegrees = azimuth
+                    )
+                )
+            } else {
+                null
+            }
+        }
+        if (panelFitPreview != null) {
+            val fitKw = panelFitPreview.panelCount * panelWattage / 1000.0
+            Text(
+                if (panelFitPreview.panelCount > 0) {
+                    "Fits %d panel(s) at this size and setback (~%.2f kWp), %s orientation."
+                        .format(panelFitPreview.panelCount, fitKw, panelFitPreview.orientation.name.lowercase())
+                } else {
+                    "No panels fit this roof at this size/setback — try a smaller panel or a smaller setback."
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (panelFitPreview.panelCount > 0) palette.textSecondary else palette.warningRedText
+            )
+        }
 
         ShadeAndExclusionSection(
             selectedObstructions = selectedObstructions,
