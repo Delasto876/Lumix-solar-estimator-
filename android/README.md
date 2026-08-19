@@ -6490,3 +6490,39 @@ their explicit last instruction, the key itself was **not** written to any file 
 ```
 MAPTILER_API_KEY=<your MapTiler key>
 ```
+
+## A100 — map Part 1: diagnostic instrumentation (report, no behavior change)
+
+User request: a 6-part map overhaul, starting with "diagnose the MapTiler setup first... report
+back what you find before moving to Part 2." This round is Part 1 only — pure diagnostics, no UI/
+behavior changes. See the chat response for the full findings; summary of what changed in code:
+
+- `LumixApp.onCreate`: logs `MAPTILER_API_KEY` masked (`Log.d("LumixMapDiag", ...)` — length +
+  first 4 chars only, never the full key) right after configuring `MapTilerSatelliteProvider`.
+- `MapLibreMapView`: `onStyleLoadFailed` now carries MapLibre's own `errorMessage` string through
+  (was previously discarded — `OnDidFailLoadingMapListener.onDidFailLoadingMap(String)`, stable
+  since this SDK's original Mapbox GL Native lineage). Every style request/success/failure is
+  logged under the same `LumixMapDiag` tag, so `adb logcat -s LumixMapDiag` on a real device shows
+  the exact style URL requested and MapLibre's own failure text (a 401/403 reads directly in that
+  text) — no code change needed to actually see it once a device build exists.
+- `SolarSiteMapScreen`: threads the failure message into a new `tileLoadErrorDetail` state, shown
+  in `TileErrorBanner` under the existing "tiles failed" banner, and logs the exact URL immediately
+  before every `switchMapStyle` call so a failure can be matched to which style switch caused it.
+
+**Root-cause finding from static code inspection (verified, not guessed):** this app has zero
+User-Agent configuration anywhere — no `HttpRequestUtil.setOkHttpClient(...)`, no custom
+`OkHttpClient`, no interceptor, nothing (`grep -rn "User-Agent|OkHttp|HttpRequestUtil"` across
+`app/src/main/java` returns no hits). MapLibre Native (`org.maplibre.gl:android-sdk:11.8.1`) uses
+its own internal HTTP client and default User-Agent unless the app explicitly overrides it via
+`HttpRequestUtil.setOkHttpClient`. If the MapTiler key is genuinely restricted to the User-Agent
+string `"LumixSolarEstimator"`, every MapTiler request this app makes is sent with MapLibre's
+*default* User-Agent, not that string — meaning every single MapTiler tile/style request would be
+rejected (401/403) today. This is the most likely single explanation for a map that looks like it's
+"silently falling back to a default/blank style." Not fixed this round — held for the user's
+go-ahead per their own "report back... before we fix anything else."
+
+**Sandbox limitation (unchanged, disclosed throughout this project):** no Android
+SDK/emulator/device in this environment — could not run the app, capture real Logcat output, or
+observe live network requests/response codes. Everything above is either static code inspection
+(the User-Agent finding) or new logging code that produces real evidence once run on an actual
+device/emulator, not a live-verified result from this round.

@@ -2,6 +2,7 @@ package com.lumix.estimator.site.map
 
 import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -44,7 +45,15 @@ fun MapLibreMapView(
     styleUrl: String,
     modifier: Modifier = Modifier,
     onMapReady: (MapLibreMap, Style) -> Unit,
-    onStyleLoadFailed: (() -> Unit)? = null
+    /**
+     * 2026-08-19 map diagnostics (Part 1): carries MapLibre's own [errorMessage] through instead of
+     * discarding it — `OnDidFailLoadingMapListener.onDidFailLoadingMap(String)` is the stable
+     * signature this SDK lineage has used since its original Mapbox GL Native days. A 401/403 from
+     * a MapTiler key/User-Agent mismatch surfaces here as MapLibre's own HTTP-failure text; this is
+     * always logged (`LumixMapDiag`, below) even when the caller doesn't pass a callback, so the
+     * failure reason is never silently swallowed.
+     */
+    onStyleLoadFailed: ((errorMessage: String) -> Unit)? = null
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val mapView = remember { mutableMapViewHolder() }
@@ -75,12 +84,22 @@ fun MapLibreMapView(
             view.onStart()
             view.onResume()
             view.getMapAsync { map ->
+                Log.d("LumixMapDiag", "requesting style: $styleUrl")
                 map.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
+                    Log.d("LumixMapDiag", "style loaded OK: $styleUrl")
                     onMapReady(map, style)
                 }
             }
-            view.addOnDidFailLoadingMapListener {
-                onStyleLoadFailed?.invoke()
+            // This listener is registered once on the persistent MapView, so it also fires for
+            // later style switches driven directly against the MapLibreMap (see
+            // SolarSiteMapScreen.switchMapStyle) — not just this composable's own initial style
+            // load. `styleUrl` above is only ever the initial value (this factory block doesn't
+            // re-run on recomposition — see the `update` block's own comment), so it's deliberately
+            // NOT repeated here to avoid a misleadingly stale URL on a later switch's failure; the
+            // caller logs which URL it just requested immediately beforehand instead.
+            view.addOnDidFailLoadingMapListener { errorMessage ->
+                Log.e("LumixMapDiag", "style FAILED to load: $errorMessage")
+                onStyleLoadFailed?.invoke(errorMessage)
             }
             view
         },

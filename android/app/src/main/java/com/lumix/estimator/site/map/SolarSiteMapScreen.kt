@@ -280,6 +280,9 @@ fun SolarSiteMapScreen(
     var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
     var layerRefs by remember { mutableStateOf<MapLayerRefs?>(null) }
     var tileLoadError by remember { mutableStateOf(false) }
+    // 2026-08-19 map diagnostics (Part 1): MapLibre's own failure text (e.g. an HTTP status from a
+    // rejected MapTiler request) — see MapLibreMapView's onStyleLoadFailed doc.
+    var tileLoadErrorDetail by remember { mutableStateOf<String?>(null) }
     var editMode by remember { mutableStateOf(RoofEditMode.NONE) }
     var selectedStyleUrl by remember { mutableStateOf(mapStyleOptions().first().styleUrl) }
 
@@ -341,7 +344,14 @@ fun SolarSiteMapScreen(
         val map = mapLibreMap ?: return
         selectedStyleUrl = url
         layerRefs = null
+        // 2026-08-19 map diagnostics (Part 1): logged immediately before the request so a failure
+        // reported by MapLibreMapView's own listener (registered once on the persistent MapView —
+        // see its own doc) can be matched to exactly which style switch it was for.
+        android.util.Log.d("LumixMapDiag", "requesting style switch: $url")
+        tileLoadError = false
+        tileLoadErrorDetail = null
         map.setStyle(Style.Builder().fromUri(url)) { style ->
+            android.util.Log.d("LumixMapDiag", "style switch loaded OK: $url")
             addRoofTracingLayers(style)
             layerRefs = MapLayerRefs(style)
         }
@@ -420,6 +430,7 @@ fun SolarSiteMapScreen(
             onMapReady = { map, style ->
                 mapLibreMap = map
                 tileLoadError = false
+                tileLoadErrorDetail = null
 
                 addRoofTracingLayers(style)
                 layerRefs = MapLayerRefs(style)
@@ -432,7 +443,10 @@ fun SolarSiteMapScreen(
                     true
                 }
             },
-            onStyleLoadFailed = { tileLoadError = true }
+            onStyleLoadFailed = { errorMessage ->
+                tileLoadError = true
+                tileLoadErrorDetail = errorMessage
+            }
         )
 
         // Top bar: back button + search field + map-type switch. Same no-Scaffold situation as
@@ -505,7 +519,7 @@ fun SolarSiteMapScreen(
                 OfflineBanner(onSwitchToManual = onSwitchToManual)
             }
             if (tileLoadError) {
-                TileErrorBanner()
+                TileErrorBanner(detail = tileLoadErrorDetail)
             }
             MapStyleSwitcher(
                 selectedStyleUrl = selectedStyleUrl,
@@ -681,17 +695,31 @@ private fun OfflineBanner(onSwitchToManual: (() -> Unit)?) {
     }
 }
 
-/** "If tiles fail to load: show a useful error... Do NOT display a blank white/black map with no explanation." */
+/**
+ * "If tiles fail to load: show a useful error... Do NOT display a blank white/black map with no
+ * explanation." 2026-08-19 map diagnostics (Part 1): [detail] surfaces MapLibre's own error text
+ * (a 401/403 from a bad/mismatched MapTiler key shows up here, not just a generic "check your
+ * connection" message that would hide exactly the failure this Part 1 diagnosis is looking for).
+ */
 @Composable
-private fun TileErrorBanner() {
+private fun TileErrorBanner(detail: String? = null) {
     val palette = LocalLumixPalette.current
     GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
-        Text(
-            "Map tiles could not be loaded. Check your internet connection.",
-            style = MaterialTheme.typography.labelSmall,
-            color = palette.warningRedText,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                "Map tiles could not be loaded.",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.warningRedText
+            )
+            if (!detail.isNullOrBlank()) {
+                Text(detail, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            } else {
+                Text("Check your internet connection.", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            }
+        }
     }
 }
 

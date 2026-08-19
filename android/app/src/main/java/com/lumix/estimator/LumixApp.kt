@@ -1,6 +1,7 @@
 package com.lumix.estimator
 
 import android.app.Application
+import android.util.Log
 import com.lumix.estimator.data.AppDatabase
 import com.lumix.estimator.data.CodeStandardRepository
 import com.lumix.estimator.data.PriceRepository
@@ -55,5 +56,14 @@ class LumixApp : Application() {
         // 2026-08-18 ("let satellite view be the default view"): same read-once pattern as
         // AiConfig above — see MapTilerSatelliteProvider's own doc.
         MapTilerSatelliteProvider.configure(BuildConfig.MAPTILER_API_KEY)
+        // 2026-08-19 map diagnostics (Part 1 — "confirm BuildConfig.MAPTILER_API_KEY is non-empty
+        // at runtime, log it masked"): length + first 4 chars only, NEVER the full key, so this is
+        // safe to leave in even if Logcat output is ever pasted somewhere. `adb logcat -s
+        // LumixMapDiag` filters to just this line on a real device/emulator.
+        val mapTilerKey = BuildConfig.MAPTILER_API_KEY
+        Log.d(
+            "LumixMapDiag",
+            "MAPTILER_API_KEY: configured=${mapTilerKey.isNotBlank()}, length=${mapTilerKey.length}, prefix=${mapTilerKey.take(4)}"
+        )
     }
 }
