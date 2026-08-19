@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -29,11 +32,13 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ThreeDRotation
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -43,6 +48,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,7 +76,6 @@ import com.lumix.estimator.site.geometry.ShadeEstimator
 import com.lumix.estimator.site.geometry.ShadeObstructionType
 import com.lumix.estimator.ui.components.GlassSurface
 import com.lumix.estimator.ui.components.LabeledDropdown
-import com.lumix.estimator.ui.components.LumixIconButtonSurface
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.components.NumberField
@@ -175,12 +181,21 @@ private data class MapStyleOption(val label: String, val styleUrl: String)
  * [MapTilerSatelliteProvider]) is prepended — and therefore the default, since this list's
  * `.first()` seeds the initial selection below — only when a real MapTiler key has actually been
  * configured; see that provider's own doc for how to activate it. Without a key, this list starts
- * with "Streets" exactly as before, so a build with no key configured is completely unaffected. The
- * other three are OpenFreeMap public vector styles (no API key, no billing).
+ * with "Streets" exactly as before, so a build with no key configured is completely unaffected.
+ * "Bright"/"Light" are OpenFreeMap public vector styles (no API key, no billing).
+ *
+ * 2026-08-19 (map Part 2, "satellite, streets, terrain, and traffic layers"): "Terrain" (real
+ * contour lines + hillshading, same MapTiler key/gate as Satellite) added alongside them.
+ * "Traffic" is deliberately NOT added as a button here — there is no live-traffic data source
+ * wired into this app (or into MapTiler's own style catalog; real-time traffic tiles are a
+ * separate, differently-architected product most providers sell apart from static map styles), so
+ * a "Traffic" button that did nothing would be worse than one that's simply not there yet. Flagged
+ * to the user as a follow-up decision (which provider, if any) rather than faked here.
  */
 private fun mapStyleOptions(): List<MapStyleOption> = buildList {
     MapTilerSatelliteProvider.styleUrlOrNull()?.let { add(MapStyleOption("Satellite", it)) }
     add(MapStyleOption("Streets", "https://tiles.openfreemap.org/styles/liberty"))
+    MapTilerSatelliteProvider.terrainStyleUrlOrNull()?.let { add(MapStyleOption("Terrain", it)) }
     add(MapStyleOption("Bright", "https://tiles.openfreemap.org/styles/bright"))
     add(MapStyleOption("Light", "https://tiles.openfreemap.org/styles/positron"))
 }
@@ -460,8 +475,8 @@ fun SolarSiteMapScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                LumixIconButtonSurface(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                MapControlButton(onClick = onBack, contentDescription = "Back") {
+                    Icon(Icons.Default.ArrowBack, contentDescription = null)
                 }
                 GlassSurface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(LumixRadius.md)) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
@@ -534,41 +549,44 @@ fun SolarSiteMapScreen(
             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            LumixIconButtonSurface(onClick = {
-                mapLibreMap?.let { map -> map.animateCamera(CameraUpdateFactory.zoomIn()) }
-            }) { Icon(Icons.Default.Add, contentDescription = "Zoom in") }
-            LumixIconButtonSurface(onClick = {
-                mapLibreMap?.let { map -> map.animateCamera(CameraUpdateFactory.zoomOut()) }
-            }) { Icon(Icons.Default.Remove, contentDescription = "Zoom out") }
-            LumixIconButtonSurface(onClick = {
-                mapController.toggle3D()
-                val map = mapLibreMap
-                val target = mapController.selectedLocation?.toLatLng() ?: map?.cameraPosition?.target
-                if (map != null && target != null) {
-                    val newTilt = if (mapController.is3D) MapController.TILT_3D_DEGREES else MapController.TILT_FLAT_DEGREES
-                    map.animateCamera(
-                        CameraUpdateFactory.newCameraPosition(
-                            CameraPosition.Builder(map.cameraPosition)
-                                .target(target)
-                                .tilt(newTilt)
-                                .build()
+            MapControlButton(
+                onClick = { mapLibreMap?.let { map -> map.animateCamera(CameraUpdateFactory.zoomIn()) } },
+                contentDescription = "Zoom in"
+            ) { Icon(Icons.Default.Add, contentDescription = null) }
+            MapControlButton(
+                onClick = { mapLibreMap?.let { map -> map.animateCamera(CameraUpdateFactory.zoomOut()) } },
+                contentDescription = "Zoom out"
+            ) { Icon(Icons.Default.Remove, contentDescription = null) }
+            MapControlButton(
+                onClick = {
+                    mapController.toggle3D()
+                    val map = mapLibreMap
+                    val target = mapController.selectedLocation?.toLatLng() ?: map?.cameraPosition?.target
+                    if (map != null && target != null) {
+                        val newTilt = if (mapController.is3D) MapController.TILT_3D_DEGREES else MapController.TILT_FLAT_DEGREES
+                        map.animateCamera(
+                            CameraUpdateFactory.newCameraPosition(
+                                CameraPosition.Builder(map.cameraPosition)
+                                    .target(target)
+                                    .tilt(newTilt)
+                                    .build()
+                            )
                         )
-                    )
-                }
-            }) {
-                Icon(
-                    Icons.Default.ThreeDRotation,
-                    contentDescription = "Toggle 3D view",
-                    tint = if (mapController.is3D) palette.solarYellowText else palette.textPrimary
-                )
-            }
-            LumixIconButtonSurface(onClick = {
-                if (locationManager.hasPermission()) {
-                    moveToDeviceLocation()
-                } else {
-                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                }
-            }) { Icon(Icons.Default.MyLocation, contentDescription = "My location") }
+                    }
+                },
+                contentDescription = "Toggle 3D view",
+                active = mapController.is3D
+            ) { Icon(Icons.Default.ThreeDRotation, contentDescription = null) }
+            MapControlButton(
+                onClick = {
+                    if (locationManager.hasPermission()) {
+                        moveToDeviceLocation()
+                    } else {
+                        locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    }
+                },
+                contentDescription = "My location"
+            ) { Icon(Icons.Default.MyLocation, contentDescription = null) }
         }
 
         if (compassManager.isAvailable) {
@@ -725,8 +743,16 @@ private fun TileErrorBanner(detail: String? = null) {
 
 /**
  * 2026-08-18 map-view switcher: a compact segmented control to flip the base map between
- * [mapStyleOptions]. Each option is one weight()-ed cell so the labels share the width evenly and
- * never overlap or wrap into unreadable text on a narrow phone.
+ * [mapStyleOptions].
+ *
+ * 2026-08-19 (map Part 2): originally one `weight(1f)` cell per option, sized to divide a fixed
+ * total width evenly — correct for a small, fixed set of labels, but adding "Terrain" (a 5th
+ * option, once a MapTiler key is configured) meant every cell got proportionally narrower, and
+ * `Text`'s default `maxLines = 1` doesn't wrap OR shrink — it clips mid-word once a label no
+ * longer fits, recreating the exact "jumbled buttons" bug already fixed once in this file. Each
+ * cell now sizes to its own natural label width instead, and the whole row scrolls horizontally
+ * (`horizontalScroll`) if there are ever more options than fit on screen at once — so a label is
+ * never compressed below its readable size, regardless of how many styles exist now or later.
  */
 @Composable
 private fun MapStyleSwitcher(selectedStyleUrl: String, onSelect: (String) -> Unit) {
@@ -740,6 +766,7 @@ private fun MapStyleSwitcher(selectedStyleUrl: String, onSelect: (String) -> Uni
         modifier = Modifier
             .clip(RoundedCornerShape(LumixRadius.md))
             .background(Color(0xE6141414))
+            .horizontalScroll(rememberScrollState())
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -747,11 +774,10 @@ private fun MapStyleSwitcher(selectedStyleUrl: String, onSelect: (String) -> Uni
             val selected = option.styleUrl == selectedStyleUrl
             Box(
                 modifier = Modifier
-                    .weight(1f)
                     .clip(RoundedCornerShape(LumixRadius.sm))
                     .background(if (selected) Color(0xFFFFD84D) else Color.Transparent)
                     .clickable { onSelect(option.styleUrl) }
-                    .padding(vertical = 8.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -762,6 +788,34 @@ private fun MapStyleSwitcher(selectedStyleUrl: String, onSelect: (String) -> Uni
                     color = if (selected) Color(0xFF1A1A1A) else Color(0xFFF2F2F2)
                 )
             }
+        }
+    }
+}
+
+/**
+ * 2026-08-19 map Part 2 fix ("none of these are currently visible/working"): the back/zoom/3D/
+ * my-location buttons were using [com.lumix.estimator.ui.components.LumixIconButtonSurface], whose
+ * `palette.glass` background is a deliberately near-transparent tint (~8-10% opacity — see
+ * `Color.kt`'s `GlassDark`/`GlassLight`) meant to sit over a known, solid app surface. Floating
+ * directly over a live map with unpredictable, wildly varying colors underneath (ocean, forest,
+ * urban gray, bright satellite haze), that same near-transparent tint plus a 1dp outline is often
+ * genuinely close to invisible — the exact same root cause already found and fixed for the map-
+ * style switcher a few rounds ago. This gives every floating map control that same solid,
+ * near-opaque backing instead, so it reads at a glance regardless of what's under it.
+ */
+@Composable
+private fun MapControlButton(onClick: () -> Unit, contentDescription: String, active: Boolean = false, content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(Color(0xE6141414))
+            .semantics { this.contentDescription = contentDescription }
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        CompositionLocalProvider(LocalContentColor provides if (active) Color(0xFFFFD84D) else Color(0xFFF2F2F2)) {
+            content()
         }
     }
 }

@@ -6549,3 +6549,46 @@ Once run on a real device: the `LumixMapDiag` Logcat tag (from A100's Part 1 ins
 show whether style requests now succeed. If they still fail, the failure text logged there will
 show the real reason (still not a User-Agent issue, so likely the key itself or a MapTiler-side
 restriction detail not yet accounted for) — the next diagnostic step, not guessed at here.
+
+## A102 — map Part 2: control visibility fix + Terrain style
+
+User's Part 2 report: "None of these are currently visible/working" (my-location, 3D toggle,
+zoom in/out, map style switcher).
+
+**Root cause found (not a missing-feature gap — these controls already existed from A96-A99):**
+every floating map control (`Back`, zoom in/out, 3D toggle, my-location) used
+`LumixIconButtonSurface`, whose `palette.glass` background is a deliberately near-transparent tint
+(~8-10% opacity — `GlassDark`/`GlassLight` in `Color.kt`) designed to sit over a known, solid app
+surface elsewhere in the app. Floating directly over a live map with wildly unpredictable colors
+underneath (ocean, forest, urban gray, bright satellite haze), that same near-transparent tint plus
+a 1dp outline is genuinely close to invisible on much of what a map can show — the exact same root
+cause already found and fixed for the style switcher a few rounds ago, just not caught in these
+other buttons at the time. New `MapControlButton` composable gives every floating map control a
+solid, near-opaque backing (`#E6141414`) instead, with a fixed high-contrast icon color
+(near-white, or solid yellow `#FFD84D` for an active/toggled state like 3D-on) — same fix pattern
+as the switcher, applied consistently everywhere a control floats over the map. Also wired proper
+`Modifier.semantics { contentDescription = ... }` on the button itself (was previously only on the
+inner `Icon`, redundant/inconsistent with `MapControlButton`'s new shared shell).
+
+**Terrain style added:** `MapTilerSatelliteProvider.terrainStyleUrlOrNull()` — MapTiler's real
+`outdoor-v2` style (elevation contour lines + hillshading, not satellite imagery relabeled), same
+key/gate as Satellite. Appears in the switcher (after Streets) only once a MapTiler key is
+configured, exactly like Satellite.
+
+**Traffic — deliberately not added, flagged instead:** there is no live-traffic data source wired
+into this app or available in MapTiler's own style catalog — real-time traffic tiles are a
+separate, differently-architected product most providers sell apart from static map styles. A
+"Traffic" button that did nothing would be worse than one that isn't there. This needs the user's
+own provider decision (same pattern as the earlier Satellite discussion), not a silent fake.
+
+**Switcher scroll fix (found while adding Terrain):** the switcher's cells used `weight(1f)` to
+divide a fixed total width evenly — correct for 3-4 labels, but Terrain made it 5, and `Text`'s
+`maxLines = 1` clips mid-word rather than wrapping once a cell gets too narrow — the same "jumbled
+buttons" bug class already fixed once, about to recur. Changed to natural-width cells in a
+horizontally-scrolling row, so a label is never compressed below readable size regardless of how
+many styles exist now or are added later.
+
+**Verification caveat (unchanged):** still can't compile/run this in the sandbox — the contrast fix
+is a straightforward, low-risk color/background change (same pattern already applied once and
+presumably confirmed by the user for the switcher), but "now visible" isn't independently
+re-confirmed on a real device this round.

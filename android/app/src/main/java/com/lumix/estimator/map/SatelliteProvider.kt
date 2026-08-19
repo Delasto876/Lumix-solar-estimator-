@@ -41,6 +41,12 @@ object NoSatelliteProvider : SatelliteProvider {
  *
  * To activate: add `MAPTILER_API_KEY=<your key>` to `android/local.properties` (create the file if
  * it doesn't already exist — it's gitignored, so it's never committed).
+ *
+ * 2026-08-19 (map Part 2, "add ... terrain"): the same MapTiler key also unlocks their real
+ * `outdoor-v2` style (elevation contour lines + hillshading — an actual terrain style, not
+ * satellite imagery re-labeled) via [terrainStyleUrlOrNull], gated behind the same [isConfigured]
+ * check — one key, two premium styles, both `null` (and both silently absent from the switcher)
+ * until that key is configured.
  */
 object MapTilerSatelliteProvider : SatelliteProvider {
     @Volatile private var apiKey: String = ""
@@ -53,4 +59,8 @@ object MapTilerSatelliteProvider : SatelliteProvider {
     override val isConfigured: Boolean get() = apiKey.isNotBlank()
     override fun styleUrlOrNull(): String? =
         apiKey.takeIf { it.isNotBlank() }?.let { "https://api.maptiler.com/maps/satellite/style.json?key=$it" }
+
+    /** MapTiler's real terrain style (contour lines + hillshading) — same key, see class doc. */
+    fun terrainStyleUrlOrNull(): String? =
+        apiKey.takeIf { it.isNotBlank() }?.let { "https://api.maptiler.com/maps/outdoor-v2/style.json?key=$it" }
 }
