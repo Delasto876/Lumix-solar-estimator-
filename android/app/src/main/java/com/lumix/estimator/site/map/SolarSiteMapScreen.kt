@@ -694,30 +694,37 @@ private fun TileErrorBanner() {
  */
 @Composable
 private fun MapStyleSwitcher(selectedStyleUrl: String, onSelect: (String) -> Unit) {
-    val palette = LocalLumixPalette.current
-    GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            MAP_STYLE_OPTIONS.forEach { option ->
-                val selected = option.styleUrl == selectedStyleUrl
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(LumixRadius.sm))
-                        .background(if (selected) palette.solarYellow.copy(alpha = 0.22f) else Color.Transparent)
-                        .clickable { onSelect(option.styleUrl) }
-                        .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        option.label,
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1,
-                        color = if (selected) palette.solarYellowText else palette.textSecondary
-                    )
-                }
+    // 2026-08-18 contrast fix: GlassSurface alone (a translucent tint over whatever map imagery is
+    // underneath) left the unselected labels reading as low-contrast gray-on-gray against a busy
+    // map — hard to read regardless of light/dark theme. This gives the whole switcher a solid
+    // near-opaque dark backing (not just the glass tint), plus near-white unselected text and a
+    // bold near-black selected label on solid yellow, so every label is readable at a glance no
+    // matter what's under the map at that pan/zoom.
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(LumixRadius.md))
+            .background(Color(0xE6141414))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        MAP_STYLE_OPTIONS.forEach { option ->
+            val selected = option.styleUrl == selectedStyleUrl
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(LumixRadius.sm))
+                    .background(if (selected) Color(0xFFFFD84D) else Color.Transparent)
+                    .clickable { onSelect(option.styleUrl) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    option.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                    color = if (selected) Color(0xFF1A1A1A) else Color(0xFFF2F2F2)
+                )
             }
         }
     }

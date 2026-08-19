@@ -6427,3 +6427,19 @@ in this sandbox (no Android build; the MapLibre SDK surface is written to the do
 `map.setStyle(Style.Builder().fromUri(url)) { }` here mirrors the exact call `MapLibreMapView` already
 uses on first load, so it's consistent with the existing pattern — but run `./gradlew assembleDebug`
 when picking this up, same as the original map round disclosed.
+
+## A97 — map-view switcher contrast fix
+
+Follow-up to A96: the switcher's `GlassSurface` translucent tint left unselected labels reading as
+low-contrast gray-on-gray against a busy map underneath — hard to read regardless of theme or what
+part of the map was showing through. Replaced the translucent glass with a solid near-opaque dark
+backing (`#E6141414`) behind the whole control, near-white unselected labels (`#F2F2F2`), and a bold
+near-black label on solid yellow (`#FFD84D`) for the selected option — fixed, high-contrast colors
+rather than theme/map-dependent ones, so every label is readable at any pan/zoom or theme.
+
+**Not changed this round — flagged for the user:** "let satellite view be default" wasn't
+implemented. This codebase has an explicit prior decision (`SatelliteProvider.kt`, from the original
+map-replacement round): real satellite imagery requires a paid/licensed provider (Google/Esri/
+MapTiler — API key + billing), and "Do not implement a paid provider yet." None of the three current
+styles (Streets/Bright/Light) are aerial photography — they're all OpenFreeMap vector street maps, so
+there's no genuine satellite option to default to without that decision being revisited.
