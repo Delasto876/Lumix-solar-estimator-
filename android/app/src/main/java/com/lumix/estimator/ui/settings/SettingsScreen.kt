@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -48,8 +49,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.lumix.estimator.auth.GoogleIdentityConfig
+import com.lumix.estimator.auth.GoogleSignInManager
+import com.lumix.estimator.auth.GoogleSignInResult
 import com.lumix.estimator.data.CodeStandardRepository
 import com.lumix.estimator.data.PriceRepository
 import com.lumix.estimator.data.QuoteRepository
@@ -70,6 +75,7 @@ import com.lumix.estimator.ui.components.CollapsibleGroup
 import com.lumix.estimator.ui.components.CollapsibleSectionCard
 import com.lumix.estimator.ui.components.LabeledDropdown
 import com.lumix.estimator.ui.components.LargeTitleTopBar
+import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.components.NullableNumberField
 import com.lumix.estimator.ui.components.NumberField
@@ -117,6 +123,17 @@ fun SettingsScreen(
     val companyEmail by settingsRepository.companyEmail.collectAsState(initial = "")
     val defaultWarranty by settingsRepository.defaultWarranty.collectAsState(initial = "")
     val paymentTerms by settingsRepository.paymentTerms.collectAsState(initial = "")
+
+    // 2026-08-19 ("do this google sign in/OAuth" — confirmed scope: identity-capture only): see
+    // GoogleSignInManager's own doc. context here is the Activity Compose hosts this screen in
+    // (Credential Manager needs one to show the account picker) — NOT downgraded to
+    // applicationContext the way e.g. DeviceLocationManager is, since that one needs no UI.
+    val context = LocalContext.current
+    val googleSignInManager = remember(context) { GoogleSignInManager(context) }
+    val googleSignedInName by settingsRepository.googleSignedInName.collectAsState(initial = "")
+    val googleSignedInEmail by settingsRepository.googleSignedInEmail.collectAsState(initial = "")
+    var googleSignInInProgress by remember { mutableStateOf(false) }
+    var googleSignInError by remember { mutableStateOf<String?>(null) }
 
     val codeStandards by codeStandardRepository.standards.collectAsState(initial = emptyList())
     val codeReferences by codeStandardRepository.references.collectAsState(initial = emptyList())
@@ -206,6 +223,71 @@ fun SettingsScreen(
                         suffix = "%/yr",
                         supportingText = "How much panel output is assumed to decline each year as they age."
                     )
+                }
+            }
+
+            item {
+                // 2026-08-19 ("do this google sign in/OAuth" — confirmed scope: identity-capture
+                // only, nothing gated, no backend): a Sign in with Google button that fills the
+                // Business Information section's Company name/Email below the FIRST time it
+                // succeeds — never overwrites what the installer already typed by hand.
+                CollapsibleSectionCard(title = "Google Account", subtitle = "Optional — prefills the business info below") {
+                    if (!GoogleIdentityConfig.isConfigured) {
+                        Text(
+                            "Google Sign-In isn't set up yet. Add GOOGLE_WEB_CLIENT_ID to android/local.properties (a \"Web application\" type OAuth client ID from Google Cloud Console — see the README) to enable this.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = palette.textSecondary
+                        )
+                    } else if (googleSignedInEmail.isNotBlank()) {
+                        SettingsRow(icon = Icons.Default.AccountCircle, title = googleSignedInName.ifBlank { "Signed in" }, subtitle = googleSignedInEmail) {}
+                        LumixSecondaryButton(
+                            text = "Sign out",
+                            onClick = {
+                                scope.launch {
+                                    googleSignInManager.signOut()
+                                    settingsRepository.clearGoogleSignedInIdentity()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        LumixPrimaryButton(
+                            text = if (googleSignInInProgress) "Signing in…" else "Sign in with Google",
+                            onClick = {
+                                googleSignInError = null
+                                googleSignInInProgress = true
+                                scope.launch {
+                                    when (val result = googleSignInManager.signIn()) {
+                                        is GoogleSignInResult.Success -> {
+                                            val user = result.user
+                                            settingsRepository.setGoogleSignedInIdentity(
+                                                user.displayName.orEmpty(), user.email.orEmpty(), user.photoUrl.orEmpty()
+                                            )
+                                            if (companyName.isBlank() && !user.displayName.isNullOrBlank()) {
+                                                settingsRepository.setCompanyName(user.displayName)
+                                            }
+                                            if (companyEmail.isBlank() && !user.email.isNullOrBlank()) {
+                                                settingsRepository.setCompanyEmail(user.email)
+                                            }
+                                        }
+                                        GoogleSignInResult.Cancelled -> {}
+                                        is GoogleSignInResult.Failed -> googleSignInError = result.message
+                                    }
+                                    googleSignInInProgress = false
+                                }
+                            },
+                            enabled = !googleSignInInProgress,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (googleSignInError != null) {
+                            Text(
+                                googleSignInError.orEmpty(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.warningRedText,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
                 }
             }
 

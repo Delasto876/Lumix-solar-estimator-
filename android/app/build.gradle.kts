@@ -42,6 +42,11 @@ val aiApiKey = localProp("AI_API_KEY")
 // default, so SatelliteProvider stays NoSatelliteProvider (map view only, honestly labeled
 // unavailable) until a real key is added to android/local.properties as MAPTILER_API_KEY.
 val mapTilerApiKey = localProp("MAPTILER_API_KEY")
+// 2026-08-19 ("do this google sign in/OAuth" — identity-capture only, see GoogleIdentityConfig's
+// own doc): a "Web application" type OAuth 2.0 client ID from Google Cloud Console — NOT the
+// "Android" type client (package name + SHA-1) that also has to exist in the same Cloud project
+// for Google to recognize this app; only the Web client's ID is a value the app's code needs.
+val googleWebClientId = localProp("GOOGLE_WEB_CLIENT_ID")
 
 android {
     namespace = "com.lumix.estimator"
@@ -66,6 +71,7 @@ android {
         buildConfigField("String", "SOLAR_OF_THINGS_API_KEY", "\"$solarOfThingsApiKey\"")
         buildConfigField("String", "AI_API_KEY", "\"$aiApiKey\"")
         buildConfigField("String", "MAPTILER_API_KEY", "\"$mapTilerApiKey\"")
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
     }
 
     buildTypes {
@@ -167,6 +173,18 @@ dependencies {
     // Device location for the "My Location" button — the Fused Location Provider, a distinct
     // Play Services module from Maps itself; no API key or billing account either.
     implementation("com.google.android.gms:play-services-location:21.3.0")
+
+    // 2026-08-19 ("do this google sign in/OAuth"): Credential Manager — Google's current
+    // recommended "Sign in with Google" API on Android, superseding the older
+    // com.google.android.gms.auth.api.signin.GoogleSignInClient. credentials-play-services-auth
+    // is the Play-Services-backed implementation Credential Manager delegates to on real devices;
+    // googleid provides GetSignInWithGoogleOption/GoogleIdTokenCredential. Versions believed
+    // current as of writing but, like every other dependency version in this file, could not be
+    // verified against Maven Central in this network-restricted sandbox — bump in Android Studio
+    // if Gradle reports newer ones available.
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
     testImplementation("junit:junit:4.13.2")
     // A83 (Phase 22): SimulatedMonitoringProviderTest calls suspend fun fetchLatest via

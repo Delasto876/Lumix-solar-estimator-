@@ -41,6 +41,15 @@ class SettingsRepository(private val context: Context) {
     private val defaultWarrantyKey = stringPreferencesKey("default_warranty")
     private val paymentTermsKey = stringPreferencesKey("payment_terms")
 
+    // 2026-08-19 ("do this google sign in/OAuth" — confirmed scope: identity-capture only, no
+    // gating, no backend): the signed-in Google account's own display name/email/photo, persisted
+    // so it survives an app restart without re-prompting the account picker every launch. This is
+    // NOT an authenticated session — see GoogleSignInManager's own doc — just a cached identity
+    // SettingsScreen shows and can prefill Business Information fields from.
+    private val googleSignedInNameKey = stringPreferencesKey("google_signed_in_name")
+    private val googleSignedInEmailKey = stringPreferencesKey("google_signed_in_email")
+    private val googleSignedInPhotoUrlKey = stringPreferencesKey("google_signed_in_photo_url")
+
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
         prefs[themeModeKey]?.let { raw -> runCatching { ThemeMode.valueOf(raw) }.getOrNull() } ?: ThemeMode.SYSTEM
     }
@@ -70,6 +79,10 @@ class SettingsRepository(private val context: Context) {
     val defaultWarranty: Flow<String> = context.settingsDataStore.data.map { it[defaultWarrantyKey] ?: "" }
     val paymentTerms: Flow<String> = context.settingsDataStore.data.map { it[paymentTermsKey] ?: "" }
 
+    val googleSignedInName: Flow<String> = context.settingsDataStore.data.map { it[googleSignedInNameKey] ?: "" }
+    val googleSignedInEmail: Flow<String> = context.settingsDataStore.data.map { it[googleSignedInEmailKey] ?: "" }
+    val googleSignedInPhotoUrl: Flow<String> = context.settingsDataStore.data.map { it[googleSignedInPhotoUrlKey] ?: "" }
+
     suspend fun setThemeMode(mode: ThemeMode) {
         context.settingsDataStore.edit { it[themeModeKey] = mode.name }
     }
@@ -96,4 +109,21 @@ class SettingsRepository(private val context: Context) {
     suspend fun setCompanyEmail(value: String) { context.settingsDataStore.edit { it[companyEmailKey] = value } }
     suspend fun setDefaultWarranty(value: String) { context.settingsDataStore.edit { it[defaultWarrantyKey] = value } }
     suspend fun setPaymentTerms(value: String) { context.settingsDataStore.edit { it[paymentTermsKey] = value } }
+
+    suspend fun setGoogleSignedInIdentity(name: String, email: String, photoUrl: String) {
+        context.settingsDataStore.edit {
+            it[googleSignedInNameKey] = name
+            it[googleSignedInEmailKey] = email
+            it[googleSignedInPhotoUrlKey] = photoUrl
+        }
+    }
+
+    /** Signs out — clears the cached identity only. Does not revoke Google account access (this app was never granted more than basic profile read). */
+    suspend fun clearGoogleSignedInIdentity() {
+        context.settingsDataStore.edit {
+            it.remove(googleSignedInNameKey)
+            it.remove(googleSignedInEmailKey)
+            it.remove(googleSignedInPhotoUrlKey)
+        }
+    }
 }

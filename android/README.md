@@ -6739,3 +6739,67 @@ is used for the first time in this codebase (every other line layer here is soli
 standard MapLibre/Mapbox style-spec property (`line-dasharray`), but unlike the rest of this
 round's changes, it's not already proven-in-use elsewhere in this app, so it's the one part of this
 change worth a second look if the dashed line doesn't render as expected on a real device.
+
+## A106 — Google Sign-In (identity-capture only)
+
+User asked for the OAuth client they were setting up in Google Cloud Console to actually be wired
+into the app. Scope confirmed explicitly before building: **identity-capture only** — a "Sign in
+with Google" button in Settings that fills in the installer's name/email, nothing in the app is
+gated behind it, and there's no backend (this app has never had user accounts of any kind — Room +
+DataStore are the only persistence). Also confirmed and fixed along the way: the app had zero
+Google/OAuth code anywhere before this round.
+
+**Two separate OAuth clients are required in the same Google Cloud project — this is the detail
+most likely to trip someone up:**
+1. **Android type** (package name + SHA-1 fingerprint) — what the user was already creating. This
+   tells Google which apps are allowed to call in at all. Debug builds ship as
+   `com.lumix.estimator.debug` (see `app/build.gradle.kts`'s `applicationIdSuffix`); release ships
+   as `com.lumix.estimator`. The SHA-1 has to come from whichever keystore actually signs the APK
+   being tested — this repo has no keystore (correctly; it's machine-specific and gitignored), so
+   it can only be read off the real build machine, never guessed.
+2. **Web application type** — a *different* client, with no package name/SHA-1 fields at all. Its
+   Client ID is the `serverClientId` Credential Manager's Sign-In-with-Google flow actually needs
+   in code. **This is the one that goes in `android/local.properties`:**
+   ```
+   GOOGLE_WEB_CLIENT_ID=<the Web application client's Client ID>
+   ```
+   Same blank-by-default, gitignored, `BuildConfig`-exposed pattern as every other credential in
+   this app (`MAPTILER_API_KEY`, `DEYE_API_KEY`, etc.) — see `GoogleIdentityConfig`'s own doc.
+   Without it, the Settings screen shows an explanatory message instead of a dead button (same
+   "don't fake it, flag it" pattern this app has used for every other unconfigured
+   integration — MapTiler, the manufacturer monitoring APIs, AI explanations).
+
+**Implementation — Credential Manager, not the older `GoogleSignInClient`:** `GoogleSignInManager`
+wraps `androidx.credentials.CredentialManager` + `com.google.android.libraries.identity.googleid
+.GetSignInWithGoogleOption` — Google's current recommended API for "Sign in with Google" on
+Android, not the older `com.google.android.gms.auth.api.signin.GoogleSignInClient` lineage Google
+has been moving apps away from. The returned `SignedInGoogleUser` (name/email/photo URL) is parsed
+straight off the signed ID token's own claims **on-device** — nothing is sent anywhere, since
+there's no backend to send it to, and no server-side token verification happens. That's fine for
+"prefill a text field" but this identity is explicitly documented (in `GoogleSignInManager`'s own
+class doc) as NOT an authenticated session for anything security-sensitive, so a future round
+adding real gating/backend sync can't quietly assume more trust than this actually provides.
+
+**Where it lives:** a new "Google Account" section in Settings, placed directly above "Business
+Information." Signing in fills `companyName`/`companyEmail` **only if they're currently blank** —
+never overwrites something the installer already typed by hand, the same "never silently replace
+what the user entered" rule this app has applied everywhere else (manual equipment warnings, roof
+panel-count warnings, etc.). The signed-in name/email is cached in `SettingsRepository` (new
+`google_signed_in_*` DataStore keys) so it survives an app restart without re-prompting; "Sign out"
+clears both that cache and Credential Manager's own cached account state
+(`CredentialManager.clearCredentialState`), so a later sign-in shows the account picker again
+rather than silently reusing the same account.
+
+**Deliberately not built:** account photo rendering (would need adding an image-loading library —
+Coil or similar — this app has none; storing the URL was enough for this round's confirmed scope,
+displaying it wasn't asked for), any gating/login-wall, and anything server-side. All explicitly
+out of scope per the confirmed answer — not overlooked.
+
+**Verification caveat (unchanged):** sandbox still can't compile/run — no Android SDK, and this
+round additionally can't be verified against the real Credential Manager/Google Identity Services
+libraries at all (no network access to Maven Central here). The API surface used
+(`GetSignInWithGoogleOption`, `GoogleIdTokenCredential.createFrom`, `.displayName`/`.id`/
+`.profilePictureUri`, `ClearCredentialStateRequest`) is written from Google's own published
+Credential Manager "Sign in with Google" integration guide, but — like `MapLibreMapView.kt`'s own
+standing disclosure — this is the one new file this round where a real `./gradlew assembleDebug`
+should be run first if anything doesn't resolve.
