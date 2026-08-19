@@ -45,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -54,7 +55,6 @@ import com.lumix.estimator.location.DeviceLocationManager
 import com.lumix.estimator.map.AndroidGeocodingProvider
 import com.lumix.estimator.map.GeocodeResult
 import com.lumix.estimator.map.KnownPlace
-import com.lumix.estimator.map.NoSatelliteProvider
 import com.lumix.estimator.map.OpenFreeMapProvider
 import com.lumix.estimator.network.NetworkConnectivityObserver
 import com.lumix.estimator.sensors.CompassManager
@@ -164,6 +164,82 @@ private fun savedPlanesOutlineFeatures(planes: List<RoofPlane>): FeatureCollecti
     )
 
 /**
+ * 2026-08-18 map-view switcher: the base-map looks the installer can flip between with a labeled
+ * button. All are OpenFreeMap public vector styles (no API key, no billing — same source family as
+ * [OpenFreeMapProvider]), so switching is a real style swap, not a dead "satellite unavailable"
+ * toast. [label] is kept to one clear word so the control never wraps/overlaps into unreadable text.
+ */
+private data class MapStyleOption(val label: String, val styleUrl: String)
+
+private val MAP_STYLE_OPTIONS = listOf(
+    MapStyleOption("Streets", "https://tiles.openfreemap.org/styles/liberty"),
+    MapStyleOption("Bright", "https://tiles.openfreemap.org/styles/bright"),
+    MapStyleOption("Light", "https://tiles.openfreemap.org/styles/positron")
+)
+
+/**
+ * Adds every roof-tracing [GeoJsonSource] + its style layer to [style]. Extracted so it can run both
+ * on first load AND again after a runtime style swap (MapLibre's `setStyle` wipes all sources/layers,
+ * so they must be re-added against the new style; the screen's own `SideEffect` then re-pushes the
+ * current features into the freshly-rebuilt [MapLayerRefs]).
+ */
+private fun addRoofTracingLayers(style: Style) {
+    style.addSource(GeoJsonSource(SRC_SELECTED, FeatureCollection.fromFeatures(emptyList())))
+    style.addLayer(
+        CircleLayer(LYR_SELECTED, SRC_SELECTED).withProperties(
+            PropertyFactory.circleRadius(8f),
+            PropertyFactory.circleColor(Color(0xFFFFD84D).toArgb()),
+            PropertyFactory.circleStrokeColor(Color(0xFF1A1A1A).toArgb()),
+            PropertyFactory.circleStrokeWidth(2f)
+        )
+    )
+    style.addSource(GeoJsonSource(SRC_SAVED_FILL, FeatureCollection.fromFeatures(emptyList())))
+    style.addLayer(
+        FillLayer(LYR_SAVED_FILL, SRC_SAVED_FILL).withProperties(
+            PropertyFactory.fillColor(Color(0x3363E6A5).toArgb())
+        )
+    )
+    style.addSource(GeoJsonSource(SRC_SAVED_OUTLINE, FeatureCollection.fromFeatures(emptyList())))
+    style.addLayer(
+        LineLayer(LYR_SAVED_OUTLINE, SRC_SAVED_OUTLINE).withProperties(
+            PropertyFactory.lineColor(Color(0xFF63E6A5).toArgb()),
+            PropertyFactory.lineWidth(3f)
+        )
+    )
+    style.addSource(GeoJsonSource(SRC_ROOF_FILL, FeatureCollection.fromFeatures(emptyList())))
+    style.addLayer(
+        FillLayer(LYR_ROOF_FILL, SRC_ROOF_FILL).withProperties(
+            PropertyFactory.fillColor(Color(0x4DFFD84D).toArgb())
+        )
+    )
+    style.addSource(GeoJsonSource(SRC_ROOF_OUTLINE, FeatureCollection.fromFeatures(emptyList())))
+    style.addLayer(
+        LineLayer(LYR_ROOF_OUTLINE, SRC_ROOF_OUTLINE).withProperties(
+            PropertyFactory.lineColor(Color(0xFFFFD84D).toArgb()),
+            PropertyFactory.lineWidth(4f)
+        )
+    )
+    style.addSource(GeoJsonSource(SRC_ROOF_VERTICES, FeatureCollection.fromFeatures(emptyList())))
+    style.addLayer(
+        CircleLayer(LYR_ROOF_VERTICES, SRC_ROOF_VERTICES).withProperties(
+            PropertyFactory.circleRadius(6f),
+            PropertyFactory.circleColor(Color(0xFFFFD84D).toArgb()),
+            PropertyFactory.circleStrokeColor(Color(0xFF1A1A1A).toArgb()),
+            PropertyFactory.circleStrokeWidth(1.5f)
+        )
+    )
+    style.addSource(GeoJsonSource(SRC_ROOF_SELECTED_VERTEX, FeatureCollection.fromFeatures(emptyList())))
+    style.addLayer(
+        CircleLayer(LYR_ROOF_SELECTED_VERTEX, SRC_ROOF_SELECTED_VERTEX).withProperties(
+            PropertyFactory.circleRadius(9f),
+            PropertyFactory.circleColor(Color(0xFFFF5252).toArgb()),
+            PropertyFactory.circleStrokeColor(Color(0xFFFFFFFF).toArgb()),
+            PropertyFactory.circleStrokeWidth(2f)
+        )
+    )
+}
+
+/**
  * Satellite-roof-tracing map, now on MapLibre Native + OpenFreeMap (2026-08-18 "REPLACE THE
  * CURRENT MAP IMPLEMENTATION" — see [com.lumix.estimator.map.OpenFreeMapProvider]'s own doc for
  * why "MapLibre GL JS" became MapLibre Native for this platform, and [MapLibreMapView]'s doc for
@@ -196,8 +272,8 @@ fun SolarSiteMapScreen(
     var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
     var layerRefs by remember { mutableStateOf<MapLayerRefs?>(null) }
     var tileLoadError by remember { mutableStateOf(false) }
-    var satelliteNotice by remember { mutableStateOf(false) }
     var editMode by remember { mutableStateOf(RoofEditMode.NONE) }
+    var selectedStyleUrl by remember { mutableStateOf(MAP_STYLE_OPTIONS.first().styleUrl) }
 
     var searchQuery by remember { mutableStateOf(state.draftAddress ?: "") }
     var searchError by remember { mutableStateOf(false) }
@@ -245,6 +321,21 @@ fun SolarSiteMapScreen(
                 mapController.selectLocation(point)
                 animateTo(point, 18.0)
             }
+        }
+    }
+
+    // 2026-08-18 map-view switcher: swap the base-map style at runtime. setStyle wipes every
+    // source/layer, so the roof-tracing layers are re-added against the new style and layerRefs is
+    // rebuilt; the SideEffect above then re-pushes the current pin/roofs into them. The map's own
+    // camera and click listener live on the map (not the style) and survive the swap untouched.
+    fun switchMapStyle(url: String) {
+        if (url == selectedStyleUrl) return
+        val map = mapLibreMap ?: return
+        selectedStyleUrl = url
+        layerRefs = null
+        map.setStyle(Style.Builder().fromUri(url)) { style ->
+            addRoofTracingLayers(style)
+            layerRefs = MapLayerRefs(style)
         }
     }
 
@@ -316,69 +407,13 @@ fun SolarSiteMapScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         MapLibreMapView(
-            styleUrl = OpenFreeMapProvider.styleUrl,
+            styleUrl = selectedStyleUrl,
             modifier = Modifier.fillMaxSize(),
             onMapReady = { map, style ->
                 mapLibreMap = map
                 tileLoadError = false
 
-                style.addSource(GeoJsonSource(SRC_SELECTED, FeatureCollection.fromFeatures(emptyList())))
-                style.addLayer(
-                    CircleLayer(LYR_SELECTED, SRC_SELECTED).withProperties(
-                        PropertyFactory.circleRadius(8f),
-                        PropertyFactory.circleColor(Color(0xFFFFD84D).toArgb()),
-                        PropertyFactory.circleStrokeColor(Color(0xFF1A1A1A).toArgb()),
-                        PropertyFactory.circleStrokeWidth(2f)
-                    )
-                )
-
-                style.addSource(GeoJsonSource(SRC_SAVED_FILL, FeatureCollection.fromFeatures(emptyList())))
-                style.addLayer(
-                    FillLayer(LYR_SAVED_FILL, SRC_SAVED_FILL).withProperties(
-                        PropertyFactory.fillColor(Color(0x3363E6A5).toArgb())
-                    )
-                )
-                style.addSource(GeoJsonSource(SRC_SAVED_OUTLINE, FeatureCollection.fromFeatures(emptyList())))
-                style.addLayer(
-                    LineLayer(LYR_SAVED_OUTLINE, SRC_SAVED_OUTLINE).withProperties(
-                        PropertyFactory.lineColor(Color(0xFF63E6A5).toArgb()),
-                        PropertyFactory.lineWidth(3f)
-                    )
-                )
-
-                style.addSource(GeoJsonSource(SRC_ROOF_FILL, FeatureCollection.fromFeatures(emptyList())))
-                style.addLayer(
-                    FillLayer(LYR_ROOF_FILL, SRC_ROOF_FILL).withProperties(
-                        PropertyFactory.fillColor(Color(0x4DFFD84D).toArgb())
-                    )
-                )
-                style.addSource(GeoJsonSource(SRC_ROOF_OUTLINE, FeatureCollection.fromFeatures(emptyList())))
-                style.addLayer(
-                    LineLayer(LYR_ROOF_OUTLINE, SRC_ROOF_OUTLINE).withProperties(
-                        PropertyFactory.lineColor(Color(0xFFFFD84D).toArgb()),
-                        PropertyFactory.lineWidth(4f)
-                    )
-                )
-
-                style.addSource(GeoJsonSource(SRC_ROOF_VERTICES, FeatureCollection.fromFeatures(emptyList())))
-                style.addLayer(
-                    CircleLayer(LYR_ROOF_VERTICES, SRC_ROOF_VERTICES).withProperties(
-                        PropertyFactory.circleRadius(6f),
-                        PropertyFactory.circleColor(Color(0xFFFFD84D).toArgb()),
-                        PropertyFactory.circleStrokeColor(Color(0xFF1A1A1A).toArgb()),
-                        PropertyFactory.circleStrokeWidth(1.5f)
-                    )
-                )
-                style.addSource(GeoJsonSource(SRC_ROOF_SELECTED_VERTEX, FeatureCollection.fromFeatures(emptyList())))
-                style.addLayer(
-                    CircleLayer(LYR_ROOF_SELECTED_VERTEX, SRC_ROOF_SELECTED_VERTEX).withProperties(
-                        PropertyFactory.circleRadius(9f),
-                        PropertyFactory.circleColor(Color(0xFFFF5252).toArgb()),
-                        PropertyFactory.circleStrokeColor(Color(0xFFFFFFFF).toArgb()),
-                        PropertyFactory.circleStrokeWidth(2f)
-                    )
-                )
-
+                addRoofTracingLayers(style)
                 layerRefs = MapLayerRefs(style)
 
                 val initial = state.draftLatitude?.let { lat -> state.draftLongitude?.let { lon -> GeoPoint(lat, lon) } } ?: jamaicaDefault
@@ -464,12 +499,15 @@ fun SolarSiteMapScreen(
             if (tileLoadError) {
                 TileErrorBanner()
             }
-            if (satelliteNotice) {
-                InfoBanner("Satellite imagery unavailable — using map view.")
-            }
+            MapStyleSwitcher(
+                selectedStyleUrl = selectedStyleUrl,
+                onSelect = { switchMapStyle(it) }
+            )
         }
 
-        // Right-side floating controls: zoom, layers, my location.
+        // Right-side floating controls: zoom, my location, 3D. (Base-map view switching moved to
+        // the labeled MapStyleSwitcher under the search bar — a real OpenFreeMap style swap now,
+        // not the old dead-end "satellite unavailable" toggle.)
         Column(
             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -480,20 +518,6 @@ fun SolarSiteMapScreen(
             LumixIconButtonSurface(onClick = {
                 mapLibreMap?.let { map -> map.animateCamera(CameraUpdateFactory.zoomOut()) }
             }) { Icon(Icons.Default.Remove, contentDescription = "Zoom out") }
-            LumixIconButtonSurface(onClick = {
-                // "Display 'Satellite imagery unavailable — using map view.' only when necessary" —
-                // NoSatelliteProvider is the only provider wired in today, so this always shows
-                // the notice rather than actually switching layers; see SatelliteProvider's own doc.
-                if (!NoSatelliteProvider.isConfigured) {
-                    satelliteNotice = true
-                    scope.launch {
-                        kotlinx.coroutines.delay(3000)
-                        satelliteNotice = false
-                    }
-                } else {
-                    mapController.setLayer(if (mapController.layer == MapLayer.MAP) MapLayer.SATELLITE else MapLayer.MAP)
-                }
-            }) { Icon(Icons.Default.Layers, contentDescription = "Map layer") }
             LumixIconButtonSurface(onClick = {
                 mapController.toggle3D()
                 val map = mapLibreMap
@@ -663,16 +687,39 @@ private fun TileErrorBanner() {
     }
 }
 
+/**
+ * 2026-08-18 map-view switcher: a compact segmented control to flip the base map between the
+ * [MAP_STYLE_OPTIONS] OpenFreeMap styles. Each option is one weight()-ed cell so the labels share
+ * the width evenly and never overlap or wrap into unreadable text on a narrow phone.
+ */
 @Composable
-private fun InfoBanner(text: String) {
+private fun MapStyleSwitcher(selectedStyleUrl: String, onSelect: (String) -> Unit) {
     val palette = LocalLumixPalette.current
     GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelSmall,
-            color = palette.textPrimary,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            MAP_STYLE_OPTIONS.forEach { option ->
+                val selected = option.styleUrl == selectedStyleUrl
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(LumixRadius.sm))
+                        .background(if (selected) palette.solarYellow.copy(alpha = 0.22f) else Color.Transparent)
+                        .clickable { onSelect(option.styleUrl) }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        option.label,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        color = if (selected) palette.solarYellowText else palette.textSecondary
+                    )
+                }
+            }
+        }
     }
 }
 

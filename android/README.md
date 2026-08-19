@@ -6385,3 +6385,45 @@ in the A93 audit, and its off-grid panel cap was closed there too. `effectiveSys
 once (a MANUAL inverter pick can override the requested mode via its catalog `mode`) and threaded
 consistently into the material takeoff, battery/charge-controller lines, transfer-switch resolution,
 and `SimSystemConfig.gridConnectable`. No new issues found this round.
+
+## A96 — trickle charge completes to 100%, and a real map-view switcher
+
+Installer feedback: "trickle charge stops at 99 percent... it means slowly charge to 100 in the
+next 30 min from 97 to 100"; "fix map to use a button to switch the different view and the words on
+the buttons are jumbled."
+
+### Trickle charge now reaches 100% (BatteryPowerCurve)
+The charge taper (`BatteryPowerCurve.chargeTaperFraction`) was a quadratic-to-zero curve, so the
+trickle current collapsed toward zero near the top (~0.4% of rated at 99% SOC). The last 1% then
+took hours of vanishing current, and the battery would sit at 99% into the evening and never read
+100% — exactly the reported bug. Replaced with a linear absorption taper (full rated up to 85% SOC,
+tapering toward zero at 100%) **held at a nonzero 10% trickle floor** so the pack actually completes:
+from ~97% it tops off over roughly the next half hour for a typical battery/charger ratio, and the
+hard room-based clamp in `buildDayTimeline` (`roomKwh / dt`) finishes the exact top-off to 100% and
+holds it there. At 99% the taper is now ~10% of rated (a real trickle) instead of ~0.4% (a stall).
+
+With the stall removed, a well-sized system now charges at full rate up to 85% through the strong
+morning sun, then trickles the final stretch and reads 100% around midday/early afternoon — the
+"full by 12–2pm depending on daytime load" behavior — instead of crawling toward 99% all day. Only
+start-of-charge dynamics changed; daily energy and sizing are untouched. The `Phase24…Test` taper
+test still passes (shape/monotonicity/zero-at-100% all hold) and gained a guard asserting the 99%
+trickle stays at a real rate (`f99 >= 0.09`) so the stall can't regress.
+
+### Map view switcher (SolarSiteMapScreen)
+The old base-map "layer" control was a right-side icon that, because only `NoSatelliteProvider` is
+wired in, never actually switched anything — it just flashed a "Satellite imagery unavailable" toast.
+Replaced it with a real, labeled **segmented switcher** under the search bar that swaps between three
+OpenFreeMap public vector styles (no API key, no billing): **Streets** (Liberty), **Bright**, and
+**Light** (Positron). Each label is a single word in its own equal-width `weight()` cell, so the
+control never wraps or overlaps into unreadable ("jumbled") text on a narrow phone. Runtime switching
+is a genuine `map.setStyle(...)`: MapLibre wipes sources/layers on a style swap, so the roof-tracing
+layer setup was extracted into `addRoofTracingLayers(style)` and is re-run against the new style, with
+`layerRefs` rebuilt so the existing `SideEffect` re-pushes the current pin/roofs; the map camera and
+click listener live on the map (not the style) and survive untouched. The dead satellite toggle,
+its toast, and the now-unused provider import were removed.
+
+**Verification caveat (unchanged):** `SolarSiteMapScreen`/`MapLibreMapView` still can't be compiled
+in this sandbox (no Android build; the MapLibre SDK surface is written to the documented public API).
+`map.setStyle(Style.Builder().fromUri(url)) { }` here mirrors the exact call `MapLibreMapView` already
+uses on first load, so it's consistent with the existing pattern — but run `./gradlew assembleDebug`
+when picking this up, same as the original map round disclosed.

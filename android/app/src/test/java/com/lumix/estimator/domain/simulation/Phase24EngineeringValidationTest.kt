@@ -75,6 +75,10 @@ class Phase24EngineeringValidationTest {
         assertTrue("90% must still allow substantial charging", f90 > 0.3)
         assertTrue("each step nearer 100% must charge less than the previous", f90 > f95 && f95 > f97 && f97 > f99 && f99 > f100)
         assertEquals(0.0, f100, 0.0001)
+        // 2026-08-18 trickle-charge fix: the last percent must still trickle at a REAL rate, not
+        // collapse toward zero and stall at ~99% into the evening. Below-100% SOC is held at a
+        // nonzero floor so the pack actually completes to 100% (the room clamp finishes it).
+        assertTrue("99% must still trickle at a meaningful rate, not a near-zero stall", f99 >= 0.09)
 
         // Integration: a battery already AT 100% SOC (roomKwh == 0) must show exactly 0W charging
         // in a real timeline frame, independent of the taper fraction's own value at that point —

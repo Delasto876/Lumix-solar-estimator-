@@ -1,7 +1,5 @@
 package com.lumix.estimator.domain.simulation
 
-import kotlin.math.pow
-
 /**
  * Simplified charge/discharge power tapering, applied on top of a battery's flat rated
  * max charge/discharge kW ([SimSystemConfig.batteryMaxChargeKw]/[SimSystemConfig.batteryMaxDischargeKw]).
@@ -13,30 +11,33 @@ import kotlin.math.pow
  */
 object BatteryPowerCurve {
     /**
-     * A87 (spec Phase 24 §5 — "BATTERY NEAR FULL — CRITICAL... charging should transition into a
-     * tapering/CV-style region near full SOC... 90%: substantial charging. 95%: charging begins
-     * reducing. 97%: charging noticeably reduced. 98-99%: charging increasingly limited. 100%:
-     * charging = 0W... DO NOT hard-code 97%=X, 98%=X, 99%=X... unless those values come from an
-     * actual battery model/specification. Use a configurable physically reasonable taper"): a
-     * continuous CV-style curve — full rated power up to [TAPER_START_FRACTION], then a quadratic
-     * decay (stays closer to full just past the start, falls away increasingly steeply approaching
-     * 100%) down to exactly 0.0 at 100% SOC. Replaces a coarser 4-band step function that held a
-     * flat 0.1 fraction across the ENTIRE 95-100% range — not "increasingly limited" through
-     * 96/97/98/99% the way this worked example describes. At the constants below: ~90% SOC → ~44%
-     * of rated power, ~95% → ~11%, ~97% → ~4%, ~99% → <1%, 100% → 0% — the right qualitative shape,
-     * still a generic engineering placeholder rather than measured cell data (see this object's own
-     * class doc), and still just two constants to replace if the catalog ever gains a real
-     * per-model CV-tail curve.
+     * A87 (spec Phase 24 §5) + 2026-08-18 trickle-charge fix: a CV-style absorption taper — full
+     * rated power up to [TAPER_START_FRACTION] (85%), then a linear taper toward zero as SOC
+     * approaches 100%, but held at a nonzero [TRICKLE_FLOOR_FRACTION] so the last couple of percent
+     * actually *complete* rather than asymptoting and stalling.
+     *
+     * The earlier quadratic-to-zero curve had the trickle current collapse toward zero near the
+     * top (~0.4% of rated at 99% SOC), so the final 1% took hours of vanishing current and the
+     * battery would sit at 99% into the evening and never read 100% — exactly the "trickle charge
+     * doesn't mean stop at 99%" bug an installer flagged. A real absorption/float stage keeps a
+     * small but genuine trickle current flowing until the pack is actually full. Holding the taper
+     * at a 10% floor gives that: from ~97% the pack tops off over roughly the next half hour (for a
+     * typical battery/charger ratio) instead of stalling, and the hard room-based clamp in
+     * [SimulationEngine.buildDayTimeline] (`roomKwh / dt`) finishes the exact top-off to 100% and
+     * holds it there. Still a generic engineering curve, not measured cell data — two constants to
+     * replace if the catalog ever gains a real per-model CV-tail.
      */
     private const val TAPER_START_FRACTION = 0.85
-    private const val TAPER_EXPONENT = 2.0
+    private const val TRICKLE_FLOOR_FRACTION = 0.10
 
     /** Fraction (0f..1f) of the rated max CHARGE power actually available at this SOC (0f..1f). */
     fun chargeTaperFraction(socFraction: Double): Double {
         if (socFraction <= TAPER_START_FRACTION) return 1.0
         if (socFraction >= 1.0) return 0.0
-        val x = (1.0 - socFraction) / (1.0 - TAPER_START_FRACTION)
-        return x.pow(TAPER_EXPONENT).coerceIn(0.0, 1.0)
+        // Linear from full rated at TAPER_START toward zero at 100%, floored so the trickle never
+        // collapses to a near-zero, never-completing current below 100%.
+        val linear = (1.0 - socFraction) / (1.0 - TAPER_START_FRACTION)
+        return linear.coerceIn(TRICKLE_FLOOR_FRACTION, 1.0)
     }
 
     /**
