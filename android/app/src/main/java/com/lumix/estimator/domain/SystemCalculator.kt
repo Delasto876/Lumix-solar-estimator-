@@ -1,6 +1,7 @@
 package com.lumix.estimator.domain
 
 import com.lumix.estimator.domain.simulation.BackupEstimator
+import com.lumix.estimator.domain.simulation.DayType
 import com.lumix.estimator.domain.simulation.OvernightLoadProfile
 import com.lumix.estimator.domain.simulation.RechargeFeasibility
 import com.lumix.estimator.domain.simulation.SimApplianceType
@@ -9,6 +10,7 @@ import com.lumix.estimator.domain.simulation.SimulationEngine
 import com.lumix.estimator.domain.simulation.defaultApplianceStates
 import com.lumix.estimator.domain.simulation.defaultDailyEnergyKwh
 import com.lumix.estimator.domain.simulation.defaultEffectiveDailyHours
+import com.lumix.estimator.domain.simulation.defaultWeeklyOperatingHours
 import com.lumix.estimator.domain.simulation.WeatherEngine
 import com.lumix.estimator.domain.simulation.WeatherScenario
 import com.lumix.estimator.domain.pricing.MaterialTakeoffEngine
@@ -119,20 +121,36 @@ object SystemCalculator {
         AcInverterType.INVERTER -> INVERTER_BTU_PER_WATT
     }
 
-    private data class LoadResult(val dailyKwh: Double, val peakWatts: Double)
+    /**
+     * Phase 28 (§5 "Do not simply multiply daily consumption by 7... Calculate: Daily kWh, Weekly
+     * kWh, Average daily kWh... Weekend behavior must be different where appropriate"): [dailyKwh]
+     * is now [averageDailyKwh] (see that field's own doc) rather than a bare Weekday figure — the
+     * per-day-type breakdown is carried alongside it so callers/[QuoteResult] can show the real
+     * weekly shape, not just the single blended number.
+     */
+    private data class LoadResult(
+        val dailyKwh: Double,
+        val peakWatts: Double,
+        val weekdayDailyKwh: Double,
+        val saturdayDailyKwh: Double,
+        val sundayDailyKwh: Double,
+        val weeklyKwh: Double,
+        val averageDailyKwh: Double,
+        val estimatedOperatingHoursPerWeek: Double
+    )
 
-    private fun loadsKwhAndPeak(data: QuoteInputs): LoadResult {
+    /**
+     * Real per-day-type daily kWh — everything [loadsKwhAndPeak] used to compute once (implicitly
+     * Weekday-only), now computed for whichever [dayType] is asked for. AC's "Custom hours/day" and
+     * a per-appliance manual hours override both stay day-type-INVARIANT (an installer's own single
+     * typed figure, not a schedule this app can subdivide by day) — only the auto-schedule path
+     * actually varies by [dayType], via [defaultDailyEnergyKwh]/[defaultEffectiveDailyHours]'s own
+     * `dayType` parameter.
+     */
+    private fun dailyKwhForDayType(data: QuoteInputs, dayType: DayType): Double {
         var dailyKwh = 0.0
-        var peakWatts = 0.0
-
-        // Sizing load and simulation behavior come from the SAME schedule/duty-cycle model
-        // (SimAppliance.kt's defaultScheduleFor) by default — an installer no longer has to
-        // manually estimate hours/day for the estimator to size correctly. "Standard" AC hours
-        // uses the real evening-window + thermostat-duty-cycle shape (scaled by this appliance's
-        // own real per-BTU-tier wattage, not the simulation catalog's generic AC wattage);
-        // "Custom" still honors an explicit override.
         if (data.ac.hasAc) {
-            val acEffectiveHours = defaultEffectiveDailyHours(SimApplianceType.AIR_CONDITIONER)
+            val acEffectiveHours = defaultEffectiveDailyHours(SimApplianceType.AIR_CONDITIONER, dayType)
             val btuPerWatt = acBtuPerWatt(data.ac.acType)
             val partLoadFactor = if (data.ac.acType == AcInverterType.INVERTER) INVERTER_PART_LOAD_AVERAGE_FACTOR else 1.0
             data.ac.counts.forEach { (btu, count) ->
@@ -140,26 +158,73 @@ object SystemCalculator {
                     val w = btu / btuPerWatt
                     val hours = if (data.ac.useStandardHours) acEffectiveHours else data.ac.customHours
                     dailyKwh += (w * partLoadFactor * hours * count) / 1000.0
-                    peakWatts += w * count
                 }
             }
         }
-
         data.appliances.forEach { (type, load) ->
             if (load.qty > 0) {
                 dailyKwh += if (load.useAutoSchedule) {
-                    defaultDailyEnergyKwh(simTypeFor(type), load.qty)
+                    defaultDailyEnergyKwh(simTypeFor(type), load.qty, dayType)
                 } else {
                     (type.watts * load.hours * load.qty) / 1000.0
                 }
-                peakWatts += type.watts * load.qty
             }
         }
-
         dailyKwh += (data.otherWatts * data.otherHours) / 1000.0
+        return dailyKwh
+    }
+
+    private fun loadsKwhAndPeak(data: QuoteInputs): LoadResult {
+        var peakWatts = 0.0
+
+        // Peak stays a single coincident figure (not day-type-scoped) — the worst-case
+        // simultaneous nameplate draw doesn't depend on which day it happens to occur.
+        if (data.ac.hasAc) {
+            val btuPerWatt = acBtuPerWatt(data.ac.acType)
+            data.ac.counts.forEach { (btu, count) -> if (count > 0) peakWatts += (btu / btuPerWatt) * count }
+        }
+        data.appliances.forEach { (type, load) -> if (load.qty > 0) peakWatts += type.watts * load.qty }
         peakWatts += data.otherWatts
 
-        return LoadResult(dailyKwh, peakWatts)
+        // Sizing load and simulation behavior come from the SAME schedule/duty-cycle model
+        // (SimAppliance.kt's defaultScheduleFor) by default — an installer no longer has to
+        // manually estimate hours/day for the estimator to size correctly. "Standard" AC hours
+        // uses the real evening-window + thermostat-duty-cycle shape (scaled by this appliance's
+        // own real per-BTU-tier wattage, not the simulation catalog's generic AC wattage);
+        // "Custom" still honors an explicit override.
+        val weekdayDailyKwh = dailyKwhForDayType(data, DayType.WEEKDAY)
+        val saturdayDailyKwh = dailyKwhForDayType(data, DayType.SATURDAY)
+        val sundayDailyKwh = dailyKwhForDayType(data, DayType.SUNDAY)
+        // Phase 28 (§5 worked shape): Monday-Friday share the single WEEKDAY profile (5x), Saturday
+        // and Sunday each count once — a real 7-day week, not a flat daily-figure x 7.
+        val weeklyKwh = weekdayDailyKwh * 5 + saturdayDailyKwh + sundayDailyKwh
+        val averageDailyKwh = weeklyKwh / 7.0
+
+        var operatingHoursPerWeek = 0.0
+        if (data.ac.hasAc && data.ac.counts.values.any { it > 0 }) {
+            operatingHoursPerWeek += if (data.ac.useStandardHours) {
+                defaultWeeklyOperatingHours(SimApplianceType.AIR_CONDITIONER)
+            } else {
+                data.ac.customHours * 7.0
+            }
+        }
+        data.appliances.forEach { (type, load) ->
+            if (load.qty > 0) {
+                operatingHoursPerWeek += if (load.useAutoSchedule) {
+                    defaultWeeklyOperatingHours(simTypeFor(type))
+                } else {
+                    load.hours * 7.0
+                }
+            }
+        }
+        if (data.otherWatts > 0.0) operatingHoursPerWeek += data.otherHours * 7.0
+
+        return LoadResult(
+            dailyKwh = averageDailyKwh, peakWatts = peakWatts,
+            weekdayDailyKwh = weekdayDailyKwh, saturdayDailyKwh = saturdayDailyKwh, sundayDailyKwh = sundayDailyKwh,
+            weeklyKwh = weeklyKwh, averageDailyKwh = averageDailyKwh,
+            estimatedOperatingHoursPerWeek = operatingHoursPerWeek
+        )
     }
 
     /**
@@ -465,7 +530,9 @@ object SystemCalculator {
             return com.lumix.estimator.domain.commercial.CommercialIndustrialCalculator.calculate(input, prices)
         }
 
-        val (dailyKwhLoads, peakWatts) = loadsKwhAndPeak(input)
+        val loadResult = loadsKwhAndPeak(input)
+        val dailyKwhLoads = loadResult.dailyKwh
+        val peakWatts = loadResult.peakWatts
 
         val approxKwhFromBill = if (input.quoteMode == QuoteMode.GUIDED) {
             when (input.usageMode) {
@@ -1087,7 +1154,13 @@ object SystemCalculator {
             batteryRechargeSocAt2pmPercent = rechargeCheck?.socAtTargetHourPercent,
             batteryRechargeHour = rechargeCheck?.hourReachedTarget,
             estimatedTypicalDailyPvKwh = dailyProductionEstimate?.first,
-            estimatedConservativeDailyPvKwh = dailyProductionEstimate?.second
+            estimatedConservativeDailyPvKwh = dailyProductionEstimate?.second,
+            weekdayDailyKwh = loadResult.weekdayDailyKwh,
+            saturdayDailyKwh = loadResult.saturdayDailyKwh,
+            sundayDailyKwh = loadResult.sundayDailyKwh,
+            weeklyKwh = loadResult.weeklyKwh,
+            averageDailyKwh = loadResult.averageDailyKwh,
+            estimatedOperatingHoursPerWeek = loadResult.estimatedOperatingHoursPerWeek
         )
     }
 

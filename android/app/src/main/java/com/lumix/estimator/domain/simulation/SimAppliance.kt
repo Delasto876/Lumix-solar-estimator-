@@ -523,6 +523,20 @@ fun defaultDailyEnergyKwh(type: SimApplianceType, quantity: Int, dayType: DayTyp
 }
 
 /**
+ * Phase 28 (§5 "Estimated operating hours/week"): [type]'s own schedule's total ON-duration
+ * across a real week (5x [DayType.WEEKDAY] + [DayType.SATURDAY] + [DayType.SUNDAY]) — the RAW
+ * scheduled runtime, deliberately NOT tapered by [SimApplianceType.dutyFactor] (a distinct
+ * question from [defaultDailyEnergyKwh]'s energy total — "how many hours is this on" versus "how
+ * much energy did it use while on") and NOT quantity-scaled (the schedule's own shape doesn't
+ * change just because more units share it).
+ */
+fun defaultWeeklyOperatingHours(type: SimApplianceType): Double {
+    val schedule = defaultScheduleFor(type)
+    fun hoursOn(dayType: DayType) = schedule.filter { dayType in it.dayTypes }.sumOf { it.durationHours }
+    return hoursOn(DayType.WEEKDAY) * 5 + hoursOn(DayType.SATURDAY) + hoursOn(DayType.SUNDAY)
+}
+
+/**
  * Total appliance load at a given hour (0..24) — only runs whose window is active contribute,
  * scaled by each type's [SimApplianceType.dutyFactor] so cycling/thermostatic loads (fridge,
  * water heater, stove) contribute their real average draw rather than their full nameplate

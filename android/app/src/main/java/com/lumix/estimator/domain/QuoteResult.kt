@@ -213,6 +213,25 @@ data class QuoteResult(
     val estimatedConservativeDailyPvKwh: Double? = null,
 
     /**
+     * Phase 28 (§5 "Do not simply multiply daily consumption by 7... Calculate: Daily kWh, Weekly
+     * kWh, Average daily kWh, Peak simultaneous load, Estimated operating hours/week... Weekend
+     * behavior must be different where appropriate"): the real per-day-type breakdown behind
+     * [designDailyKwh] (which is now [averageDailyKwh] — see that field's own doc), so a UI can show
+     * the actual weekly shape instead of just the one blended number. All default to 0.0 for quotes
+     * saved before this round existed, the historically accurate reading since no such breakdown was
+     * computed for them either (their [designDailyKwh] was the old Weekday-only figure).
+     */
+    val weekdayDailyKwh: Double = 0.0,
+    val saturdayDailyKwh: Double = 0.0,
+    val sundayDailyKwh: Double = 0.0,
+    /** Monday-Friday x [weekdayDailyKwh] + [saturdayDailyKwh] + [sundayDailyKwh] — a real 7-day week, not [designDailyKwh] x 7. */
+    val weeklyKwh: Double = 0.0,
+    /** [weeklyKwh] / 7.0 — identically equal to [designDailyKwh] (both come from the same [SystemCalculator] calculation); kept as its own named field so a UI reads "average daily kWh" as what it is rather than inferring the label from [designDailyKwh] alone. */
+    val averageDailyKwh: Double = 0.0,
+    /** Phase 28 (§5 "Estimated operating hours/week"): total scheduled ON-duration across every enabled load for a real week — see [com.lumix.estimator.domain.simulation.defaultWeeklyOperatingHours]'s own doc for why this is NOT the same figure as energy (no duty-cycle taper, no wattage). */
+    val estimatedOperatingHoursPerWeek: Double = 0.0,
+
+    /**
      * A89/Ph21 (master prompt, repeated twice — "NEVER INVENT A PRICE. A BLANK PRICE MUST ALWAYS
      * REMAIN BLANK UNTIL THE INSTALLER ENTERS IT... ESPECIALLY FOR INVERTERS"): the display names
      * of every [MaterialLine] in [materials] whose [MaterialLine.unitPrice] is null — today this

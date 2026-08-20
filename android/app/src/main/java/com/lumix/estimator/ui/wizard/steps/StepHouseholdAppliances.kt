@@ -214,12 +214,18 @@ private fun LoadAuditPreview(inputs: QuoteInputs) {
             modifier = Modifier.padding(bottom = 10.dp)
         )
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            LoadStat("DAILY ENERGY", "%.1f kWh".format(preview.designDailyKwh), Modifier.weight(1f))
+            // Phase 28 (§5 "Average daily kWh"): this is now the real 7-day average (weekday x5 +
+            // Saturday + Sunday), not a Weekday-only figure — see QuoteResult.averageDailyKwh's own doc.
+            LoadStat("DAILY ENERGY (AVG)", "%.1f kWh".format(preview.averageDailyKwh), Modifier.weight(1f))
             LoadStat("PEAK", "%.2f kW".format(shape.peakKw) + " at " + formatSimTime(shape.peakHour), Modifier.weight(1f))
         }
         Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             LoadStat("EVENING PEAK", "%.2f kW".format(shape.eveningPeakKw), Modifier.weight(1f))
             LoadStat("BASE LOAD", "%.2f kW".format(shape.baseLoadKw), Modifier.weight(1f))
+        }
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            LoadStat("WEEKLY ENERGY", "%.1f kWh".format(preview.weeklyKwh), Modifier.weight(1f))
+            LoadStat("OPERATING HRS/WK", "%.0f h".format(preview.estimatedOperatingHoursPerWeek), Modifier.weight(1f))
         }
     }
 }
