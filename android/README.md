@@ -7044,3 +7044,147 @@ existing `59.70838f`/`59.71713f` values were already derived by, per that test's
 the JVM test suite itself could not be run in this sandbox (no JDK/Gradle test execution here,
 consistent with every other verification caveat in this README) — worth an actual `./gradlew test`
 run to confirm before treating this as fully closed.
+
+## A111 — Phase 27: Commercial & Industrial system architecture (engineering/data foundation)
+
+User's spec (20 sections) asked for the app to expand from residential-only sizing to
+Residential/Commercial/Industrial system design, explicitly as an **engineering/data/sizing phase,
+not a UI redesign** — "preserve the existing residential calculations and behavior," "do not change
+the visual design system," Industrial manual-only, Commercial manual-primary with recommendations,
+"do not create separate disconnected sizing engines... use ONE SystemDesign architecture." This round
+builds that foundation. No wizard/results/simulation UI was touched — there is no screen yet where an
+installer can actually enter a commercial/industrial design; this is domain-layer plumbing a future
+UI round would wire into, exactly as the spec's own final requirement asked for ("Build the
+engineering/data architecture first").
+
+### 1. Files changed
+
+New (`domain/commercial/` package):
+- `LoadModels.kt` — `LoadPhaseType`/`LoadOperationType`/`LoadPriority`/`LoadCategory` enums,
+  `LoadDefinition` (catalog template)/`LoadInstance` (per-quote configured load), `ElectricalPower`
+  (kVA/kVAR formulas).
+- `CommercialIndustrialLoadCatalog.kt` — 18 commercial + 14 industrial seeded loads (extensible list,
+  not a closed enum).
+- `CommercialIndustrialDesign.kt` — `ElectricalService`, `DiversityFactor`/`DiversityFactorPreset`,
+  `CommercialIndustrialDesign` (Connected/Maximum-Expected/Design Load in kW and kVA).
+- `ParallelInverterDesign.kt` — `StringAssignment`/`InverterUnitPvDesign`/`ParallelInverterDesign`,
+  `ParallelInverterValidator`.
+- `BatteryPerInverterDesign.kt` — `BatteryPerInverterAllocation`/`BatteryPerInverterDesign`,
+  `BatteryPerInverterValidator`.
+- `EngineeringWarning.kt` — 15 typed warning categories (spec §17).
+- `CommercialIndustrialCalculator.kt` — the COMMERCIAL/INDUSTRIAL entry point.
+- `CommercialIndustrialResult.kt` — `CommercialIndustrialResultSummary`.
+
+Modified:
+- `QuoteInputs.kt` — new `SystemType` enum, `systemCategory`/`commercialIndustrialDesign` fields.
+- `QuoteResult.kt` — `commercialIndustrialSummary`/`commercialIndustrialWarnings` fields.
+- `EquipmentSpecs.kt` — `InverterSpec.supportsParallel`/`maxParallelUnits` fields.
+- `SystemCalculator.kt` — one dispatch guard, first line of `calculate()`.
+
+New test: `Phase27CommercialIndustrialTest.kt` (17 tests).
+
+### 2. Data model changes
+
+One `SystemDesign` architecture, per spec §19 — not a fork. `QuoteInputs.systemCategory: SystemType`
+(`RESIDENTIAL`/`COMMERCIAL`/`INDUSTRIAL`, defaults to `RESIDENTIAL`) plus one nullable
+`commercialIndustrialDesign: CommercialIndustrialDesign?` bundling every Phase 27 field, rather than
+15+ new flat fields on `QuoteInputs` directly — "Residential should simply use fewer fields where
+they are unnecessary" is satisfied by this being entirely absent (null) for a residential quote, not
+by empty fields sitting unused on every quote. Every new field across every new/touched class is
+defaulted/nullable, so `kotlinx.serialization`'s `ignoreUnknownKeys=true` pattern means every existing
+saved quote still decodes and behaves exactly as before.
+
+### 3. Calculation changes
+
+`SystemCalculator.calculate()` gains exactly one guard as its first line:
+`if (input.systemCategory != SystemType.RESIDENTIAL) return CommercialIndustrialCalculator.calculate(input, prices)`.
+Everything below that line — the entire residential wizard/simulation/pricing path — is
+byte-for-byte unchanged. `CommercialIndustrialCalculator` computes: Connected Load (raw nameplate
+sum) → Maximum Expected Load (reduced by each load's own duty cycle and per-load simultaneity) →
+Design Load (× the system-level diversity factor), in both kW and kVA (`kVA = kW / powerFactor`,
+`kVAR = sqrt(kVA² − kW²)`), plus a blended power factor showing what actually drives inverter kVA
+selection. Parallel-inverter and battery-per-inverter validation reuse the existing residential
+engine's own pure functions (`EquipmentSelectionEngine.checkPanelInverterCompatibilityForLimits`,
+called once per inverter unit) rather than re-deriving Voc/Vmp/Isc physics a second time — one source
+of truth for that math, shared by both paths.
+
+### 4. Validation rules added
+
+- Parallel-inverter capability gated on new `InverterSpec.supportsParallel`/`maxParallelUnits` fields
+  (§8) — never assumed.
+- Per-unit PV string/MPPT electrical limits (§7), validated per inverter unit.
+- Battery-bank discharge power/current checked against real inverter `maxBatteryA`/
+  `maxDischargePowerKw` per unit (§12), not assumed matched.
+- Battery parallel-count checked against each battery model's own `maxParallelUnits`/
+  `parallelSupported` (§11) — already real catalog fields, unused for this purpose before now.
+- Load phase mismatch (a load's phase vs. the site's electrical service phase).
+- Load power-factor sanity (outside 0–1 flagged, not silently clamped and hidden).
+- Diversity factor still at its 100% default flagged as unconfirmed, not silently accepted (§5).
+- Inverter capacity undersized for Design Load, checked separately in kW and kVA (§4/§9).
+
+15 total warning categories in `EngineeringWarning` (§17); `CommercialIndustrialCalculator` uses most
+of them directly and passes the two lower-level validators' own already-formatted messages through a
+`ValidatorNote` pass-through rather than re-deriving their text a second time.
+
+### 5. Tests created
+
+`Phase27CommercialIndustrialTest.kt`, 17 deterministic tests: residential regression (dispatch guard
+is a no-op — `systemCategory` defaults to `RESIDENTIAL`, an untouched quote produces no
+commercial/industrial output), Industrial manual-only with no design entered (deterministic empty
+result, not a crash), kVA/kVAR formula checks, Connected/Maximum-Expected/Design Load arithmetic,
+parallel-inverter validation (valid split, exceeded confirmed parallel limit, invalid MPPT index,
+oversized array — all against a local test-only fixture inverter, since no catalog inverter has
+confirmed parallel data yet), battery-per-inverter aggregation and discharge-capability validation
+(against real SR-EOS05B/10B/15B and LuxPower GEN-LB-US 8K catalog data), and end-to-end
+`CommercialIndustrialCalculator` wiring through `SystemCalculator.calculate()`.
+
+**Verification caveat:** same as every other round this session — the JVM test suite could not
+actually be executed in this sandbox (confirmed again this round: `./gradlew :app:compileDebugKotlin`
+fails here on plugin resolution, not on this code, per the sandbox's standing network limitation).
+Every file was balance-checked (brace/paren/bracket counts) and manually traced by hand — the kVA/
+diversity/battery-current arithmetic in the tests was worked through by hand against each function's
+actual formula, not guessed — but an actual `./gradlew test` run is still worth doing before treating
+this as fully verified.
+
+### 6. Manufacturer specifications still missing
+
+- **No catalog inverter has confirmed parallel-operation data** (`supportsParallel`/
+  `maxParallelUnits`). All 12 existing inverters default to `supportsParallel = false` — "unconfirmed"
+  is deliberately encoded as "not supported," never "assume yes." This is the single biggest blocker
+  to a real multi-inverter commercial design today: every real-catalog parallel-inverter request will
+  be flagged as unconfirmed until real datasheet data is sourced and entered.
+- Real per-model surge/starting-current figures for motor loads beyond what a handful of inverters
+  already carry (`surgePowerRatio`/`surgeDurationSeconds`, often null).
+- No utility service-capacity/main-breaker-rating data source (`ElectricalService
+  .utilityServiceCapacityAmps`/`mainBreakerRatingAmps`) — installer-entered only, no lookup exists.
+
+### 7. Assumptions made that require your approval
+
+1. **Field naming deviation:** the new field is `QuoteInputs.systemCategory` (type `SystemType`), not
+   `systemType` — that name was already taken by the existing NEW/UPGRADE concept
+   (`SystemTypeNew`). Flagged explicitly rather than silently renamed or colliding.
+2. **Data organization deviation:** one nested `commercialIndustrialDesign: CommercialIndustrialDesign?`
+   field instead of 15+ new flat fields directly on `QuoteInputs`, per this file's own §19 "Residential
+   should simply use fewer fields where they are unnecessary" — same intent, different literal shape.
+3. **Connected/Maximum-Expected Load interpretation:** the spec names these as distinct §5 values but
+   doesn't define the exact arithmetic between them. Implemented as: Connected Load = raw nameplate
+   sum; Maximum Expected Load = Connected Load × each load's own duty-cycle fraction × its own
+   simultaneity fraction; Design Load = Maximum Expected Load × the system-level diversity factor. A
+   defensible, explicit interpretation, not the only possible one.
+4. **Per-unit string-split validation is not fully installer-split-aware:** `ParallelInverterValidator`
+   validates each inverter unit's TOTAL panel count against the inverter's real limits (reusing the
+   existing engine's own optimal-tracker-split logic), rather than re-deriving Voc/Vmp for the
+   installer's own exact, arbitrary `StringAssignment` split beyond checking each assignment's MPPT
+   index is one the inverter actually has. Flagged in the code itself as a known limitation, not
+   glossed over.
+5. **Deliberately deferred, not attempted this round:** a commercial/industrial auto-recommendation
+   search (mirroring `EquipmentSelectionEngine`'s residential search) and `MaterialTakeoffEngine`/
+   pricing/mounting-hardware integration (§18) for commercial/industrial designs. Every pricing-related
+   field on a Commercial/Industrial `QuoteResult` today is a real, honest zero — never an invented
+   figure — and `canFinalize` is forced `false` for every Commercial/Industrial quote as a result.
+   Building either properly (a real search algorithm; real BOS/mounting takeoff for arbitrary
+   multi-inverter/multi-string topologies) is substantial scope on its own and was judged too large
+   and too risky to rush alongside everything else in this round without inventing data along the way.
+6. **No UI exists yet** to actually enter a `CommercialIndustrialDesign` — per the spec's own explicit
+   "do not redesign the UI in this phase," this round is domain-layer only. A future round would need
+   a manual-design wizard flow (§13's field list) before any of this is reachable from the app itself.
