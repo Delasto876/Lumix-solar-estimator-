@@ -71,6 +71,13 @@ object CommercialIndustrialLoadCatalog {
         LoadDefinition("industrial_large_lighting", "Large Lighting System", LoadCategory.INDUSTRIAL, defaultRatedWatts = 5000.0, defaultPowerFactor = 0.9, defaultOperationType = LoadOperationType.CONTINUOUS),
         LoadDefinition("industrial_plc_controls", "Controls / PLC", LoadCategory.INDUSTRIAL, defaultRatedWatts = 500.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS, defaultPriority = LoadPriority.CRITICAL),
         LoadDefinition("industrial_electronics", "Industrial Electronics", LoadCategory.INDUSTRIAL, defaultRatedWatts = 800.0, defaultPowerFactor = 0.95, defaultPriority = LoadPriority.CRITICAL),
+        // Phase 28 §8 ("Add an industrial load category... Include: Fans, CNC machines, Workshop
+        // equipment, Servers/network equipment, Security systems"): additive entries.
+        LoadDefinition("industrial_fan", "Ventilation / Exhaust Fan (industrial)", LoadCategory.INDUSTRIAL, defaultRatedWatts = 1500.0, defaultVoltage = 415.0, defaultPhase = LoadPhaseType.THREE_PHASE, defaultPowerFactor = 0.85, defaultOperationType = LoadOperationType.CONTINUOUS, isMotorLoad = true, defaultStartingSurgeMultiplier = 3.0),
+        LoadDefinition("industrial_cnc_machine", "CNC Machine", LoadCategory.INDUSTRIAL, defaultRatedWatts = 9000.0, defaultVoltage = 415.0, defaultPhase = LoadPhaseType.THREE_PHASE, defaultPowerFactor = 0.85, defaultOperationType = LoadOperationType.INTERMITTENT, isMotorLoad = true, defaultStartingSurgeMultiplier = 4.0),
+        LoadDefinition("industrial_workshop_equipment", "Workshop Equipment (industrial)", LoadCategory.INDUSTRIAL, defaultRatedWatts = 2000.0, defaultVoltage = 415.0, defaultPhase = LoadPhaseType.THREE_PHASE, defaultPowerFactor = 0.85, isMotorLoad = true, defaultStartingSurgeMultiplier = 3.5),
+        LoadDefinition("industrial_servers_network", "Servers / Network Equipment", LoadCategory.INDUSTRIAL, defaultRatedWatts = 1000.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS, defaultPriority = LoadPriority.CRITICAL),
+        LoadDefinition("industrial_security_system", "Security System (industrial)", LoadCategory.INDUSTRIAL, defaultRatedWatts = 100.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS, defaultPriority = LoadPriority.CRITICAL),
         LoadDefinition("industrial_custom", "Custom Industrial Load", LoadCategory.INDUSTRIAL, defaultRatedWatts = 0.0, defaultVoltage = 415.0, defaultPhase = LoadPhaseType.THREE_PHASE, isCustom = true)
     )
 

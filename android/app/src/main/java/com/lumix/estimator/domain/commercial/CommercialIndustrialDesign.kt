@@ -76,7 +76,14 @@ data class CommercialIndustrialDesign(
      * kept here rather than made nullable/industrial-specific so the same [CommercialIndustrialDesign]
      * shape still works for both system types without a second, parallel design class.
      */
-    val businessHours: BusinessHours = BusinessHours()
+    val businessHours: BusinessHours = BusinessHours(),
+    /**
+     * Phase 28 §1 (Industrial — "DO NOT create assumed industrial working hours"): fully
+     * unconfigured by default — see [IndustrialShiftSchedule]'s own doc for why this, unlike
+     * [businessHours], ships with no default times at all. Only meaningful for INDUSTRIAL;
+     * COMMERCIAL uses [businessHours] instead.
+     */
+    val industrialShiftSchedule: IndustrialShiftSchedule = IndustrialShiftSchedule()
 ) {
     /** §5 "Connected Load" — raw nameplate sum, no duty-cycle/simultaneity/diversity reduction. */
     val connectedLoadKw: Double get() = loads.sumOf { it.connectedRealPowerKw }

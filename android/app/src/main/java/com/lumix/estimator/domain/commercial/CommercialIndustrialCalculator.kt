@@ -41,6 +41,15 @@ object CommercialIndustrialCalculator {
             warnings += EngineeringWarning.DiversityFactorNotConfirmed(design.diversityFactor.fraction)
         }
 
+        // Phase 28 §1 ("Industrial = MANUAL MODE ONLY... require the user to manually enter" a
+        // shift schedule — "do not create assumed industrial working hours"): flag it, never guess
+        // one on the installer's behalf.
+        if (input.systemCategory == SystemType.INDUSTRIAL && !design.industrialShiftSchedule.isConfigured) {
+            warnings += EngineeringWarning.ValidatorNote(
+                "No industrial shift schedule has been entered yet (working days, shift start/end times, number of shifts) — required before this design can be sized."
+            )
+        }
+
         design.loads.forEach { load ->
             if (load.powerFactor <= 0.0 || load.powerFactor > 1.0) {
                 warnings += EngineeringWarning.MissingLoadInformation(load.label, "power factor", load.powerFactor.toString())
