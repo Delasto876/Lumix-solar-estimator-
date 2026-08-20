@@ -67,13 +67,18 @@ object BatteryPerInverterValidator {
         val valid: Boolean get() = unitResults.all { it.valid }
     }
 
-    fun validate(design: BatteryPerInverterDesign, inverterModelId: String): BatteryPerInverterValidationResult {
-        val invSpec = EquipmentSpecs.inverters.firstOrNull { it.model == inverterModelId }
+    /** [inverterCatalog]/[batteryCatalog] default to the real production catalogs; overridable for tests — same reasoning as [ParallelInverterValidator.validate]'s own `inverterCatalog` parameter. */
+    fun validate(
+        design: BatteryPerInverterDesign, inverterModelId: String,
+        inverterCatalog: List<EquipmentSpecs.InverterSpec> = EquipmentSpecs.inverters,
+        batteryCatalog: List<EquipmentSpecs.BatterySpecSheet> = EquipmentSpecs.batteries
+    ): BatteryPerInverterValidationResult {
+        val invSpec = inverterCatalog.firstOrNull { it.model == inverterModelId }
         val inverterMaxBatteryA = invSpec?.maxBatteryA?.toDouble()
         val inverterMaxDischargeKw = invSpec?.maxDischargePowerKw
 
         val results = design.allocations.map { alloc ->
-            val battSpec = EquipmentSpecs.batteries.firstOrNull { it.model == alloc.batteryModelId }
+            val battSpec = batteryCatalog.firstOrNull { it.model == alloc.batteryModelId }
             if (battSpec == null) {
                 return@map UnitBatteryValidationResult(
                     alloc.unitIndex, alloc.batteryCount, 0.0, null, null,

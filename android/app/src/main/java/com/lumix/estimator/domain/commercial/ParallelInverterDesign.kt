@@ -78,8 +78,9 @@ object ParallelInverterValidator {
         val valid: Boolean get() = parallelCapabilityOk && unitResults.all { it.valid }
     }
 
-    fun validate(design: ParallelInverterDesign): ParallelValidationResult {
-        val invSpec = EquipmentSpecs.inverters.firstOrNull { it.model == design.inverterModelId }
+    /** [inverterCatalog] defaults to the real production catalog; overridable so tests can validate against fixture inverters without adding unconfirmed data to [EquipmentSpecs.inverters] itself — same reasoning as [EquipmentSelectionEngine.checkPanelInverterCompatibilityForLimits]'s own explicit-limits split. */
+    fun validate(design: ParallelInverterDesign, inverterCatalog: List<EquipmentSpecs.InverterSpec> = EquipmentSpecs.inverters): ParallelValidationResult {
+        val invSpec = inverterCatalog.firstOrNull { it.model == design.inverterModelId }
         val warnings = mutableListOf<String>()
 
         val parallelCapabilityOk = when {
