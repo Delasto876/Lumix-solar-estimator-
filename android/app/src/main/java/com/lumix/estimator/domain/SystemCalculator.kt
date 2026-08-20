@@ -11,6 +11,7 @@ import com.lumix.estimator.domain.simulation.defaultApplianceStates
 import com.lumix.estimator.domain.simulation.defaultDailyEnergyKwh
 import com.lumix.estimator.domain.simulation.defaultEffectiveDailyHours
 import com.lumix.estimator.domain.simulation.defaultWeeklyOperatingHours
+import com.lumix.estimator.domain.simulation.worstCaseCoincidentPeakKw
 import com.lumix.estimator.domain.simulation.WeatherEngine
 import com.lumix.estimator.domain.simulation.WeatherScenario
 import com.lumix.estimator.domain.pricing.MaterialTakeoffEngine
@@ -174,17 +175,29 @@ object SystemCalculator {
         return dailyKwh
     }
 
-    private fun loadsKwhAndPeak(data: QuoteInputs): LoadResult {
-        var peakWatts = 0.0
+    /**
+     * Phase 28 (§6 "Do not size the inverter simply by adding every appliance's maximum nameplate
+     * wattage. Calculate realistic simultaneous usage based on overlapping schedules."): reuses
+     * [defaultApplianceStates] — the SAME schedule data the Simulation screen and
+     * [dailyKwhForDayType]'s auto-schedule energy path already read — swept via
+     * [worstCaseCoincidentPeakKw] to find the worst-case genuinely coincident draw across a full
+     * week, rather than assuming every selected appliance runs at full nameplate simultaneously.
+     *
+     * A per-appliance manual hours/day override ([ApplianceLoad.useAutoSchedule] false) has no
+     * defined start/end time to check overlap against — [defaultApplianceStates] still assigns it
+     * the DEFAULT schedule's own timing shape for this coincidence sweep (the manual figure only
+     * ever meant "how many hours/day," never "which hours"), a disclosed simplification rather than
+     * excluding it from the peak sweep and re-adding its nameplate unconditionally. [data.otherWatts]
+     * (a flat catch-all with no schedule shape at all) still has nowhere to check overlap against, so
+     * it stays an unconditional flat addition, same as before.
+     */
+    private fun coincidentPeakKw(data: QuoteInputs): Double {
+        val states = defaultApplianceStates(data)
+        return worstCaseCoincidentPeakKw(states) + data.otherWatts / 1000.0
+    }
 
-        // Peak stays a single coincident figure (not day-type-scoped) — the worst-case
-        // simultaneous nameplate draw doesn't depend on which day it happens to occur.
-        if (data.ac.hasAc) {
-            val btuPerWatt = acBtuPerWatt(data.ac.acType)
-            data.ac.counts.forEach { (btu, count) -> if (count > 0) peakWatts += (btu / btuPerWatt) * count }
-        }
-        data.appliances.forEach { (type, load) -> if (load.qty > 0) peakWatts += type.watts * load.qty }
-        peakWatts += data.otherWatts
+    private fun loadsKwhAndPeak(data: QuoteInputs): LoadResult {
+        val peakWatts = coincidentPeakKw(data) * 1000.0
 
         // Sizing load and simulation behavior come from the SAME schedule/duty-cycle model
         // (SimAppliance.kt's defaultScheduleFor) by default — an installer no longer has to

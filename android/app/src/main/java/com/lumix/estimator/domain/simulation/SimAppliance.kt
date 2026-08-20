@@ -585,6 +585,37 @@ fun applianceLoadKwByLegAt(states: Map<SimApplianceType, ApplianceState>, hour: 
 }
 
 /**
+ * Phase 28 (§6 "Do not size the inverter simply by adding every appliance's maximum nameplate
+ * wattage. Calculate realistic simultaneous usage based on overlapping schedules."): the coincident
+ * load at [hour] if every appliance ACTIVE per its own schedule at that instant drew its full rated
+ * watts. Deliberately NOT tapered by [SimApplianceType.dutyFactor], unlike [totalApplianceLoadKwAt]
+ * (the right figure for AVERAGE energy) — a cycling load (fridge compressor, water heater element,
+ * stove burner) genuinely draws close to full power whenever its own schedule says it's "on," even
+ * though its average-over-the-hour is lower; using the duty-tapered figure here would understate
+ * true instantaneous draw. This is what answers "how much could realistically be drawing at once,"
+ * the question inverter sizing actually needs — see [worstCaseCoincidentPeakKw].
+ */
+fun coincidentPeakLoadKwAt(states: Map<SimApplianceType, ApplianceState>, hour: Double, dayType: DayType = DayType.WEEKDAY): Double =
+    states.entries.filter { it.value.enabled }.sumOf { (type, state) ->
+        val activeQty = state.runs.filter { it.isActiveAt(hour, dayType) }.sumOf { it.quantity }
+        activeQty * (state.wattsOverride ?: type.watts.toDouble()) / 1000.0
+    }
+
+/**
+ * The worst realistic coincident peak across a full week — every day type swept (weekend-only
+ * schedule additions, e.g. the Saturday midday ceiling-fan/TV/stove blocks, can coincide into a
+ * higher peak than any weekday moment), sampled every 15 minutes. This is the SIZING-relevant
+ * figure [com.lumix.estimator.domain.SystemCalculator] reads for [com.lumix.estimator.domain
+ * .QuoteResult.peakWatts] — distinct from [ApplianceLoadShape.peakKw] (duty-cycle-scaled, for the
+ * wizard's load-audit preview's average-shape view, not for sizing).
+ */
+fun worstCaseCoincidentPeakKw(states: Map<SimApplianceType, ApplianceState>): Double =
+    DayType.entries.maxOf { dayType ->
+        generateSequence(0.0) { it + 0.25 }.takeWhile { it < 24.0 }
+            .maxOf { hour -> coincidentPeakLoadKwAt(states, hour, dayType) }
+    }
+
+/**
  * Worst-case instantaneous inrush if every currently-active motor/compressor appliance ([type]s
  * with [SimApplianceType.startupSurgeMultiplier] above 1.0) happened to start at the exact same
  * moment — refrigerator, AC, pumps, washer/dryer motors, gate opener. This is deliberately kept
