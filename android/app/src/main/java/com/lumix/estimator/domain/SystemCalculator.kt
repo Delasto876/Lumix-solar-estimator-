@@ -129,7 +129,8 @@ object SystemCalculator {
      * per-day-type breakdown is carried alongside it so callers/[QuoteResult] can show the real
      * weekly shape, not just the single blended number.
      */
-    private data class LoadResult(
+    /** `internal` (not `private`) so this module's own JVM unit tests can exercise the weekly/peak breakdown directly, without needing a full MANUAL-mode inverter/battery/pricing chain just to reach it — the same reasoning as [resolvedBatteryPowerKw]/[sizeHybridBatteryForBackup]. */
+    internal data class LoadResult(
         val dailyKwh: Double,
         val peakWatts: Double,
         val weekdayDailyKwh: Double,
@@ -196,7 +197,7 @@ object SystemCalculator {
         return worstCaseCoincidentPeakKw(states) + data.otherWatts / 1000.0
     }
 
-    private fun loadsKwhAndPeak(data: QuoteInputs): LoadResult {
+    internal fun loadsKwhAndPeak(data: QuoteInputs): LoadResult {
         val peakWatts = coincidentPeakKw(data) * 1000.0
 
         // Sizing load and simulation behavior come from the SAME schedule/duty-cycle model
