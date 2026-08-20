@@ -1,5 +1,6 @@
 package com.lumix.estimator.domain
 
+import com.lumix.estimator.domain.commercial.CommercialIndustrialResultSummary
 import kotlinx.serialization.Serializable
 
 /**
@@ -221,7 +222,23 @@ data class QuoteResult(
      */
     val missingPriceItems: List<String> = emptyList(),
     /** True only when [missingPriceItems] is empty — the UI's one gate for "can this quote be finalized/exported as final." */
-    val canFinalize: Boolean = true
+    val canFinalize: Boolean = true,
+
+    /**
+     * Phase 27 §16 ("commercial and industrial recommendations must explain WHY"): null for
+     * RESIDENTIAL (and for any COMMERCIAL/INDUSTRIAL quote not yet calculated by
+     * [com.lumix.estimator.domain.commercial.CommercialIndustrialCalculator]) — see
+     * [CommercialIndustrialResultSummary]'s own doc.
+     */
+    val commercialIndustrialSummary: CommercialIndustrialResultSummary? = null,
+    /**
+     * Phase 27 §17: plain-language engineering warnings (e.g. "MPPT current exceeded on Inverter 2
+     * String 3: 14.2A > 13.5A limit") — display strings rather than the sealed warning type itself,
+     * so this field stays a simple, forward-compatible `List<String>` under kotlinx.serialization
+     * (no polymorphic-serializer registration needed) the same way [missingPriceItems] already is.
+     * Empty for RESIDENTIAL and for a COMMERCIAL/INDUSTRIAL design with no flagged issues.
+     */
+    val commercialIndustrialWarnings: List<String> = emptyList()
 ) {
     val pvKw: Double get() = panelCount * panelWatts / 1000.0
     /** A81 (Phase 18, restored): see [energyOptimalPanelCount]'s own doc. */

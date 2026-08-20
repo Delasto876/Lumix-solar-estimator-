@@ -1,5 +1,6 @@
 package com.lumix.estimator.domain
 
+import com.lumix.estimator.domain.commercial.CommercialIndustrialDesign
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -15,6 +16,24 @@ enum class PropertyType(val label: String) {
 
 @Serializable
 enum class SystemTypeNew { NEW, UPGRADE }
+
+/**
+ * Phase 27 ("COMMERCIAL & INDUSTRIAL SYSTEM ARCHITECTURE" — "Add a required system category:
+ * Residential, Commercial, Industrial"): the field name is [QuoteInputs.systemCategory], not
+ * `systemType` — [SystemTypeNew] (NEW/UPGRADE, an unrelated "new install vs. upgrade" concept)
+ * already owns that name on [QuoteInputs]. Defaults to [RESIDENTIAL] so every existing/older
+ * quote — real or in a test fixture — decodes with, and every code path that doesn't explicitly
+ * branch on this field keeps behaving, exactly as it did before this field existed.
+ *
+ * RESIDENTIAL keeps the entire existing wizard/[SystemCalculator] workflow untouched. COMMERCIAL/
+ * INDUSTRIAL route to [com.lumix.estimator.domain.commercial.CommercialIndustrialCalculator]
+ * instead — see [SystemCalculator.calculate]'s own doc for the exact dispatch point. INDUSTRIAL is
+ * manual-design-only (spec §1/§13); COMMERCIAL supports both a manual design and a recommendation
+ * (spec §16) — this enum alone doesn't encode that difference, [QuoteInputs.quoteMode] still does,
+ * the same as it already does for RESIDENTIAL.
+ */
+@Serializable
+enum class SystemType { RESIDENTIAL, COMMERCIAL, INDUSTRIAL }
 
 @Serializable
 enum class JpsRate { RESIDENTIAL, COMMERCIAL, UNKNOWN }
@@ -219,6 +238,10 @@ data class QuoteInputs(
     val systemType: SystemTypeNew = SystemTypeNew.NEW,
     val systemMode: SystemMode = SystemMode.HYBRID,
     val jpsRate: JpsRate = JpsRate.RESIDENTIAL,
+    /** Phase 27 §1/§19: RESIDENTIAL (default) keeps every existing field/behavior below exactly as before — see this field's own type doc, [SystemType], for why it isn't named `systemType`. */
+    val systemCategory: SystemType = SystemType.RESIDENTIAL,
+    /** Phase 27 §19: null for RESIDENTIAL (and for any COMMERCIAL/INDUSTRIAL quote not yet through the manual design flow) — see [CommercialIndustrialDesign]'s own doc. */
+    val commercialIndustrialDesign: CommercialIndustrialDesign? = null,
 
     val roofType: RoofType = RoofType.ZINC,
     val twoOrMoreStoreys: Boolean = false,
