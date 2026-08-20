@@ -84,4 +84,12 @@ data class CommercialIndustrialDesign(
 
     /** §4: the blended power factor implied by [designLoadKw]/[designApparentPowerKva] — what actually drives inverter kVA selection, not any single load's own power factor. */
     val blendedPowerFactor: Double get() = if (designApparentPowerKva > 0.0) (designLoadKw / designApparentPowerKva).coerceIn(0.0, 1.0) else 1.0
+
+    /**
+     * Real power x actual operating hours, summed per load and scaled by the system-level
+     * [diversityFactor] — the commercial/industrial equivalent of the residential wizard's daily-
+     * kWh sizing figure, built from each [LoadInstance]'s own [LoadInstance.operatingHoursPerDay]
+     * rather than any assumed household usage pattern.
+     */
+    val estimatedDailyEnergyKwh: Double get() = loads.sumOf { it.maximumExpectedRealPowerKw * it.operatingHoursPerDay } * diversityFactor.fraction
 }

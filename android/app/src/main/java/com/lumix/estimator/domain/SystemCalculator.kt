@@ -416,6 +416,17 @@ object SystemCalculator {
      * applied on top of this one price list's subtotal, below.
      */
     fun calculate(input: QuoteInputs, prices: PriceList): QuoteResult {
+        // Phase 27 ("COMMERCIAL & INDUSTRIAL SYSTEM ARCHITECTURE" — "Use one SystemDesign
+        // architecture... Residential should simply use fewer fields where they are unnecessary"):
+        // the ONLY change this whole phase makes to the residential path. RESIDENTIAL (the default
+        // for every existing/older quote) falls straight through to the untouched code below;
+        // COMMERCIAL/INDUSTRIAL dispatch to a separate calculator that reuses this same QuoteInputs/
+        // QuoteResult/EquipmentSelectionEngine/MpptStringPlanner architecture rather than forking it
+        // — see CommercialIndustrialCalculator's own doc.
+        if (input.systemCategory != SystemType.RESIDENTIAL) {
+            return com.lumix.estimator.domain.commercial.CommercialIndustrialCalculator.calculate(input, prices)
+        }
+
         val (dailyKwhLoads, peakWatts) = loadsKwhAndPeak(input)
 
         val approxKwhFromBill = if (input.quoteMode == QuoteMode.GUIDED) {
