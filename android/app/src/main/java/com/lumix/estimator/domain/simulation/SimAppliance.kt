@@ -219,7 +219,9 @@ fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type)
         ApplianceRun(startHour = 18.5, durationHours = 10.0 / 60.0)
     )
     SimApplianceType.TOASTER -> listOf(ApplianceRun(startHour = 6.5, durationHours = 7.0 / 60.0))
-    SimApplianceType.BLENDER -> listOf(ApplianceRun(startHour = 18.0, durationHours = 6.0 / 60.0))
+    // Phase 28 ("BLENDER: Default primarily weekend usage... Allow user to select Saturday,
+    // Sunday, or both."): weekend-only by default now (was every day) — a short burst either way.
+    SimApplianceType.BLENDER -> listOf(ApplianceRun(startHour = 18.0, durationHours = 6.0 / 60.0, dayTypes = setOf(DayType.SATURDAY, DayType.SUNDAY)))
     // Weekend adds a real midday cooking session (section 19/27's "higher weekend daytime
     // occupancy" pattern) — a weekday's empty-house midday never gets one.
     SimApplianceType.STOVE -> listOf(
@@ -232,11 +234,13 @@ fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type)
     SimApplianceType.RICE_COOKER -> listOf(ApplianceRun(startHour = 18.0, durationHours = 1.0))
     SimApplianceType.PRESSURE_COOKER -> listOf(ApplianceRun(startHour = 18.0, durationHours = 0.5))
 
-    // Weekend adds a daytime run on top of the weekday morning/evening pair — people are
-    // actually home to feel the heat at 11am on a Saturday, unlike a weekday.
+    // Phase 28 ("CEILING FAN: Default approximately 6:00–10:30 PM"): the primary evening block
+    // now matches that window exactly (was 5:00-10:00pm). Weekend adds a daytime run on top of
+    // the weekday morning/evening pair — people are actually home to feel the heat at 11am on a
+    // Saturday, unlike a weekday.
     SimApplianceType.CEILING_FAN -> listOf(
         ApplianceRun(startHour = 6.0, durationHours = 2.0),
-        ApplianceRun(startHour = 17.0, durationHours = 5.0),
+        ApplianceRun(startHour = 18.0, durationHours = 4.5),
         ApplianceRun(startHour = 10.0, durationHours = 6.0, dayTypes = setOf(DayType.SATURDAY, DayType.SUNDAY))
     )
     SimApplianceType.STANDING_FAN -> listOf(
@@ -248,16 +252,28 @@ fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type)
     SimApplianceType.BEDROOM_FAN -> listOf(ApplianceRun(startHour = 20.0, durationHours = 10.5))
     SimApplianceType.AIR_CONDITIONER -> listOf(ApplianceRun(startHour = 19.0, durationHours = 8.0))
 
+    // Phase 28 ("BEDROOM LIGHT: 7:00–8:00 PM, 9:00–10:00 PM. Allow multiple time blocks."):
+    // matches that exact two-block example — was a single continuous 6-10pm block plus a morning
+    // block; a bedroom light realistically isn't on continuously through a 4-hour evening the way
+    // a living-room light is.
     SimApplianceType.LED_BEDROOM -> listOf(
-        ApplianceRun(startHour = 6.0, durationHours = 1.5),
+        ApplianceRun(startHour = 19.0, durationHours = 1.0),
+        ApplianceRun(startHour = 21.0, durationHours = 1.0)
+    )
+    // Phase 28 ("GENERAL HOUSE LIGHTING: Morning approximately 6:00–7:00 AM. Evening approximately
+    // 6:00–10:00 PM. Do not assume every light is on simultaneously."): kitchen/living room
+    // together stand in for "general house lighting" — each keeps its own distinct window (kitchen
+    // active earlier for breakfast/dinner prep, living room the main evening block) so the two
+    // never claim identical simultaneous runtime, while both now anchor to the 6-7am/6-10pm shape.
+    SimApplianceType.LED_KITCHEN -> listOf(
+        ApplianceRun(startHour = 6.0, durationHours = 1.0),
+        ApplianceRun(startHour = 12.0, durationHours = 1.0),
+        ApplianceRun(startHour = 18.0, durationHours = 3.0)
+    )
+    SimApplianceType.LED_LIVING -> listOf(
+        ApplianceRun(startHour = 6.0, durationHours = 0.5),
         ApplianceRun(startHour = 18.0, durationHours = 4.0)
     )
-    SimApplianceType.LED_KITCHEN -> listOf(
-        ApplianceRun(startHour = 6.0, durationHours = 2.0),
-        ApplianceRun(startHour = 12.0, durationHours = 1.0),
-        ApplianceRun(startHour = 17.5, durationHours = 3.5)
-    )
-    SimApplianceType.LED_LIVING -> listOf(ApplianceRun(startHour = 17.5, durationHours = 4.5))
     // Dusk to dawn, wraps past midnight.
     SimApplianceType.LED_EXTERIOR -> listOf(ApplianceRun(startHour = 18.0, durationHours = 12.0))
     SimApplianceType.LED_BATHROOM -> listOf(
@@ -266,10 +282,12 @@ fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type)
     )
     SimApplianceType.OUTDOOR_FLOODLIGHT -> listOf(ApplianceRun(startHour = 18.0, durationHours = 12.0))
 
-    // Weekend adds a daytime block — the working-household "unoccupied 8-5" assumption
-    // (section 18) only holds on a weekday.
+    // Phase 28 ("TV: Default approximately 3–4 hours at night. Use approximately 6:30–10:00 PM as
+    // the default window."): matches that window exactly (was 5:30-10pm/4.5h). Weekend adds a
+    // daytime block — the working-household "unoccupied 8-5" assumption (section 18) only holds
+    // on a weekday.
     SimApplianceType.TELEVISION -> listOf(
-        ApplianceRun(startHour = 17.5, durationHours = 4.5),
+        ApplianceRun(startHour = 18.5, durationHours = 3.5),
         ApplianceRun(startHour = 10.0, durationHours = 6.0, dayTypes = setOf(DayType.SATURDAY, DayType.SUNDAY))
     )
     SimApplianceType.SET_TOP_BOX -> listOf(ApplianceRun(startHour = 17.5, durationHours = 4.5))
@@ -306,16 +324,18 @@ fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type)
     SimApplianceType.HAIR_DRYER -> listOf(ApplianceRun(startHour = 6.5, durationHours = 9.0 / 60.0))
     SimApplianceType.CURLING_IRON -> listOf(ApplianceRun(startHour = 6.5, durationHours = 18.0 / 60.0))
 
-    // Solar-user behavior: ironing is a discretionary chore a solar household does in the morning
-    // on free PV, not at 7pm off the battery — so this defaults to a mid-morning solar window.
-    SimApplianceType.IRON -> listOf(ApplianceRun(startHour = 9.0, durationHours = 0.5))
-    // Solar-user behavior: laundry is the classic deferrable load — real solar homes wash in the
-    // morning/midday, on the sun, to spare the battery for the night. Weekday default moved to a
-    // mid-morning solar window; Saturday's bulk-laundry batch (section 27 — Jamaican working
-    // households do most laundry on the weekend) already sits at 10am, squarely on solar.
+    // Phase 28 ("IRON: Default only 15 minutes in the morning: 7:00–7:15 AM."): an explicit,
+    // specific real-world default this round — supersedes the prior "shift ironing to a
+    // mid-morning solar window" reasoning (9:00-9:30am) with the literal 7:00-7:15am figure
+    // actually asked for. Still fully editable via "Allow an additional user-defined period."
+    SimApplianceType.IRON -> listOf(ApplianceRun(startHour = 7.0, durationHours = 0.25))
+    // Phase 28 ("WASHING MACHINE: Default primarily weekend. Use realistic cycle durations rather
+    // than several continuous hours. Allow Saturday/Sunday selection."): weekend-only by default
+    // now (was also running every weekday at 9am) — one realistic ~45-minute cycle, Saturday and
+    // Sunday both selected by default (either can be turned off, per "allow Saturday/Sunday
+    // selection", through the existing day-type toggle chips).
     SimApplianceType.WASHING_MACHINE -> listOf(
-        ApplianceRun(startHour = 9.0, durationHours = 0.75),
-        ApplianceRun(startHour = 10.0, durationHours = 1.0, dayTypes = setOf(DayType.SATURDAY))
+        ApplianceRun(startHour = 9.0, durationHours = 0.75, dayTypes = setOf(DayType.SATURDAY, DayType.SUNDAY))
     )
     // Solar-user behavior: a 5kW dryer is the single most punishing deferrable load — running it
     // at midday on solar instead of the evening is exactly what keeps it off the battery. Follows
