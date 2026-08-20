@@ -62,7 +62,11 @@ data class DiversityFactor(
 data class CommercialIndustrialDesign(
     val electricalService: ElectricalService = ElectricalService(),
     val loads: List<LoadInstance> = emptyList(),
-    val diversityFactor: DiversityFactor = DiversityFactor()
+    val diversityFactor: DiversityFactor = DiversityFactor(),
+    /** Phase 27 §7-§10: null until the installer has picked an inverter model and PV configuration in the manual design flow — see [ParallelInverterDesign]'s own doc. */
+    val parallelInverterDesign: ParallelInverterDesign? = null,
+    /** Phase 27 §11-§12: null until the installer has allocated batteries per inverter unit — see [BatteryPerInverterDesign]'s own doc. */
+    val batteryPerInverterDesign: BatteryPerInverterDesign? = null
 ) {
     /** §5 "Connected Load" — raw nameplate sum, no duty-cycle/simultaneity/diversity reduction. */
     val connectedLoadKw: Double get() = loads.sumOf { it.connectedRealPowerKw }

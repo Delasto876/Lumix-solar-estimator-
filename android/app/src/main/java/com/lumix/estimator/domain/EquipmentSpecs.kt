@@ -105,7 +105,18 @@ data class InverterSpec(
     val verificationStatus: VerificationStatus,
     val dataQualityNote: String,
     val engineeringNote: String,
-    val sourceUrl: String
+    val sourceUrl: String,
+    /**
+     * Phase 27 §8 ("Do not assume every inverter can be paralleled"): defaults to `false` for
+     * every entry below since no supplied datasheet excerpt on file has confirmed parallel/multi-
+     * unit operation for any of them yet — "unconfirmed" is deliberately encoded as "not
+     * supported," never as "assume yes," consistent with this whole file's "no invented
+     * manufacturer specifications" rule. Flip to `true` (with [maxParallelUnits] set from the real
+     * datasheet, where the model states a limit) only once a real source confirms it.
+     */
+    val supportsParallel: Boolean = false,
+    /** Null = no confirmed limit on file — only meaningful once [supportsParallel] is true. */
+    val maxParallelUnits: Int? = null
 ) {
     /**
      * Whether this unit's own datasheet confirms 50Hz support — Jamaica's grid frequency.
