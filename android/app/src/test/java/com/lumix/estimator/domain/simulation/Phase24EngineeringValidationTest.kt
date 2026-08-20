@@ -30,9 +30,12 @@ import org.junit.Test
 class Phase24EngineeringValidationTest {
 
     /**
-     * inverterKw = 20.0 -> [SimSystemConfig.inverterSelfConsumptionKw] defaults to 20.0 x 0.005 =
-     * 0.1kW (100W) — deliberately chosen to land on §27's own "100W inverter consumption" example
-     * exactly, so the self-consumption figure itself needs no further hand-tracing.
+     * 2026-08-19 ("put 100w for inverter use"): [SimSystemConfig.inverterSelfConsumptionKw] now
+     * defaults to a flat 0.1kW (100W) regardless of inverterKw — previously 20.0 x 0.005 = 0.1kW
+     * happened to land on the same number for this fixture's specific 20kW inverter, which is why
+     * every assertion below that reads `frame.inverterSelfConsumptionKw` (expecting 0.1) still
+     * holds unchanged; only this comment needed updating, since the value is no longer derived
+     * from inverterKw at all. Still matches §27's own "100W inverter consumption" example exactly.
      */
     private fun config(
         pvCapacityKw: Double = 10.0,

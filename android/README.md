@@ -7009,3 +7009,38 @@ stop guessing and pin down anything further precisely.
 fix for the documented `BitmapDescriptorFactory`-before-init crash and matches the exact mechanism
 the symptom describes, but it's still not a confirmed-by-repro fix — please confirm the map opens
 without crashing after this.
+
+## A110 — inverter self-consumption: flat 100W (was ~0.5% of rated output)
+
+User: "put 100w for inverter use, so if load is 1000w battery should power 1100w to supply load
+and also panel would power 1100w in that same scenario and utility the same." Confirmed this
+mechanism already existed (built in A87 — "INVERTER SELF-CONSUMPTION," spec Phase 24 §3): whichever
+source (solar/battery/grid) is instantaneously serving the house load already has to serve
+`houseLoadKw + inverterSelfConsumptionKw`, not `houseLoadKw` alone — `SimulationEngine
+.buildDayTimeline`'s `demand = load + config.inverterSelfConsumptionKw` line, unchanged by this
+round. Only the VALUE needed to change, from `SimSystemConfig`'s generic default (0.5% of the
+inverter's own rated AC output, floored at 20W) to a flat 100W regardless of inverter size — this
+round is a one-constant change, not new wiring, exactly matching the request.
+
+`SimSystemConfig.inverterSelfConsumptionKw` now defaults to a flat `DEFAULT_SELF_CONSUMPTION_KW =
+0.1` (100W) — replaces `DEFAULT_SELF_CONSUMPTION_FRACTION` (0.005) and
+`DEFAULT_SELF_CONSUMPTION_FLOOR_KW` (0.02), both removed. This also happens to match the spec's own
+worked example word-for-word ("Required PV: 400 + 100 + 1500 = 2000W" — that middle 100 was always
+inverter self-consumption), which the percentage/floor formula only coincidentally landed on for
+specific inverter sizes.
+
+**Regression tests updated, not just the source:** `SimulationEngineBatteryDischargeEfficiencyTest`
+used a 10kW inverter fixture, where the OLD formula gave 50W (10 × 0.005) — now 100W under the flat
+default, so `batteryToHouseKw`/the SOC-decay hand-trace both shifted with it (`59.66542f` /
+`59.67546f`, recomputed in Python the same way this file's existing convention already required,
+not guessed). `Phase24EngineeringValidationTest` used a 20kW inverter fixture, where the OLD
+formula already gave exactly 100W (20 × 0.005) — so every numeric assertion there was already
+correct and needed no change; only its explanatory comment, which described the now-gone formula,
+was updated for accuracy.
+
+**Verification caveat:** the hand-traced Python arithmetic for the updated
+`SimulationEngineBatteryDischargeEfficiencyTest` values is believed correct (same computation the
+existing `59.70838f`/`59.71713f` values were already derived by, per that test's own comment), but
+the JVM test suite itself could not be run in this sandbox (no JDK/Gradle test execution here,
+consistent with every other verification caveat in this README) — worth an actual `./gradlew test`
+run to confirm before treating this as fully closed.

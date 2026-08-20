@@ -83,24 +83,28 @@ data class SimSystemConfig(
      * addition to whatever it's delivering to the house or battery. [EquipmentSpecs.InverterSpec]
      * carries no confirmed per-model self-consumption figure for any catalog entry today (no
      * datasheet value was available to enter — see that class's own field list), so every config
-     * falls back to [DEFAULT_SELF_CONSUMPTION_FRACTION] of the inverter's own rated AC output,
-     * floored at [DEFAULT_SELF_CONSUMPTION_FLOOR_KW] so a small inverter doesn't round to
-     * effectively zero. This is an explicitly generic engineering placeholder, not a measured
-     * manufacturer figure — if the catalog ever gains a real per-model watt figure, resolve it here
-     * instead (the same "real spec overrides generic estimate" pattern [batteryMaxChargeKw] already
-     * follows), without changing anything downstream that reads this field.
+     * falls back to [DEFAULT_SELF_CONSUMPTION_KW] — 100W flat, per explicit instruction ("put 100w
+     * for inverter use, so if load is 1000w battery should power 1100w to supply load and also
+     * panel would power 1100w in that same scenario and utility the same") and matching the
+     * spec's own worked example this class's A87 doc already quoted elsewhere ("Required PV: 400 +
+     * 100 + 1500 = 2000W"). 2026-08-19: replaces the earlier 0.5%-of-rated-AC-output-floored-at-
+     * 20W generic estimate with this flat figure — same "explicitly generic engineering
+     * placeholder, not a measured manufacturer figure" caveat applies; if the catalog ever gains a
+     * real per-model watt figure, resolve it here instead (the same "real spec overrides generic
+     * estimate" pattern [batteryMaxChargeKw] already follows), without changing anything downstream
+     * that reads this field — [SimulationEngine] already folds whatever value lands here into the
+     * same demand pool solar/battery/grid all serve (see its own `demand = load +
+     * config.inverterSelfConsumptionKw` comment), so this is a one-number change, not new wiring.
      */
-    val inverterSelfConsumptionKw: Double = (inverterKw * DEFAULT_SELF_CONSUMPTION_FRACTION).coerceAtLeast(DEFAULT_SELF_CONSUMPTION_FLOOR_KW)
+    val inverterSelfConsumptionKw: Double = DEFAULT_SELF_CONSUMPTION_KW
 ) {
     /** True only when every field needed for a site-aware solar position model is present. */
     val isSiteAware: Boolean
         get() = siteLatitude != null && siteLongitude != null && roofAzimuthDegrees != null && roofPitchDegrees != null
 
     companion object {
-        /** ~0.5% of rated AC output — see [inverterSelfConsumptionKw]'s own doc for why this is a generic placeholder, not a manufacturer figure. */
-        const val DEFAULT_SELF_CONSUMPTION_FRACTION = 0.005
-        /** A ~20W floor, so a small inverter's self-consumption doesn't round toward zero. */
-        const val DEFAULT_SELF_CONSUMPTION_FLOOR_KW = 0.02
+        /** Flat 100W — see [inverterSelfConsumptionKw]'s own doc for why this is a generic placeholder, not a manufacturer figure. */
+        const val DEFAULT_SELF_CONSUMPTION_KW = 0.1
 
         fun from(result: QuoteResult, inputs: QuoteInputs): SimSystemConfig {
             val constraint = inputs.roofConstraint
