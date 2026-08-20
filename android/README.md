@@ -7188,3 +7188,91 @@ this as fully verified.
 6. **No UI exists yet** to actually enter a `CommercialIndustrialDesign` — per the spec's own explicit
    "do not redesign the UI in this phase," this round is domain-layer only. A future round would need
    a manual-design wizard flow (§13's field list) before any of this is reachable from the app itself.
+
+## A112 — Phase 28: realistic load/appliance engine + Quote-Type adaptation
+
+User's spec: "UPDATE THE EXISTING LOAD/APPLIANCE ENGINE — DO NOT REBUILD THE APP... DO THIS IN
+PHASES TO MINIMIZE MISTAKE AND HALLUCINATION." Goal: make appliance usage schedules realistic for
+an average Jamaican household, and make the app automatically adapt to RESIDENTIAL/COMMERCIAL/
+INDUSTRIAL. Executed as 8 phases, each committed separately. Recon first (confirmed via a thorough
+codebase read): a real multi-block, day-type-aware appliance schedule engine (`ApplianceRun`/
+`DayType`/`ApplianceState` in `SimAppliance.kt`) already existed from earlier rounds (A16/A21/A36/
+A39) with a stepper-based (not drag-based) time-bar editor in the Simulation screen's Appliances
+sheet — but it only drove the live simulation dial, never the quote/sizing calculation, which
+always read the Weekday schedule only and summed every selected appliance's flat nameplate wattage
+for peak. Commercial/Industrial (Phase 27) had a domain layer with zero UI.
+
+**1. AC BTU expansion + inverter/non-inverter type** — `AcLoad.counts` expanded from 4 tiers
+(9-24k BTU) to the full 8-tier list (9-60k BTU); new `AcInverterType` (NON_INVERTER default /
+INVERTER). Non-inverter keeps the app's existing 10 BTU/W ratio unchanged; inverter uses 13 BTU/W
+(a commonly-cited generic figure) for peak, and a 0.55 part-load-average factor for energy only —
+"keep peak demand separate from average energy consumption." Wizard UI: 8 BTU fields + an
+Inverter/Non-inverter selector.
+
+**2. Residential default-schedule realism pass** — updated `defaultScheduleFor()` where the user's
+specific examples differed from what already existed: bedroom light → two distinct evening blocks
+(7-8pm, 9-10pm) instead of one continuous block; general lighting tightened to 6-7am/6-10pm; TV →
+6:30-10pm (3.5h, was 4.5h); ceiling fan → 6:00-10:30pm; iron → 7:00-7:15am (15 min — supersedes the
+prior "shift to a solar window" 9:00-9:30am default); washing machine and blender → weekend-only by
+default (were running every day). Fridge/router/security/microwave/stove/water pump/water heater
+already matched the spec's own examples and needed no change.
+
+**3. Weekly (Mon-Sun) kWh aggregation** — daily kWh is now computed per real day type (Weekday x5 +
+Saturday + Sunday) and combined into a genuine 7-day average, replacing the old Weekday-only figure
+that fed sizing. `QuoteResult` gains `weekdayDailyKwh`/`saturdayDailyKwh`/`sundayDailyKwh`/
+`weeklyKwh`/`averageDailyKwh`/`estimatedOperatingHoursPerWeek`; `designDailyKwh` is now
+`averageDailyKwh`. This is what makes phase 2's weekend-only appliances actually count toward
+sizing instead of silently contributing zero. Wizard's load-audit preview shows Weekly Energy and
+Operating Hrs/Wk alongside the existing stats.
+
+**4. Realistic schedule-based peak (replaces flat nameplate-sum peak)** — the single highest-risk
+change of this round. New `coincidentPeakLoadKwAt`/`worstCaseCoincidentPeakKw` (SimAppliance.kt)
+compute the worst REAL coincident draw — every appliance actually scheduled "on" at a given hour,
+summed at full rated watts (not duty-cycle-averaged, since a cycling load genuinely draws full
+power whenever it's on) — swept across all 3 day types every 15 minutes.
+`SystemCalculator.loadsKwhAndPeak`'s `peakWatts` now comes from this sweep instead of a flat sum of
+every selected appliance's nameplate watts x qty. The existing 1.25x sizing margin is unchanged; it
+now applies on top of a realistic peak instead of an inflated one. `worstCaseSurgeKw` (the separate
+motor/compressor startup-surge check) is intentionally untouched — its own "every motor starts at
+once" conservatism is the correct, separate check the spec explicitly asks to keep.
+
+**5/6. Commercial business hours + Industrial shift schedule** — new `BusinessHours` (per-day-type
+open/close, defaults to the spec's own M-F 7am-6pm/Sat 8am-1pm/Sun closed) and
+`IndustrialShiftSchedule` (up to 3 shifts, working days, weekend operation — every field defaults to
+"not yet entered," never a guessed hour, per "DO NOT create assumed industrial working hours").
+`CommercialIndustrialLoadCatalog` expanded with the requested new items (ice machine, coffee
+machine, CCTV/NVR, exterior/interior lighting split, CNC machine, industrial security system, and
+more) — fully additive, every original Phase 27 catalog id still resolves.
+
+**7. Quote-Type selector + first Commercial/Industrial UI** — the wizard's Design Mode step (2) now
+starts with a System Category picker (Residential/Commercial/Industrial); choosing Commercial or
+Industrial hides the GUIDED/LOAD/MANUAL cards (a residential-only distinction) and routes to a new
+consolidated step 15 (`StepCommercialIndustrialDesign`) — the first UI anywhere in the app that can
+edit a `CommercialIndustrialDesign`: electrical service, business hours/shift schedule, diversity
+factor, and a load list (add from catalog, edit qty/watts/PF/hours, remove), with a live summary.
+
+**8. Tests** — `Phase28ResidentialLoadEngineTest.kt` (AC BTU/W math, weekend-only appliance weekly
+averaging, coincident-peak-lower-than-flat-sum and coincident-peak-includes-genuine-overlap cases)
+and `Phase28BusinessScheduleTest.kt` (BusinessHours defaults/window logic, IndustrialShiftSchedule
+configuration/production-hours derivation, catalog resolution).
+
+**Deliberately not built this round:**
+- A per-load drag-editable time-bar for commercial/industrial loads (§10) — loads use a flat
+  hours/day figure, not per-load schedule blocks. The existing residential Simulation-screen time-
+  bar editor (stepper-based, not drag-gesture-based) was left as-is, satisfying "keep the existing
+  time-bar interface" literally rather than risking a rebuild with no way to visually verify it here.
+- Parallel-inverter/PV-string/battery-per-inverter entry UI (§7-§12 domain models exist from Phase
+  27, still no UI).
+- `SystemResultScreen.kt` is untouched — a calculated Commercial/Industrial quote still displays
+  through residential-flavored labels (0 panels, no pricing) rather than a tailored summary. Not a
+  crash risk (every field the calculator produces is a real, non-null default), but a known gap.
+- `businessHours`/`industrialShiftSchedule` are present and editable but not yet wired into
+  `CommercialIndustrialDesign.estimatedDailyEnergyKwh` — that still reads each load's flat
+  `operatingHoursPerDay` directly.
+
+**Verification caveat:** same as every round this session — the JVM test suite could not actually
+be executed in this sandbox (`./gradlew` fails here on plugin resolution, the sandbox's standing
+network limitation, confirmed again this round). Every file was balance-checked and every numeric
+test value hand-traced against its actual formula, not guessed, but an actual `./gradlew test` run
+is worth doing before treating the peak/diversity change (item 4) as fully verified, since it's the
+one most likely to shift real quotes' inverter sizing.
