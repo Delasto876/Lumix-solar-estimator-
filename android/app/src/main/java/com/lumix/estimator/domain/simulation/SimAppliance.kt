@@ -2,6 +2,7 @@ package com.lumix.estimator.domain.simulation
 
 import com.lumix.estimator.domain.ApplianceType
 import com.lumix.estimator.domain.QuoteInputs
+import com.lumix.estimator.domain.SystemCalculator
 import kotlinx.serialization.Serializable
 
 /**
@@ -402,15 +403,25 @@ fun defaultApplianceStates(inputs: QuoteInputs): Map<SimApplianceType, Appliance
         SimApplianceType.CEILING_FAN to stateFromWizard(SimApplianceType.CEILING_FAN, ApplianceType.FAN),
         SimApplianceType.STANDING_FAN to stateFromWizard(SimApplianceType.STANDING_FAN, ApplianceType.STANDING_FAN),
         SimApplianceType.BEDROOM_FAN to stateFromWizard(SimApplianceType.BEDROOM_FAN, ApplianceType.BEDROOM_FAN),
-        // A68: AIR_CONDITIONER's own catalog watts (1500) only exists to give AC a duty-cycle/
-        // schedule shape — the installer's real AC sizing is per-BTU-tier (inputs.ac.counts), the
-        // same figure SystemCalculator's own wizard sizing already uses (btu/10). Blending it into
-        // one real average watts-per-unit (rather than the flat placeholder) keeps the TOTAL AC
-        // load correct even across a mixed BTU selection, since the total is a linear sum either
-        // way — see ApplianceState.wattsOverride's own doc for the bug this fixes.
+        // A68/Phase 28: AIR_CONDITIONER's own catalog watts (1500) only exists to give AC a duty-
+        // cycle/schedule shape — the installer's real AC sizing is per-BTU-tier (inputs.ac.counts)
+        // at the real per-tier BTU/W ratio for the selected inverter/non-inverter type
+        // (SystemCalculator.acBtuPerWatt — one source of truth, see that function's own doc).
+        // Blending it into one real average watts-per-unit (rather than the flat placeholder)
+        // keeps the TOTAL AC load correct even across a mixed BTU selection, since the total is a
+        // linear sum either way — see ApplianceState.wattsOverride's own doc for the bug this fixes.
+        // Phase 28: deliberately the full rated (peak) per-unit watts, NOT reduced by
+        // SystemCalculator's own INVERTER_PART_LOAD_AVERAGE_FACTOR — wattsOverride also feeds
+        // worstCaseStartupSurgeKw's surge-current estimate, which needs the real rated draw, not a
+        // modulated average. This means an inverter-type AC's live simulation dial runs its energy
+        // total slightly warm (closer to rated than its true average) versus the sizing
+        // calculation's own reduced daily-kWh figure — a known, disclosed scope boundary (the
+        // conservative direction, not an understatement) rather than a second wattsOverride-shaped
+        // field threading the part-load factor through the dial's separate energy integration.
         SimApplianceType.AIR_CONDITIONER to run {
             val totalAcUnits = inputs.ac.counts.values.sum()
-            val totalAcWatts = inputs.ac.counts.entries.sumOf { (btu, count) -> (btu / 10.0) * count }
+            val btuPerWatt = SystemCalculator.acBtuPerWatt(inputs.ac.acType)
+            val totalAcWatts = inputs.ac.counts.entries.sumOf { (btu, count) -> (btu / btuPerWatt) * count }
             val avgAcWattsPerUnit = if (totalAcUnits > 0) totalAcWatts / totalAcUnits else null
             stateFor(
                 SimApplianceType.AIR_CONDITIONER,

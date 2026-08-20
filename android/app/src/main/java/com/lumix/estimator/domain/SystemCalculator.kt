@@ -84,6 +84,41 @@ object SystemCalculator {
     /** Minimum PSH floor so a stray 0/negative input can never divide-by-zero the panel-count math. */
     private const val MIN_PSH = 0.5
 
+    /**
+     * Phase 28 ("use the selected BTU and equipment data to determine appropriate electrical
+     * input power"): typical, disclosed generic BTU/W ratios — NOT a manufacturer datasheet figure
+     * for any specific model, the same "generic engineering placeholder, not a measured figure"
+     * caveat this codebase already applies wherever a real per-model spec isn't available (see e.g.
+     * [com.lumix.estimator.domain.simulation.SimSystemConfig.inverterSelfConsumptionKw]'s own doc).
+     * 10.0 (non-inverter) is this app's own pre-existing assumption, unchanged. 13.0 (inverter) is
+     * a commonly-cited generic figure for variable-speed mini-split/inverter AC rated efficiency —
+     * meaningfully higher than a fixed-speed unit's, consistent with why inverter ACs cost more.
+     */
+    private const val NON_INVERTER_BTU_PER_WATT = 10.0
+    private const val INVERTER_BTU_PER_WATT = 13.0
+
+    /**
+     * Phase 28 ("for inverter AC, model variable/part-load operation rather than assuming full
+     * rated input continuously... keep peak demand separate from average energy consumption"): a
+     * non-inverter unit cycles its compressor fully on/off (already modeled by
+     * [SimApplianceType.AIR_CONDITIONER]'s own duty factor inside [defaultEffectiveDailyHours]) —
+     * while it runs, it draws close to its full rated input. An inverter unit instead modulates
+     * compressor speed to match the actual cooling load, so its real AVERAGE draw during its "on"
+     * window is meaningfully below its rated peak input — this factor scales the ENERGY (kWh)
+     * calculation only. [peakWatts] deliberately stays at the full rated input for both types (the
+     * inverter surge/starting-current check and the AC's worst-case instantaneous draw don't get
+     * smaller just because its average is lower). A disclosed generic assumption, not a
+     * manufacturer-specific figure — a real per-model part-load curve isn't available in this
+     * catalog.
+     */
+    private const val INVERTER_PART_LOAD_AVERAGE_FACTOR = 0.55
+
+    /** `internal` (not `private`) so [com.lumix.estimator.domain.simulation.defaultApplianceStates] can derive the same real per-unit AC wattage this file's own sizing uses — one source of truth, never two separate BTU/W assumptions that could drift apart. */
+    internal fun acBtuPerWatt(type: AcInverterType): Double = when (type) {
+        AcInverterType.NON_INVERTER -> NON_INVERTER_BTU_PER_WATT
+        AcInverterType.INVERTER -> INVERTER_BTU_PER_WATT
+    }
+
     private data class LoadResult(val dailyKwh: Double, val peakWatts: Double)
 
     private fun loadsKwhAndPeak(data: QuoteInputs): LoadResult {
@@ -98,11 +133,13 @@ object SystemCalculator {
         // "Custom" still honors an explicit override.
         if (data.ac.hasAc) {
             val acEffectiveHours = defaultEffectiveDailyHours(SimApplianceType.AIR_CONDITIONER)
+            val btuPerWatt = acBtuPerWatt(data.ac.acType)
+            val partLoadFactor = if (data.ac.acType == AcInverterType.INVERTER) INVERTER_PART_LOAD_AVERAGE_FACTOR else 1.0
             data.ac.counts.forEach { (btu, count) ->
                 if (count > 0) {
-                    val w = btu / 10.0
+                    val w = btu / btuPerWatt
                     val hours = if (data.ac.useStandardHours) acEffectiveHours else data.ac.customHours
-                    dailyKwh += (w * hours * count) / 1000.0
+                    dailyKwh += (w * partLoadFactor * hours * count) / 1000.0
                     peakWatts += w * count
                 }
             }
@@ -136,8 +173,9 @@ object SystemCalculator {
     private fun worstCaseSurgeKw(data: QuoteInputs): Double {
         var surgeWatts = 0.0
         if (data.ac.hasAc) {
+            val btuPerWatt = acBtuPerWatt(data.ac.acType)
             data.ac.counts.forEach { (btu, count) ->
-                if (count > 0) surgeWatts += (btu / 10.0) * count * SimApplianceType.AIR_CONDITIONER.startupSurgeMultiplier
+                if (count > 0) surgeWatts += (btu / btuPerWatt) * count * SimApplianceType.AIR_CONDITIONER.startupSurgeMultiplier
             }
         }
         data.appliances.forEach { (type, load) ->

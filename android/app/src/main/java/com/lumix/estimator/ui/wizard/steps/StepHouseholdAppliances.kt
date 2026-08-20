@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.lumix.estimator.domain.AcInverterType
 import com.lumix.estimator.domain.ApplianceLoad
 import com.lumix.estimator.domain.ApplianceType
 import com.lumix.estimator.domain.PriceList
@@ -69,7 +70,9 @@ fun StepHouseholdAppliances(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> Quo
                 )
             }
             if (inputs.ac.hasAc) {
-                listOf(9000, 12000, 18000, 24000).chunked(2).forEach { pair ->
+                // Phase 28 ("create selectable BTU options: 9,000/12,000/18,000/24,000/30,000/
+                // 36,000/48,000/60,000"): expanded from the original 4 tiers to the full 8.
+                listOf(9000, 12000, 18000, 24000, 30000, 36000, 48000, 60000).chunked(2).forEach { pair ->
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         pair.forEach { btu ->
                             IntField(
@@ -85,6 +88,27 @@ fun StepHouseholdAppliances(inputs: QuoteInputs, onUpdate: ((QuoteInputs) -> Quo
                         }
                     }
                 }
+                Text("AC type", style = MaterialTheme.typography.bodyMedium)
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    AcInverterType.entries.forEachIndexed { index, type ->
+                        SegmentedButton(
+                            selected = inputs.ac.acType == type,
+                            onClick = { onUpdate { it.copy(ac = it.ac.copy(acType = type)) } },
+                            shape = SegmentedButtonDefaults.itemShape(index, AcInverterType.entries.size)
+                        ) {
+                            Text(if (type == AcInverterType.INVERTER) "Inverter" else "Non-inverter")
+                        }
+                    }
+                }
+                Text(
+                    if (inputs.ac.acType == AcInverterType.INVERTER) {
+                        "Inverter units modulate compressor speed to match the load — higher rated efficiency and a lower real average draw than the same BTU rating in a non-inverter unit, though peak/starting demand is still sized off the full rated input."
+                    } else {
+                        "Fixed-speed units cycle the compressor fully on/off rather than modulating — the standard assumption unless every AC unit on this quote is confirmed inverter-type."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary
+                )
                 Text("Schedule", style = MaterialTheme.typography.bodyMedium)
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     listOf(true, false).forEachIndexed { index, standard ->

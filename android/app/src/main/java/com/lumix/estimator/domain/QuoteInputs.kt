@@ -186,16 +186,39 @@ data class ApplianceLoad(
     val useAutoSchedule: Boolean = true
 )
 
+/**
+ * Phase 28 ("update the load/appliance engine... create selectable BTU options... also allow
+ * Inverter AC / Non-inverter AC"): applies to every populated tier in [AcLoad.counts] on this
+ * quote — one quote's AC units are treated as one purchasing decision (all-inverter or
+ * all-non-inverter), not mixed per-tier, since [AcLoad] has no per-tier metadata beyond a bare
+ * unit count. [SystemCalculator]'s own doc on the BTU/W constants explains the disclosed, generic
+ * (not manufacturer-specific) efficiency figures each option implies.
+ */
+@Serializable
+enum class AcInverterType { NON_INVERTER, INVERTER }
+
 @Serializable
 data class AcLoad(
     val hasAc: Boolean = false,
-    val counts: Map<Int, Int> = mapOf(9000 to 0, 12000 to 0, 18000 to 0, 24000 to 0),
+    /**
+     * Phase 28: expanded from 4 tiers (9-24k BTU) to the spec's own full 8-tier list (9-60k BTU) —
+     * additive only. A quote saved before this round only ever populated the original 4 keys;
+     * decoding it here just leaves the 4 new tiers absent from the map, read as 0 everywhere this
+     * map is iterated (`data.ac.counts.forEach`/`inputs.ac.counts[btu] ?: 0`), the same as any
+     * other tier nobody selected — no migration needed, no behavior change for an old quote.
+     */
+    val counts: Map<Int, Int> = mapOf(
+        9000 to 0, 12000 to 0, 18000 to 0, 24000 to 0,
+        30000 to 0, 36000 to 0, 48000 to 0, 60000 to 0
+    ),
     // "Standard" now means the automatic realistic AC schedule (evening window, thermostat duty
     // cycle) from the same engine the simulation uses — not a flat 4h/day guess, which is what
     // this used to mean before the automatic schedule engine existed. "Custom" still lets an
     // installer override with an explicit hours/day figure via [customHours].
     val useStandardHours: Boolean = true,
-    val customHours: Double = 4.0
+    val customHours: Double = 4.0,
+    /** Defaults to [AcInverterType.NON_INVERTER] — the BTU/W ratio ([SystemCalculator]'s own `NON_INVERTER_BTU_PER_WATT`) an old quote's AC sizing already implicitly assumed, so a decoded pre-Phase-28 quote's AC wattage/peak figures are unchanged by this field's addition. */
+    val acType: AcInverterType = AcInverterType.NON_INVERTER
 )
 
 fun defaultAppliances(): Map<ApplianceType, ApplianceLoad> = ApplianceType.entries.associateWith { type ->
