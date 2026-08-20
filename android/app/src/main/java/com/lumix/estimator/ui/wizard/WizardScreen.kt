@@ -35,6 +35,7 @@ import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.LumixSecondaryButton
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.wizard.steps.StepBatteryBank
+import com.lumix.estimator.ui.wizard.steps.StepCommercialIndustrialDesign
 import com.lumix.estimator.ui.wizard.steps.StepCustomer
 import com.lumix.estimator.ui.wizard.steps.StepHouseholdAppliances
 import com.lumix.estimator.ui.wizard.steps.StepInverter
@@ -65,7 +66,8 @@ private val stepTitles = mapOf(
     11 to "Backup",
     12 to "System Review",
     13 to "Site Details",
-    14 to "Pricing & Discount"
+    14 to "Pricing & Discount",
+    15 to "Commercial/Industrial Design"
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -108,7 +110,10 @@ fun WizardScreen(
     // Site Details (13) after it as a SITE_DETAILS-only excursion can't retroactively move where
     // Calculate System fires — see WizardViewModel.openSiteDetails's own doc for why this shape
     // was chosen over folding Site Details into designSteps() directly.
-    val isSystemReviewStep = currentStep == 12 && flowMode == WizardFlowMode.DESIGN
+    // Phase 28 §9: COMMERCIAL/INDUSTRIAL's design flow ends at the new step 15 (Commercial/
+    // Industrial Design) instead of System Review (12) — same "Calculate System" trigger point,
+    // just a different final step for that flow (see WizardViewModel.designSteps' own doc).
+    val isSystemReviewStep = (currentStep == 12 || currentStep == 15) && flowMode == WizardFlowMode.DESIGN
 
     Scaffold(
         topBar = {
@@ -214,6 +219,7 @@ fun WizardScreen(
                     12 -> StepSystemReview(inputs, viewModel::update, settingsRepository, viewModel::goToStep)
                     13 -> StepSiteDetails(inputs, viewModel::update)
                     14 -> Step7Pricing(inputs, viewModel::update)
+                    15 -> StepCommercialIndustrialDesign(inputs, viewModel::update)
                 }
             }
 

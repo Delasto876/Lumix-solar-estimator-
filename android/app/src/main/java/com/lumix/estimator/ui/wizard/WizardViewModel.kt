@@ -12,6 +12,7 @@ import com.lumix.estimator.domain.QuoteResult
 import com.lumix.estimator.domain.RoofConstraint
 import com.lumix.estimator.domain.SolarResource
 import com.lumix.estimator.domain.SystemCalculator
+import com.lumix.estimator.domain.SystemType
 import com.lumix.estimator.domain.Validation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -72,6 +73,8 @@ class WizardViewModel(
     //  12 System Review (all modes)
     //  13 Site Details (SITE_DETAILS only — property type/system type/JPS rate/storeys)
     //  14 Pricing & Discount (QUOTE_DETAILS)
+    //  15 Commercial/Industrial Design (COMMERCIAL/INDUSTRIAL only — replaces steps 4-12 entirely,
+    //     see designSteps' own doc)
     val totalSteps = 14
 
     fun update(transform: (QuoteInputs) -> QuoteInputs) {
@@ -98,6 +101,15 @@ class WizardViewModel(
      */
     private fun designSteps(): List<Int> {
         val data = _inputs.value
+        // Phase 28 §9 ("Use the SAME existing calculation engine with a Quote Type configuration
+        // controlling the appliance library, default schedules and required inputs"): COMMERCIAL/
+        // INDUSTRIAL routes to one new consolidated step (15) instead of the residential
+        // GUIDED/LOAD/MANUAL step sequence below — QuoteMode is a residential-only distinction
+        // CommercialIndustrialCalculator doesn't read. Location (3) is kept for parish/PSH/system
+        // mode; Design Mode (2) still hosts the System Category picker itself (see StepQuoteMode).
+        if (data.systemCategory != SystemType.RESIDENTIAL) {
+            return listOf(2, 3, 15)
+        }
         return when (data.quoteMode) {
             QuoteMode.GUIDED -> listOf(2, 3, 4, 5, 10, 11, 12)
             QuoteMode.LOAD -> listOf(2, 3, 4, 10, 12)
