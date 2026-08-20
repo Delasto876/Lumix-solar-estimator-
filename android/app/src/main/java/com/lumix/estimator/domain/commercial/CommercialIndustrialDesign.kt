@@ -66,7 +66,17 @@ data class CommercialIndustrialDesign(
     /** Phase 27 §7-§10: null until the installer has picked an inverter model and PV configuration in the manual design flow — see [ParallelInverterDesign]'s own doc. */
     val parallelInverterDesign: ParallelInverterDesign? = null,
     /** Phase 27 §11-§12: null until the installer has allocated batteries per inverter unit — see [BatteryPerInverterDesign]'s own doc. */
-    val batteryPerInverterDesign: BatteryPerInverterDesign? = null
+    val batteryPerInverterDesign: BatteryPerInverterDesign? = null,
+    /**
+     * Phase 28 (Commercial default schedule model — "User must be able to edit business opening/
+     * closing days and hours"): the site's own operating hours, defaulting to the spec's own
+     * worked example (M-F 7am-6pm, Sat 8am-1pm, Sun closed). Only meaningful for COMMERCIAL — see
+     * [BusinessHours]'s own doc. INDUSTRIAL ignores this entirely in favor of its own manual
+     * shift-based schedule (§13 "Industrial = MANUAL MODE ONLY... no assumed working hours") —
+     * kept here rather than made nullable/industrial-specific so the same [CommercialIndustrialDesign]
+     * shape still works for both system types without a second, parallel design class.
+     */
+    val businessHours: BusinessHours = BusinessHours()
 ) {
     /** §5 "Connected Load" — raw nameplate sum, no duty-cycle/simultaneity/diversity reduction. */
     val connectedLoadKw: Double get() = loads.sumOf { it.connectedRealPowerKw }

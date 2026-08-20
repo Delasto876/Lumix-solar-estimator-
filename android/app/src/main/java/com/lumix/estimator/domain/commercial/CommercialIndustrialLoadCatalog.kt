@@ -37,6 +37,23 @@ object CommercialIndustrialLoadCatalog {
         LoadDefinition("commercial_motor", "Motor (general commercial)", LoadCategory.COMMERCIAL, defaultRatedWatts = 750.0, defaultPowerFactor = 0.82, isMotorLoad = true, defaultStartingSurgeMultiplier = 4.0),
         LoadDefinition("commercial_elevator", "Elevator", LoadCategory.COMMERCIAL, defaultRatedWatts = 5000.0, defaultVoltage = 240.0, defaultPhase = LoadPhaseType.THREE_PHASE, defaultPowerFactor = 0.85, isMotorLoad = true, defaultStartingSurgeMultiplier = 3.0, defaultPriority = LoadPriority.CRITICAL),
         LoadDefinition("commercial_workshop_equipment", "Workshop Equipment", LoadCategory.COMMERCIAL, defaultRatedWatts = 1000.0, defaultPowerFactor = 0.85, isMotorLoad = true, defaultStartingSurgeMultiplier = 3.0),
+        // Phase 28 §7 ("Expand the commercial appliance database"): additive entries — every id
+        // above is untouched, so an already-saved LoadInstance referencing one still resolves.
+        LoadDefinition("commercial_ice_machine", "Ice Machine", LoadCategory.COMMERCIAL, defaultRatedWatts = 800.0, defaultPowerFactor = 0.85, defaultOperationType = LoadOperationType.INTERMITTENT, isMotorLoad = true, defaultStartingSurgeMultiplier = 3.0),
+        LoadDefinition("commercial_blender", "Commercial Blender", LoadCategory.COMMERCIAL, defaultRatedWatts = 1000.0, defaultPowerFactor = 0.9, isMotorLoad = true, defaultStartingSurgeMultiplier = 2.5),
+        LoadDefinition("commercial_coffee_machine", "Coffee Machine", LoadCategory.COMMERCIAL, defaultRatedWatts = 1500.0, defaultPowerFactor = 1.0, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_microwave", "Microwave", LoadCategory.COMMERCIAL, defaultRatedWatts = 1800.0, defaultPowerFactor = 0.98, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_oven", "Commercial Oven", LoadCategory.COMMERCIAL, defaultRatedWatts = 6000.0, defaultVoltage = 240.0, defaultPhase = LoadPhaseType.THREE_PHASE, defaultPowerFactor = 1.0, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_electric_range", "Electric Range", LoadCategory.COMMERCIAL, defaultRatedWatts = 8000.0, defaultVoltage = 240.0, defaultPhase = LoadPhaseType.THREE_PHASE, defaultPowerFactor = 1.0, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_printer", "Printer", LoadCategory.COMMERCIAL, defaultRatedWatts = 50.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_copier", "Copier", LoadCategory.COMMERCIAL, defaultRatedWatts = 1200.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_network_equipment", "Network Equipment (router/switch/AP)", LoadCategory.COMMERCIAL, defaultRatedWatts = 150.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS, defaultPriority = LoadPriority.CRITICAL),
+        LoadDefinition("commercial_security_system", "Security System", LoadCategory.COMMERCIAL, defaultRatedWatts = 60.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS, defaultPriority = LoadPriority.CRITICAL),
+        LoadDefinition("commercial_cctv_nvr", "CCTV / NVR", LoadCategory.COMMERCIAL, defaultRatedWatts = 100.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS, defaultPriority = LoadPriority.CRITICAL),
+        LoadDefinition("commercial_exhaust_fan", "Exhaust Fan", LoadCategory.COMMERCIAL, defaultRatedWatts = 400.0, defaultPowerFactor = 0.85, defaultOperationType = LoadOperationType.CONTINUOUS, isMotorLoad = true, defaultStartingSurgeMultiplier = 2.5),
+        LoadDefinition("commercial_signage", "Signage", LoadCategory.COMMERCIAL, defaultRatedWatts = 150.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS),
+        LoadDefinition("commercial_exterior_lighting", "Exterior Lighting", LoadCategory.COMMERCIAL, defaultRatedWatts = 60.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS),
+        LoadDefinition("commercial_interior_lighting", "Interior Lighting (per fixture)", LoadCategory.COMMERCIAL, defaultRatedWatts = 40.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS),
         LoadDefinition("commercial_custom", "Custom Commercial Load", LoadCategory.COMMERCIAL, defaultRatedWatts = 0.0, isCustom = true)
     )
 
