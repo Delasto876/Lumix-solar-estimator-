@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -20,17 +21,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.lumix.estimator.domain.EquipmentSpecs
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.SystemType
+import com.lumix.estimator.domain.commercial.BatteryPerInverterAllocation
+import com.lumix.estimator.domain.commercial.BatteryPerInverterDesign
 import com.lumix.estimator.domain.commercial.BusinessHours
 import com.lumix.estimator.domain.commercial.CommercialIndustrialDesign
 import com.lumix.estimator.domain.commercial.CommercialIndustrialLoadCatalog
 import com.lumix.estimator.domain.commercial.DiversityFactor
 import com.lumix.estimator.domain.commercial.DiversityFactorPreset
 import com.lumix.estimator.domain.commercial.IndustrialShiftSchedule
+import com.lumix.estimator.domain.commercial.InverterUnitPvDesign
 import com.lumix.estimator.domain.commercial.LoadDefinition
 import com.lumix.estimator.domain.commercial.LoadInstance
+import com.lumix.estimator.domain.commercial.ParallelInverterDesign
+import com.lumix.estimator.domain.commercial.ParallelInverterValidator
 import com.lumix.estimator.domain.commercial.Shift
+import com.lumix.estimator.domain.commercial.StringAssignment
 import com.lumix.estimator.domain.simulation.DayType
 import com.lumix.estimator.ui.components.CollapsibleSectionCard
 import com.lumix.estimator.ui.components.IntField
@@ -90,6 +98,9 @@ fun StepCommercialIndustrialDesign(inputs: QuoteInputs, onUpdate: ((QuoteInputs)
         }
 
         DiversityFactorSection(design.diversityFactor) { factor -> updateDesign { it.copy(diversityFactor = factor) } }
+
+        ParallelInverterSection(design, ::updateDesign)
+        BatteryPerInverterSection(design, ::updateDesign)
 
         LoadsSection(inputs.systemCategory, design, ::updateDesign)
 
@@ -297,6 +308,172 @@ private fun DiversityFactorSection(factor: DiversityFactor, onChange: (Diversity
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("0%", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
             Text("100%", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+        }
+    }
+}
+
+/**
+ * Phase 29 (§7-§10 parallel inverter + per-unit PV string/MPPT entry — deferred in Phase 28, now
+ * built): "each inverter in the parallel connection have their own panel per MPPT... 3 inverters in
+ * parallel... each 12kW inverter have 3 MPPT and each MPPT have 10 x 720W on each MPPT string."
+ * Configures ONE inverter unit's MPPT/string layout — the SAME layout is applied to every parallel
+ * unit, matching how these systems are actually installed (identical units, symmetric wiring) and
+ * matching the domain model's own worked example. [ParallelInverterDesign.unitPvDesigns] still
+ * carries a fully independent entry per unit underneath (never collapsed into one shared number),
+ * so a future round can offer per-unit customization without a data-model change — only this
+ * uniform-entry UI would need to change.
+ */
+@Composable
+private fun ParallelInverterSection(design: CommercialIndustrialDesign, updateDesign: ((CommercialIndustrialDesign) -> CommercialIndustrialDesign) -> Unit) {
+    val palette = LocalLumixPalette.current
+    val existing = design.parallelInverterDesign
+    val modelId = existing?.inverterModelId ?: ""
+    val ratedKwPerUnit = existing?.ratedKwPerUnit ?: 0.0
+    val inverterCount = existing?.inverterCount ?: 1
+    val panelWattage = existing?.panelWattage ?: 0
+    val mpptsPerInverter = existing?.unitPvDesigns?.firstOrNull()?.strings?.size ?: 0
+    val panelsPerString = existing?.unitPvDesigns?.firstOrNull()?.strings?.firstOrNull()?.panelCount ?: 0
+
+    fun rebuild(
+        newModelId: String = modelId,
+        newRatedKwPerUnit: Double = ratedKwPerUnit,
+        newInverterCount: Int = inverterCount,
+        newPanelWattage: Int = panelWattage,
+        newMpptsPerInverter: Int = mpptsPerInverter,
+        newPanelsPerString: Int = panelsPerString
+    ) {
+        val unitPvDesigns = (0 until newInverterCount).map { unitIndex ->
+            InverterUnitPvDesign(
+                unitIndex = unitIndex,
+                strings = (0 until newMpptsPerInverter).map { mpptIndex -> StringAssignment(mpptIndex, newPanelsPerString) }
+            )
+        }
+        updateDesign {
+            it.copy(
+                parallelInverterDesign = ParallelInverterDesign(
+                    inverterModelId = newModelId, ratedKwPerUnit = newRatedKwPerUnit, panelWattage = newPanelWattage,
+                    inverterCount = newInverterCount, unitPvDesigns = unitPvDesigns
+                )
+            )
+        }
+    }
+
+    SectionCard(title = "Parallel inverter system") {
+        Text(
+            "Configure one inverter unit's specs — the same panel-per-MPPT layout applies to every parallel unit.",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary
+        )
+        OutlinedTextField(
+            value = modelId,
+            onValueChange = { v -> rebuild(newModelId = v) },
+            label = { Text("Inverter model") },
+            supportingText = { Text("Type an exact catalog model name (e.g. \"GEN-LB-US 6K\") to enable electrical/parallel validation, or any label otherwise.") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NumberField(
+                label = "Rated kW / unit", value = ratedKwPerUnit,
+                onValueChange = { v -> rebuild(newRatedKwPerUnit = v) },
+                modifier = Modifier.weight(1f)
+            )
+            IntField(
+                label = "Parallel units", value = inverterCount,
+                onValueChange = { v -> rebuild(newInverterCount = v.coerceAtLeast(1)) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IntField(
+                label = "Panel watts", value = panelWattage,
+                onValueChange = { v -> rebuild(newPanelWattage = v.coerceAtLeast(0)) },
+                modifier = Modifier.weight(1f)
+            )
+            IntField(
+                label = "MPPTs / inverter", value = mpptsPerInverter,
+                onValueChange = { v -> rebuild(newMpptsPerInverter = v.coerceAtLeast(0)) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        IntField(
+            label = "Panels per MPPT string", value = panelsPerString,
+            onValueChange = { v -> rebuild(newPanelsPerString = v.coerceAtLeast(0)) }
+        )
+
+        val current = design.parallelInverterDesign
+        if (current != null && current.inverterCount > 0) {
+            Text(
+                "Total: %d units x %.1f kW = %.1f kW | %d panels x %dW = %.1f kW PV"
+                    .format(current.inverterCount, current.ratedKwPerUnit, current.totalInverterCapacityKw, current.totalPanelCount, current.panelWattage, current.totalPvKw),
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textPrimary
+            )
+            if (modelId.isNotBlank()) {
+                val validation = ParallelInverterValidator.validate(current)
+                (validation.warnings + validation.unitResults.flatMap { it.notes }).forEach { warning ->
+                    Text("⚠ $warning", style = MaterialTheme.typography.labelSmall, color = palette.warningRedText)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Phase 29 (§11/§12 battery-per-inverter entry — deferred in Phase 28, now built): "that same
+ * inverter can have 3 x 16kWh battery and the same for the other inverter in the parallel
+ * connection." One battery model + a batteries-per-unit count, applied uniformly across every
+ * parallel inverter unit (same reasoning as [ParallelInverterSection] — [BatteryPerInverterDesign
+ * .allocations] still carries a fully independent entry per unit underneath).
+ */
+@Composable
+private fun BatteryPerInverterSection(design: CommercialIndustrialDesign, updateDesign: ((CommercialIndustrialDesign) -> CommercialIndustrialDesign) -> Unit) {
+    val palette = LocalLumixPalette.current
+    val inverterCount = design.parallelInverterDesign?.inverterCount ?: 0
+    val existing = design.batteryPerInverterDesign
+    val batteryModelId = existing?.allocations?.firstOrNull()?.batteryModelId ?: ""
+    val batteriesPerUnit = existing?.allocations?.firstOrNull()?.batteryCount ?: 0
+
+    fun rebuild(newBatteryModelId: String = batteryModelId, newBatteriesPerUnit: Int = batteriesPerUnit) {
+        val allocations = (0 until inverterCount).map { unitIndex ->
+            BatteryPerInverterAllocation(unitIndex, newBatteryModelId, newBatteriesPerUnit)
+        }
+        updateDesign { it.copy(batteryPerInverterDesign = BatteryPerInverterDesign(allocations)) }
+    }
+
+    SectionCard(title = "Battery per inverter") {
+        if (inverterCount <= 0) {
+            Text(
+                "Set up the parallel inverter system above first — batteries are allocated per inverter unit.",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary
+            )
+            return@SectionCard
+        }
+        Text("Battery model", style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            EquipmentSpecs.batteries.forEach { spec ->
+                val selected = batteryModelId == spec.model
+                TextButton(onClick = { rebuild(newBatteryModelId = spec.model) }) {
+                    Text(
+                        (if (selected) "✓ " else "") + "${spec.brand} ${spec.model}",
+                        color = if (selected) palette.solarYellowText else palette.textSecondary
+                    )
+                }
+            }
+        }
+        IntField(
+            label = "Batteries per inverter unit", value = batteriesPerUnit,
+            onValueChange = { v -> rebuild(newBatteriesPerUnit = v.coerceAtLeast(0)) }
+        )
+        val current = design.batteryPerInverterDesign
+        if (current != null && batteryModelId.isNotBlank()) {
+            Text(
+                "Total: $inverterCount units x $batteriesPerUnit batteries = ${current.totalBatteryCount} units, %.1f kWh"
+                    .format(current.totalBatteryCapacityKwh),
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textPrimary
+            )
         }
     }
 }
