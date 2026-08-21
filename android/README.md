@@ -7276,3 +7276,61 @@ network limitation, confirmed again this round). Every file was balance-checked 
 test value hand-traced against its actual formula, not guessed, but an actual `./gradlew test` run
 is worth doing before treating the peak/diversity change (item 4) as fully verified, since it's the
 one most likely to shift real quotes' inverter sizing.
+
+## A113 — Phase 29: Commercial/Industrial UI fixes + parallel inverter/battery entry
+
+Follow-up to A112, based on hands-on feedback from actually using the new step 15 UI.
+
+**Bugfix — "the your load section does not save when I enter":** `StepCommercialIndustrialDesign`'s
+`updateDesign()` was transforming a `design` value captured once at composition time instead of the
+live `it.commercialIndustrialDesign` at the moment of update — every other wizard step already reads
+its target fresh off `it` inside `onUpdate` for exactly this reason (e.g. `StepHouseholdAppliances`'
+AC counts: `it.copy(ac = it.ac.copy(...))`). This silently dropped an edit whenever an update fired
+before recomposition caught up. Fixed by always transforming `it.commercialIndustrialDesign`.
+
+**Diversity/simultaneous-use factor → Slider.** Replaced the preset-chip row with a 0-100% Slider
+(5% steps) and a live percentage readout. Moving the slider at all — even back to 100% — writes
+`DiversityFactorPreset.CUSTOM`, which still counts as an explicit confirmation distinct from never
+touching the untouched 100% default.
+
+**Shift/business-hours → HH:MM time inputs.** The Industrial shift schedule and Commercial business
+hours previously took raw decimal hours (e.g. "18.5"). Both now use a proper HH:MM `TimeField` (two
+IntFields, converted to/from the decimal-hour figure `Shift`/`BusinessHours` are stored as
+underneath — no domain model change).
+
+**BTU for AC loads.** `LoadDefinition` gained `isAcLoad`/`defaultBtu`; `LoadInstance` gained an
+optional `btu` field. `commercial_ac_split`, `commercial_ac_package`, and `industrial_large_hvac`
+marked `isAcLoad` (existing wattages unchanged — just also expressed in BTU at the same 10 BTU/W
+ratio `SystemCalculator.acBtuPerWatt` already uses). The load editor shows a BTU field instead of
+Watts for AC-type loads, matching the residential wizard's own AC picker.
+
+**Parallel inverter + per-unit MPPT/string + battery-per-inverter UI (the fix for "shows 0 panels
+and battery"):** Phase 27 built `ParallelInverterDesign`/`BatteryPerInverterDesign` with zero UI to
+populate them — `CommercialIndustrialCalculator` was already correctly deriving `panelCount`/
+`inverterName`/`batteryName`/`totalBatteryKwh` from these fields, they were just always null. Two
+new sections, built exactly to the installer's own worked example: **Parallel inverter system**
+(inverter model, rated kW/unit, parallel unit count, panel wattage, MPPTs per inverter, panels per
+MPPT string — one unit's layout, applied uniformly to every parallel unit, since that's how these
+systems are actually installed) and **Battery per inverter** (battery model + batteries-per-unit,
+same uniform-across-units approach). Verified end to end with a new test using the installer's exact
+numbers (3 x 12kW inverters = 36kW, 3 MPPT x 10 x 720W panels each = 90 panels/64.8kW PV, 3 x 16kWh
+batteries per inverter = 9 batteries) — `panelCount`/`inverterKw`/`totalBatteryKwh` are all real,
+nonzero values now, and this is what a "select simulate" flow will read via `SimSystemConfig.from`
+(confirmed it reads generic `QuoteResult` fields with no residential-specific gating, so no
+simulation-engine change was needed — only the missing UI).
+
+Both new sections store a fully independent per-unit entry underneath
+(`InverterUnitPvDesign`/`BatteryPerInverterAllocation`, keyed by `unitIndex`) even though the UI
+only offers uniform entry today — a future round could add per-unit customization (different panel
+counts or battery counts per inverter) without any domain model change.
+
+**Still deferred:** a real, named catalog inverter model with confirmed `supportsParallel` data (so
+this doesn't get flagged as unconfirmed) — no such datasheet has been supplied yet; a per-load
+drag-editable time-bar; `SystemResultScreen.kt` tailoring for Commercial/Industrial quotes.
+
+**Verification caveat:** same as every round — `./gradlew` still fails in this sandbox on plugin
+resolution (network limitation, not this code). The new domain-layer test
+(`Phase29ParallelInverterUiWiringTest`) is hand-traced and balance-checked; the Compose UI fixes
+(bugfix, slider, time fields) have no equivalent JVM test coverage in this project (no Compose UI
+test harness is set up here) and are correct by code review only — worth confirming visually on a
+device/emulator before treating as fully verified.
