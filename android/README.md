@@ -7334,3 +7334,55 @@ resolution (network limitation, not this code). The new domain-layer test
 (bugfix, slider, time fields) have no equivalent JVM test coverage in this project (no Compose UI
 test harness is set up here) and are correct by code review only — worth confirming visually on a
 device/emulator before treating as fully verified.
+
+## A114 — Phase 30: catalog-driven inverter/panel/battery pickers for Commercial/Industrial
+
+Follow-up to A113: "use the same equipment and material list and price list for now... when I choose
+the inverter from the drop down menu, it should have the mppt amount... also ask if paralleling
+inverter and how much... do the same for battery." A113's `ParallelInverterSection` took a free-typed
+inverter model name and a manually-entered MPPT count; this round makes the picker itself draw from
+the same real equipment catalog residential MANUAL mode already uses, instead of a same-looking but
+separately-typed field.
+
+**Inverter model → dropdown over `Catalog.manualInverters`.** The same priced equipment list
+`StepInverter.kt` uses for residential MANUAL mode (`Catalog` is a thin, per-model-priced wrapper
+around `EquipmentSpecs.inverters`). Picking a model resolves its real `InverterSpec` via
+`EquipmentSpecs.inverterSpecFor(kw, name)` and auto-fills **Rated kW/unit** and **MPPTs/inverter**
+from that model's own datasheet — both fields stay editable afterward (this app's "always
+overridable" rule), for a unit not in the catalog or an MPPT count the installer knows differs from
+what's on file. Selecting "Custom / not in catalog" reveals the old free-text field for equipment
+genuinely outside the catalog — nothing that worked before was removed.
+
+**Panel model → dropdown over `Catalog.panelWattages`.** Same verified panel-wattage list
+`StepPanels.kt` already uses residentially, replacing the bare watts `IntField`. **Panels per MPPT
+string** stays a manual `IntField`, per-unit, unchanged.
+
+**Battery model → dropdown, same `EquipmentSpecs.batteries` list as before.** A113 already used the
+real battery catalog; only the widget changed (a `LabeledDropdown`, matching the new inverter/panel
+pickers) from a row of `TextButton`s.
+
+**Explicit "Paralleling multiple inverters?" Switch.** Previously a bare "Parallel units" count field
+defaulting to 1. Now: a Switch, off by default. Off = single inverter, count locked to 1, no count
+field shown. On = reveals a manual "How many inverters in parallel" `IntField` (minimum 2) — the
+installer explicitly opts into paralleling and then states how many, rather than a number field that
+happened to default to 1.
+
+No domain-model change this round — `ParallelInverterDesign`/`BatteryPerInverterDesign` already
+matched on real catalog model strings (`EquipmentSpecs.inverterSpecFor`/`.batteries`) since Phase 27;
+this was purely a UI-layer change to make the picker use that matching correctly instead of relying
+on the installer typing an exact model string by hand.
+
+**Scope note on "material list and price list":** this round wires the *equipment identity* pickers
+(inverter/panel/battery) to the same catalog and price-list-backed `Catalog`/`EquipmentSpecs` objects
+residential MANUAL mode uses — it does NOT wire Commercial/Industrial into the material
+takeoff/pricing engine (`MaterialTakeoffEngine`, mounting hardware, BOS, grand total). That remains
+the same explicitly-deferred scope noted in Phase 27/28/29 (`CommercialIndustrialCalculator` still
+returns `materials = emptyList()`, `grandTotal = 0.0`, `canFinalize = false`) — a materially larger,
+separate undertaking not part of this message's ask, flagged here rather than silently left
+ambiguous.
+
+**Verification caveat:** same as A113 — no Compose UI test harness exists in this project, and
+`./gradlew` still fails in this sandbox on plugin resolution (a standing network limitation). This
+round's changes are correct by code review and balance-checked (braces/parens/brackets all match);
+worth a visual pass on a device/emulator, particularly the dropdown-selection → auto-fill →
+still-editable flow.

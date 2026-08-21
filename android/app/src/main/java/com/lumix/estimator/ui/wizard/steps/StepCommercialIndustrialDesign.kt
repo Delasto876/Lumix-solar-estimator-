@@ -21,7 +21,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.lumix.estimator.domain.BatterySpecSheet
+import com.lumix.estimator.domain.Catalog
 import com.lumix.estimator.domain.EquipmentSpecs
+import com.lumix.estimator.domain.InverterOption
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.SystemType
 import com.lumix.estimator.domain.commercial.BatteryPerInverterAllocation
@@ -42,6 +45,7 @@ import com.lumix.estimator.domain.commercial.StringAssignment
 import com.lumix.estimator.domain.simulation.DayType
 import com.lumix.estimator.ui.components.CollapsibleSectionCard
 import com.lumix.estimator.ui.components.IntField
+import com.lumix.estimator.ui.components.LabeledDropdown
 import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
@@ -322,6 +326,18 @@ private fun DiversityFactorSection(factor: DiversityFactor, onChange: (Diversity
  * carries a fully independent entry per unit underneath (never collapsed into one shared number),
  * so a future round can offer per-unit customization without a data-model change — only this
  * uniform-entry UI would need to change.
+ *
+ * Phase 30 ("use the same equipment and material list and price list... when i choose the inverter
+ * from the drop down menu, it should have the mppt amount... also ask if paralleling inverter and
+ * how much"): the inverter/panel fields are now [LabeledDropdown]s over [Catalog.manualInverters]/
+ * [Catalog.panelWattages] — the SAME real, priced equipment list [StepInverter]/[StepPanels] already
+ * use for residential MANUAL mode, not a separately-typed free-text name. Picking an inverter
+ * resolves its real [EquipmentSpecs.InverterSpec] (via [EquipmentSpecs.inverterSpecFor]) and
+ * auto-fills rated kW + MPPT count from that model's own datasheet — both fields stay editable
+ * afterward (this app's own "always overridable" rule) for a unit not in the catalog, or a real
+ * MPPT count the installer knows differs from what's on file. Paralleling is now an explicit
+ * Switch — off means a single inverter, on reveals a manual "how many in parallel" count — instead
+ * of always showing a bare count field.
  */
 @Composable
 private fun ParallelInverterSection(design: CommercialIndustrialDesign, updateDesign: ((CommercialIndustrialDesign) -> CommercialIndustrialDesign) -> Unit) {
@@ -333,6 +349,11 @@ private fun ParallelInverterSection(design: CommercialIndustrialDesign, updateDe
     val panelWattage = existing?.panelWattage ?: 0
     val mpptsPerInverter = existing?.unitPvDesigns?.firstOrNull()?.strings?.size ?: 0
     val panelsPerString = existing?.unitPvDesigns?.firstOrNull()?.strings?.firstOrNull()?.panelCount ?: 0
+    val paralleling = inverterCount > 1
+
+    /** The real catalog spec behind an [InverterOption] — [InverterOption.id] is a short internal code, not the model string [ParallelInverterDesign.inverterModelId]/[ParallelInverterValidator] match against. */
+    fun specFor(option: InverterOption) = EquipmentSpecs.inverterSpecFor(option.kw, option.name)
+    val selectedOption = Catalog.manualInverters.firstOrNull { specFor(it)?.model == modelId }
 
     fun rebuild(
         newModelId: String = modelId,
@@ -360,34 +381,42 @@ private fun ParallelInverterSection(design: CommercialIndustrialDesign, updateDe
 
     SectionCard(title = "Parallel inverter system") {
         Text(
-            "Configure one inverter unit's specs — the same panel-per-MPPT layout applies to every parallel unit.",
+            "Pick the inverter from the same equipment catalog used elsewhere in this app — its MPPT count fills in automatically. Configure one unit's panel-per-MPPT layout; the same layout applies to every parallel unit.",
             style = MaterialTheme.typography.labelSmall,
             color = palette.textSecondary
         )
-        OutlinedTextField(
-            value = modelId,
-            onValueChange = { v -> rebuild(newModelId = v) },
-            label = { Text("Inverter model") },
-            supportingText = { Text("Type an exact catalog model name (e.g. \"GEN-LB-US 6K\") to enable electrical/parallel validation, or any label otherwise.") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
+        LabeledDropdown(
+            label = "Inverter model",
+            options = listOf<InverterOption?>(null) + Catalog.manualInverters,
+            selected = selectedOption,
+            optionLabel = { opt -> opt?.name ?: "Custom / not in catalog" },
+            onSelected = { opt ->
+                if (opt == null) {
+                    rebuild(newModelId = "")
+                } else {
+                    val spec = specFor(opt)
+                    rebuild(
+                        newModelId = spec?.model ?: opt.name,
+                        newRatedKwPerUnit = opt.kw,
+                        newMpptsPerInverter = spec?.mpptCount ?: mpptsPerInverter
+                    )
+                }
+            }
         )
+        if (selectedOption == null) {
+            OutlinedTextField(
+                value = modelId,
+                onValueChange = { v -> rebuild(newModelId = v) },
+                label = { Text("Custom model name") },
+                supportingText = { Text("Not in the catalog above — type an exact catalog model name to enable electrical/parallel validation, or any label for outside equipment.") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             NumberField(
                 label = "Rated kW / unit", value = ratedKwPerUnit,
                 onValueChange = { v -> rebuild(newRatedKwPerUnit = v) },
-                modifier = Modifier.weight(1f)
-            )
-            IntField(
-                label = "Parallel units", value = inverterCount,
-                onValueChange = { v -> rebuild(newInverterCount = v.coerceAtLeast(1)) },
-                modifier = Modifier.weight(1f)
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IntField(
-                label = "Panel watts", value = panelWattage,
-                onValueChange = { v -> rebuild(newPanelWattage = v.coerceAtLeast(0)) },
                 modifier = Modifier.weight(1f)
             )
             IntField(
@@ -396,10 +425,37 @@ private fun ParallelInverterSection(design: CommercialIndustrialDesign, updateDe
                 modifier = Modifier.weight(1f)
             )
         }
+        LabeledDropdown(
+            label = "Panel model",
+            options = Catalog.panelWattages,
+            selected = panelWattage,
+            optionLabel = { "$it W" },
+            onSelected = { v -> rebuild(newPanelWattage = v) }
+        )
         IntField(
             label = "Panels per MPPT string", value = panelsPerString,
             onValueChange = { v -> rebuild(newPanelsPerString = v.coerceAtLeast(0)) }
         )
+
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Paralleling multiple inverters?", modifier = Modifier.weight(1f), color = palette.textPrimary)
+            Switch(
+                checked = paralleling,
+                onCheckedChange = { on -> rebuild(newInverterCount = if (on) inverterCount.coerceAtLeast(2) else 1) }
+            )
+        }
+        if (paralleling) {
+            IntField(
+                label = "How many inverters in parallel", value = inverterCount,
+                onValueChange = { v -> rebuild(newInverterCount = v.coerceAtLeast(2)) }
+            )
+        } else {
+            Text(
+                "Single inverter — not paralleled.",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary
+            )
+        }
 
         val current = design.parallelInverterDesign
         if (current != null && current.inverterCount > 0) {
@@ -433,6 +489,7 @@ private fun BatteryPerInverterSection(design: CommercialIndustrialDesign, update
     val existing = design.batteryPerInverterDesign
     val batteryModelId = existing?.allocations?.firstOrNull()?.batteryModelId ?: ""
     val batteriesPerUnit = existing?.allocations?.firstOrNull()?.batteryCount ?: 0
+    val selectedBattery = EquipmentSpecs.batteries.firstOrNull { it.model == batteryModelId }
 
     fun rebuild(newBatteryModelId: String = batteryModelId, newBatteriesPerUnit: Int = batteriesPerUnit) {
         val allocations = (0 until inverterCount).map { unitIndex ->
@@ -450,18 +507,16 @@ private fun BatteryPerInverterSection(design: CommercialIndustrialDesign, update
             )
             return@SectionCard
         }
-        Text("Battery model", style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            EquipmentSpecs.batteries.forEach { spec ->
-                val selected = batteryModelId == spec.model
-                TextButton(onClick = { rebuild(newBatteryModelId = spec.model) }) {
-                    Text(
-                        (if (selected) "✓ " else "") + "${spec.brand} ${spec.model}",
-                        color = if (selected) palette.solarYellowText else palette.textSecondary
-                    )
-                }
-            }
-        }
+        // Phase 30: same equipment catalog as the inverter/panel pickers above, in the same
+        // LabeledDropdown style, instead of a TextButton row — EquipmentSpecs.batteries was
+        // already the real, priced battery list; only the picker widget changed.
+        LabeledDropdown(
+            label = "Battery model",
+            options = listOf<BatterySpecSheet?>(null) + EquipmentSpecs.batteries,
+            selected = selectedBattery,
+            optionLabel = { spec -> spec?.let { "${it.brand} ${it.model} (${it.ratingLabel})" } ?: "Select battery model" },
+            onSelected = { spec -> if (spec != null) rebuild(newBatteryModelId = spec.model) }
+        )
         IntField(
             label = "Batteries per inverter unit", value = batteriesPerUnit,
             onValueChange = { v -> rebuild(newBatteriesPerUnit = v.coerceAtLeast(0)) }
