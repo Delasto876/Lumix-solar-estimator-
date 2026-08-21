@@ -7548,3 +7548,55 @@ real limit, not an unlimited escape hatch. Balance-checked every touched file
 by the sandbox's own network limitation, so the Compose UI changes (the new caption, the
 caller-supplied presets) are correct by code review only, same caveat as every UI round before this
 one.
+
+## A118 — Phase 34: overnight-shift bug, diversity default, MPPT cap, battery resync
+
+Four fixes from one message: "for shift it should be time start time ends, for eg. starts at 8am
+to 3pm second shift 3pm to 11pm and next shift 11pm to 8am eg., and for the battery when i choose 6
+inverter and i say 2 battery per inverter it should be 12 battery total... also if the inverter
+have 3 mppt, add that or i can use 2 mppt or all 3 or just 1, diversity should be defaulted at 60
+percent but a pass should be able to handle up to 85 to 100 percent."
+
+**Real bug found and fixed — overnight shifts contributed zero hours.** The shift start/end
+`TimeField`s the installer asked for already existed (built in A113). What didn't work: the
+installer's own worked example has a third shift crossing midnight (11pm-8am), and
+`IndustrialShiftSchedule.productionHoursPerDay` computed each shift's length as
+`(endHour - startHour).coerceAtLeast(0.0)` — for 11pm(23.0)-8am(8.0) that's `8 - 23 = -15`, coerced
+to `0.0`. An overnight shift silently contributed nothing to production hours, understating a
+genuine 24-hour, three-shift operation by a third. Fixed with a proper midnight-wraparound
+`Shift.durationHours` (same convention `ApplianceRun.isActiveAt`/`commercialLoadKwAt` already use
+elsewhere in this app) — the installer's exact example (8am-3pm, 3pm-11pm, 11pm-8am) now sums to
+24.0 hours, not 16.
+
+**Battery total math — already correct, traced to confirm.** `BatteryPerInverterDesign
+.totalBatteryCount`/`totalBatteryCapacityKwh` already sum every unit's own allocation (6 inverters
+x 2 batteries/unit = 12, x the real per-model usable kWh) — this was right since Phase 27. What
+WAS broken: `BatteryPerInverterSection`'s allocations list only rebuilds when a battery field is
+directly edited — going back and raising `ParallelInverterSection`'s own inverter count (e.g. 3 ->
+6) elsewhere left the battery allocations list silently stuck at the old count until the installer
+happened to re-touch a battery field, undercounting the total in the meantime. Added a
+`LaunchedEffect` that re-syncs the allocations list to the live inverter count automatically,
+closing that staleness window.
+
+**MPPT count now capped to the real hardware.** The "MPPTs / inverter" field auto-fills from the
+selected catalog inverter's real MPPT count (built in A114) but had no upper bound — nothing
+stopped typing more MPPTs than the model actually has. Now `coerceAtMost`s to the selected
+inverter's real `mpptCount`, with supporting text showing how many are available — the installer
+can still choose to wire only 1 or 2 of a 3-MPPT unit's inputs, just can't exceed what's real.
+
+**Diversity factor default → 60%, full 0-100% range unchanged.** `DiversityFactor()`'s default
+preset moved from `PERCENT_100` to `PERCENT_60` — a fresh design now starts from "not everything
+runs at once" instead of silently sizing as if it did. The slider was already 0-100%; a site that
+genuinely runs everything simultaneously can still push it to 85-100%, this only moves the
+untouched starting point. `CommercialIndustrialCalculator`'s "diversity factor not confirmed"
+warning now triggers off the new default (`PERCENT_60`) instead of the old one, so "not confirmed"
+still means exactly that — not a check left pointing at a value nothing defaults to anymore.
+
+**Verification:** `Phase34ShiftAndDiversityTest` — same-day shift durations unaffected, the exact
+11pm-8am example gives 9.0 hours not 0.0, all three of the installer's own example shifts sum to a
+clean 24.0, the default `DiversityFactor()` is confirmed at 0.6 (not 1.0), CUSTOM still reaches
+0.85/1.0 when explicitly set, and an end-to-end `SystemCalculator.calculate` check confirms the
+untouched default warns while an explicitly-confirmed value (even the same 60%, via CUSTOM) does
+not. The MPPT cap and battery-resync fixes are UI-layer only — correct by code review, same caveat
+as every Compose-only round (no test harness in this project, `./gradlew` still blocked by the
+sandbox's network limitation).

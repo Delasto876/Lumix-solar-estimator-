@@ -37,7 +37,10 @@ object CommercialIndustrialCalculator {
 
         val warnings = mutableListOf<EngineeringWarning>()
 
-        if (design.diversityFactor.preset == DiversityFactorPreset.PERCENT_100) {
+        // Phase 34: the untouched default moved from PERCENT_100 to PERCENT_60 (see
+        // DiversityFactor's own doc) — this check follows it, so "not confirmed" still means
+        // exactly "still at whatever the fresh-design default is," not a stale literal 100%.
+        if (design.diversityFactor.preset == DiversityFactorPreset.PERCENT_60) {
             warnings += EngineeringWarning.DiversityFactorNotConfirmed(design.diversityFactor.fraction)
         }
 

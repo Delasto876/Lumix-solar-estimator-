@@ -38,7 +38,16 @@ enum class DiversityFactorPreset(val fraction: Double?) {
 
 @Serializable
 data class DiversityFactor(
-    val preset: DiversityFactorPreset = DiversityFactorPreset.PERCENT_100,
+    /**
+     * Phase 34 ("diversity should be defaulted at 60 percent but a pass should be able to handle
+     * up to 85 to 100 percent of the load if all is running at once"): a fresh design starts at a
+     * realistic assumption — not everything runs at once — rather than the previous PERCENT_100
+     * default, which silently sized as if it did. The full 0-100% range (including 85-100% for a
+     * site that genuinely does run everything simultaneously) stays fully reachable via the
+     * slider/[CUSTOM] — this only changes the untouched starting point, never a ceiling.
+     * [CommercialIndustrialCalculator]'s own "not confirmed" warning triggers off this same default.
+     */
+    val preset: DiversityFactorPreset = DiversityFactorPreset.PERCENT_60,
     val customFraction: Double = 1.0
 ) {
     val fraction: Double get() = (preset.fraction ?: customFraction).coerceIn(0.0, 1.0)

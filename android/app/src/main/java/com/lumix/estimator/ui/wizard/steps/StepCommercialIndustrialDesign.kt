@@ -18,6 +18,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -269,7 +270,7 @@ private fun DiversityFactorSection(factor: DiversityFactor, onChange: (Diversity
     val palette = LocalLumixPalette.current
     SectionCard(title = "Diversity / simultaneous-use factor") {
         Text(
-            "What fraction of the connected load could realistically run at once? Confirm this rather than leaving it at the 100% default.",
+            "What fraction of the connected load could realistically run at once? Defaults to 60% (not everything runs simultaneously) — push it up toward 85-100% if this site genuinely does run everything at once.",
             style = MaterialTheme.typography.labelSmall,
             color = palette.textSecondary
         )
@@ -279,8 +280,8 @@ private fun DiversityFactorSection(factor: DiversityFactor, onChange: (Diversity
             fontWeight = FontWeight.Bold,
             color = palette.solarYellowText
         )
-        // Moving the slider at all writes CUSTOM — even back to 100% — since that still counts as
-        // an explicit confirmation, distinct from never having touched the untouched PERCENT_100
+        // Moving the slider at all writes CUSTOM — even back to 60% — since that still counts as
+        // an explicit confirmation, distinct from never having touched the untouched PERCENT_60
         // default (see CommercialIndustrialCalculator's own "diversity factor not confirmed" check).
         Slider(
             value = factor.fraction.toFloat(),
@@ -333,6 +334,10 @@ private fun ParallelInverterSection(design: CommercialIndustrialDesign, updateDe
     /** The real catalog spec behind an [InverterOption] — [InverterOption.id] is a short internal code, not the model string [ParallelInverterDesign.inverterModelId]/[ParallelInverterValidator] match against. */
     fun specFor(option: InverterOption) = EquipmentSpecs.inverterSpecFor(option.kw, option.name)
     val selectedOption = Catalog.manualInverters.firstOrNull { specFor(it)?.model == modelId }
+    // Phase 34 ("if the inverter have 3 mppt, add that or i can use 2 mppt or all 3 or just 1"):
+    // the installer can still use fewer than the model's full MPPT count — this only stops them
+    // from entering MORE than the real hardware has.
+    val maxMpptForSelected = selectedOption?.let { specFor(it)?.mpptCount }
 
     fun rebuild(
         newModelId: String = modelId,
@@ -400,7 +405,11 @@ private fun ParallelInverterSection(design: CommercialIndustrialDesign, updateDe
             )
             IntField(
                 label = "MPPTs / inverter", value = mpptsPerInverter,
-                onValueChange = { v -> rebuild(newMpptsPerInverter = v.coerceAtLeast(0)) },
+                onValueChange = { v ->
+                    val capped = v.coerceAtLeast(0).let { n -> maxMpptForSelected?.let { max -> n.coerceAtMost(max) } ?: n }
+                    rebuild(newMpptsPerInverter = capped)
+                },
+                supportingText = maxMpptForSelected?.let { "Up to $it available on this model — use fewer if you're leaving some unwired" },
                 modifier = Modifier.weight(1f)
             )
         }
@@ -475,6 +484,19 @@ private fun BatteryPerInverterSection(design: CommercialIndustrialDesign, update
             BatteryPerInverterAllocation(unitIndex, newBatteryModelId, newBatteriesPerUnit)
         }
         updateDesign { it.copy(batteryPerInverterDesign = BatteryPerInverterDesign(allocations)) }
+    }
+
+    // Phase 34 ("when i choose 6 inverter and i say 2 battery per inverter it should be 12
+    // battery total"): the allocations list above only gets rebuilt when a battery field here is
+    // directly edited — if the installer instead goes back and changes ParallelInverterSection's
+    // own inverter count (e.g. 3 -> 6) without re-touching a battery field, this design's
+    // allocations list silently stays at the old count, so totalBatteryCount/totalBatteryCapacityKwh
+    // undercounts. Re-syncing here whenever inverterCount no longer matches what's actually
+    // allocated keeps the total correct without requiring the installer to notice and re-enter it.
+    LaunchedEffect(inverterCount, batteryModelId, batteriesPerUnit) {
+        if (batteryModelId.isNotBlank() && existing?.allocations?.size != inverterCount) {
+            rebuild()
+        }
     }
 
     SectionCard(title = "Battery per inverter") {
