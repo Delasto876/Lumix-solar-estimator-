@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,6 +37,7 @@ import com.lumix.estimator.ui.components.IntField
 import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
+import kotlin.math.roundToInt
 
 /**
  * Phase 28 §9/§13 (the manual COMMERCIAL/INDUSTRIAL design workflow — no auto-recommendation
@@ -52,8 +54,14 @@ fun StepCommercialIndustrialDesign(inputs: QuoteInputs, onUpdate: ((QuoteInputs)
     val palette = LocalLumixPalette.current
     val design = inputs.commercialIndustrialDesign ?: CommercialIndustrialDesign()
 
+    // Bugfix: must transform the LIVE design (it.commercialIndustrialDesign) at update time, not
+    // the `design` val closed over from this composition — that val is a snapshot from whenever
+    // this composable last ran, and reusing it here silently drops an edit whenever an update
+    // fires before recomposition has caught up (e.g. two fields edited in quick succession). Every
+    // other step in this wizard already reads its target fresh off `it` for the same reason (see
+    // e.g. StepHouseholdAppliances' `it.copy(ac = it.ac.copy(...))`).
     fun updateDesign(transform: (CommercialIndustrialDesign) -> CommercialIndustrialDesign) {
-        onUpdate { it.copy(commercialIndustrialDesign = transform(design)) }
+        onUpdate { it.copy(commercialIndustrialDesign = transform(it.commercialIndustrialDesign ?: CommercialIndustrialDesign())) }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -158,14 +166,14 @@ private fun DayHoursRow(label: String, openHour: Double?, closeHour: Double?, on
         }
         if (isOpen) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 4.dp)) {
-                NumberField(
-                    label = "Open", value = openHour ?: 7.0, suffix = "h",
-                    onValueChange = { v -> onChange(v, closeHour) },
+                TimeField(
+                    label = "Open", hour = openHour ?: 7.0,
+                    onChange = { v -> onChange(v, closeHour) },
                     modifier = Modifier.weight(1f)
                 )
-                NumberField(
-                    label = "Close", value = closeHour ?: 18.0, suffix = "h",
-                    onValueChange = { v -> onChange(openHour, v) },
+                TimeField(
+                    label = "Close", hour = closeHour ?: 18.0,
+                    onChange = { v -> onChange(openHour, v) },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -222,17 +230,43 @@ private fun IndustrialShiftSection(schedule: IndustrialShiftSchedule, onChange: 
 
 @Composable
 private fun ShiftRow(label: String, shift: Shift?, onChange: (Shift) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        NumberField(
-            label = "$label start", value = shift?.startHour ?: 0.0, suffix = "h",
-            onValueChange = { v -> onChange(Shift(v, shift?.endHour ?: v)) },
-            modifier = Modifier.weight(1f)
-        )
-        NumberField(
-            label = "$label end", value = shift?.endHour ?: 0.0, suffix = "h",
-            onValueChange = { v -> onChange(Shift(shift?.startHour ?: 0.0, v)) },
-            modifier = Modifier.weight(1f)
-        )
+    Column {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = LocalLumixPalette.current.textPrimary)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TimeField(
+                label = "Start", hour = shift?.startHour ?: 0.0,
+                onChange = { v -> onChange(Shift(v, shift?.endHour ?: v)) },
+                modifier = Modifier.weight(1f)
+            )
+            TimeField(
+                label = "End", hour = shift?.endHour ?: 0.0,
+                onChange = { v -> onChange(Shift(shift?.startHour ?: 0.0, v)) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+/** HH:MM time entry — the decimal-hour figures every Shift/BusinessHours field is stored as underneath are hard to type directly, so this splits into two IntFields and converts. */
+@Composable
+private fun TimeField(label: String, hour: Double, onChange: (Double) -> Unit, modifier: Modifier = Modifier) {
+    val palette = LocalLumixPalette.current
+    val h = hour.toInt().coerceIn(0, 23)
+    val m = ((hour - h) * 60.0).roundToInt().coerceIn(0, 59)
+    Column(modifier = modifier) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            IntField(
+                label = "HH", value = h,
+                onValueChange = { newH -> onChange(newH.coerceIn(0, 23) + m / 60.0) },
+                modifier = Modifier.weight(1f)
+            )
+            IntField(
+                label = "MM", value = m,
+                onValueChange = { newM -> onChange(h + newM.coerceIn(0, 59) / 60.0) },
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 
@@ -245,22 +279,24 @@ private fun DiversityFactorSection(factor: DiversityFactor, onChange: (Diversity
             style = MaterialTheme.typography.labelSmall,
             color = palette.textSecondary
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            DiversityFactorPreset.entries.forEach { preset ->
-                val selected = factor.preset == preset
-                TextButton(onClick = { onChange(factor.copy(preset = preset)) }) {
-                    Text(
-                        (if (selected) "✓ " else "") + (preset.fraction?.let { "${(it * 100).toInt()}%" } ?: "Custom"),
-                        color = if (selected) palette.solarYellowText else palette.textSecondary
-                    )
-                }
-            }
-        }
-        if (factor.preset == DiversityFactorPreset.CUSTOM) {
-            NumberField(
-                label = "Custom fraction (0-1)", value = factor.customFraction,
-                onValueChange = { v -> onChange(factor.copy(customFraction = v.coerceIn(0.0, 1.0))) }
-            )
+        Text(
+            "${(factor.fraction * 100).toInt()}%",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = palette.solarYellowText
+        )
+        // Moving the slider at all writes CUSTOM — even back to 100% — since that still counts as
+        // an explicit confirmation, distinct from never having touched the untouched PERCENT_100
+        // default (see CommercialIndustrialCalculator's own "diversity factor not confirmed" check).
+        Slider(
+            value = factor.fraction.toFloat(),
+            onValueChange = { v -> onChange(DiversityFactor(preset = DiversityFactorPreset.CUSTOM, customFraction = v.toDouble().coerceIn(0.0, 1.0))) },
+            valueRange = 0f..1f,
+            steps = 19
+        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("0%", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            Text("100%", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
         }
     }
 }
