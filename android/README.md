@@ -7655,3 +7655,42 @@ outside it), duty cycle combines correctly with quantity, and a 0.0 duty cycle c
 The timeline bar and the new kW/kVA/PF/duty-cycle UI are Compose-layer — correct by code review
 only, same caveat as every UI round (no test harness in this project, `./gradlew` still blocked by
 the sandbox's network limitation).
+
+## A120 — Phase 36: explicit Starts/Ends time pickers for loads (was Runtime + Start-only)
+
+Follow-up to A119: "doesn't state correct, if I choose 6 hours it assume 6am to 12pm but what if
+its 6 hours from 9am to 3pm I should be able to choose when to when just like residential."
+
+**The actual gap.** Every commercial/industrial load row let you set a "Runtime (hours/day)"
+duration and a "Typically starts" clock time — mathematically enough to place any window, but the
+wrong shape to *think* in: to get a 9am-3pm window you had to compute "6 hours" yourself and enter
+that plus a separate start time, rather than just entering the two clock times you actually know.
+This is exactly the same shape complaint A118 already fixed for industrial shifts ("start time, end
+time," not a duration) — this round applies the identical fix to loads.
+
+**Fix: "Starts"/"Ends" replace "Runtime"/"Typically starts."** Both `CatalogLoadRow` (shared by the
+wizard's Loads step and the simulation's Appliances sheet) and the wizard's Custom Load row now show
+two `TimeField`s — Starts, Ends — matching the shift editor's own layout exactly. `LoadInstance`
+itself is unchanged (`typicalStartHour` + `operatingHoursPerDay`, still the two fields everything
+else reads); `operatingHoursPerDay` is now *derived* from the two clock times rather than typed
+directly, so there's only one way to end up with a window, never a duration and a start time that
+silently disagree. The derived runtime is still shown, read-only, in each row's info line ("6.0h/day
+· ... kW real · ...") for clarity.
+
+**Shared formula, not copy-pasted.** The wraparound arithmetic (`Shift.durationHours`, A118's own
+overnight-shift fix) moved into a new top-level `hoursBetweenWrapping(start, end)` in
+`CommercialLoadSimulation.kt`; `Shift.durationHours` now calls it too instead of carrying its own
+copy — one formula, two callers, verified to still agree via a direct regression test.
+
+**Known, disclosed edge case:** a genuinely continuous 24-hour load shows identical Starts/Ends
+clock times (e.g. both 0:00) rather than a visually distinct "all day" state — an inherent limit of
+representing a window as two points on a 24-hour clock face rather than a separate duration field,
+already present in `Shift`/`BusinessHours` before this round. The adjacent "24.0h/day" readout
+resolves the ambiguity; not fixed further this round.
+
+**Verification:** `Phase36HoursBetweenWrappingTest` — the installer's own 9am-3pm example gives
+exactly 6.0 hours, a same-day window is a plain subtraction, an overnight window still wraps
+correctly, identical start/end is 0.0 (not a silent full day), and `Shift.durationHours` is
+confirmed to still match the shared formula after the refactor. The Starts/Ends UI itself is
+Compose-layer — correct by code review only, same caveat as every UI round (no test harness in this
+project, `./gradlew` still blocked by the sandbox's network limitation).

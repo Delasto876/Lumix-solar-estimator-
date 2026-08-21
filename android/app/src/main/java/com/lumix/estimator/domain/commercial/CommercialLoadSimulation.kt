@@ -24,6 +24,19 @@ package com.lumix.estimator.domain.commercial
  * wizard's own connected/design-load totals since Phase 27) — this was the one place in the code
  * that read [LoadInstance.ratedWatts] directly without it.
  */
+/**
+ * Phase 36 ("I should be able to choose when to when just like residential"): hours from
+ * [startHour] to [endHour], wrapping past midnight when [endHour] is at or before [startHour] (an
+ * overnight window, e.g. 11pm-8am = 9 hours, not -15) — the same convention [Shift.durationHours]
+ * uses for shift start/end, shared here so a load's own "Starts"/"Ends" time pickers ([LoadInstance
+ * .typicalStartHour]/[LoadInstance.operatingHoursPerDay], entered as two explicit clock times
+ * rather than a start plus a separately-typed duration) resolve identically.
+ */
+fun hoursBetweenWrapping(startHour: Double, endHour: Double): Double {
+    val raw = endHour - startHour
+    return if (raw >= 0.0) raw else raw + 24.0
+}
+
 fun commercialLoadKwAt(loads: List<LoadInstance>, hour: Double): Double {
     val h = hour.mod(24.0)
     return loads.sumOf { load ->

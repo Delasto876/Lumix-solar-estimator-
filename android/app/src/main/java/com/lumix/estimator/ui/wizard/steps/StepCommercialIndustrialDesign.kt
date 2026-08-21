@@ -39,6 +39,7 @@ import com.lumix.estimator.domain.commercial.DiversityFactorPreset
 import com.lumix.estimator.domain.commercial.IndustrialShiftSchedule
 import com.lumix.estimator.domain.commercial.InverterUnitPvDesign
 import com.lumix.estimator.domain.commercial.LoadInstance
+import com.lumix.estimator.domain.commercial.hoursBetweenWrapping
 import com.lumix.estimator.domain.commercial.ParallelInverterDesign
 import com.lumix.estimator.domain.commercial.ParallelInverterValidator
 import com.lumix.estimator.domain.commercial.Shift
@@ -641,15 +642,33 @@ private fun LoadRow(load: LoadInstance, isAcLoad: Boolean, onChange: (LoadInstan
                 modifier = Modifier.weight(1f)
             )
             NumberField(
-                label = "Hours/day", value = load.operatingHoursPerDay, suffix = "h",
-                onValueChange = { v -> onChange(load.copy(operatingHoursPerDay = v.coerceIn(0.0, 24.0))) },
+                label = "Duty cycle", value = load.dutyCycleFraction,
+                onValueChange = { v -> onChange(load.copy(dutyCycleFraction = v.coerceIn(0.0, 1.0))) },
                 modifier = Modifier.weight(1f)
             )
         }
-        TimeField(
-            label = "Typically starts", hour = load.typicalStartHour ?: 0.0,
-            onChange = { v -> onChange(load.copy(typicalStartHour = v)) },
-            modifier = Modifier.padding(top = 6.dp)
+        // Phase 36 ("I should be able to choose when to when just like residential"): explicit
+        // Starts/Ends clock times, same as CatalogLoadRow's own fix — operatingHoursPerDay is
+        // derived from the two endpoints, never typed directly.
+        val loadStartHour = load.typicalStartHour ?: 0.0
+        val loadEndHour = (loadStartHour + load.operatingHoursPerDay).mod(24.0)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+            TimeField(
+                label = "Starts", hour = loadStartHour,
+                onChange = { v -> onChange(load.copy(typicalStartHour = v, operatingHoursPerDay = hoursBetweenWrapping(v, loadEndHour))) },
+                modifier = Modifier.weight(1f)
+            )
+            TimeField(
+                label = "Ends", hour = loadEndHour,
+                onChange = { v -> onChange(load.copy(operatingHoursPerDay = hoursBetweenWrapping(loadStartHour, v))) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Text(
+            "%.1fh/day".format(load.operatingHoursPerDay),
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary,
+            modifier = Modifier.padding(top = 4.dp)
         )
     }
 }

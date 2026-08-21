@@ -13,14 +13,12 @@ data class Shift(
      * Phase 34 ("starts at 8am to 3pm second shift 3pm to 11pm and next shift 11pm to 8am"): a
      * shift crossing midnight (e.g. this exact 11pm-8am example) wraps rather than going negative
      * — the same midnight-wraparound convention [com.lumix.estimator.domain.simulation
-     * .ApplianceRun.isActiveAt]/[com.lumix.estimator.domain.commercial.commercialLoadKwAt] already
-     * use elsewhere in this app. Before this fix, `endHour - startHour` for 11pm(23.0)-8am(8.0)
-     * gave -15, coerced to 0 — an overnight shift silently contributed zero production hours.
+     * .ApplianceRun.isActiveAt]/[commercialLoadKwAt] already use elsewhere in this app. Before this
+     * fix, `endHour - startHour` for 11pm(23.0)-8am(8.0) gave -15, coerced to 0 — an overnight
+     * shift silently contributed zero production hours. Phase 36: the formula itself moved to
+     * [hoursBetweenWrapping], shared with [LoadInstance]'s own "Starts"/"Ends" time pickers.
      */
-    val durationHours: Double get() {
-        val raw = endHour - startHour
-        return if (raw >= 0.0) raw else raw + 24.0
-    }
+    val durationHours: Double get() = hoursBetweenWrapping(startHour, endHour)
 }
 
 /**

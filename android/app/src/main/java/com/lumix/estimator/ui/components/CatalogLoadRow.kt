@@ -19,6 +19,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.domain.commercial.LoadDefinition
 import com.lumix.estimator.domain.commercial.LoadInstance
+import com.lumix.estimator.domain.commercial.hoursBetweenWrapping
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixColors
 import kotlin.math.roundToInt
@@ -166,15 +167,23 @@ fun CatalogLoadRow(def: LoadDefinition, instance: LoadInstance?, onChange: (Load
                     modifier = Modifier.weight(1f)
                 )
             }
+            // Phase 36 ("if I choose 6 hours it assume 6am to 12pm but what if its 6 hours from
+            // 9am to 3pm I should be able to choose when to when just like residential"): explicit
+            // Starts/Ends clock times — the same pattern the shift editor already uses — instead
+            // of a duration typed separately from a start time. operatingHoursPerDay is DERIVED
+            // from these two endpoints (hoursBetweenWrapping), never typed directly, so there's
+            // only one way to end up with a mismatched window.
+            val startHour = instance.typicalStartHour ?: 0.0
+            val endHour = (startHour + instance.operatingHoursPerDay).mod(24.0)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-                NumberField(
-                    label = "Runtime (hours/day)", value = instance.operatingHoursPerDay, suffix = "h",
-                    onValueChange = { v -> onChange(instance.copy(operatingHoursPerDay = v.coerceIn(0.0, 24.0))) },
+                TimeField(
+                    label = "Starts", hour = startHour,
+                    onChange = { v -> onChange(instance.copy(typicalStartHour = v, operatingHoursPerDay = hoursBetweenWrapping(v, endHour))) },
                     modifier = Modifier.weight(1f)
                 )
                 TimeField(
-                    label = "Typically starts", hour = instance.typicalStartHour ?: 0.0,
-                    onChange = { v -> onChange(instance.copy(typicalStartHour = v)) },
+                    label = "Ends", hour = endHour,
+                    onChange = { v -> onChange(instance.copy(operatingHoursPerDay = hoursBetweenWrapping(startHour, v))) },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -184,7 +193,8 @@ fun CatalogLoadRow(def: LoadDefinition, instance: LoadInstance?, onChange: (Load
             // cycle above is what actually contributes to the simulation dial (commercialLoadKwAt);
             // apparent power (kVA) is the larger figure a breaker/wire/generator must be sized to.
             Text(
-                "%.2f kW real (while on) · %.2f kVA apparent · PF %.2f".format(
+                "%.1fh/day · %.2f kW real (while on) · %.2f kVA apparent · PF %.2f".format(
+                    instance.operatingHoursPerDay,
                     instance.maximumExpectedRealPowerKw,
                     instance.maximumExpectedApparentPowerKva,
                     instance.effectivePowerFactor
