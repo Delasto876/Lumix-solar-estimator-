@@ -91,7 +91,20 @@ data class LoadInstance(
     val simultaneousFactor: Double = 1.0,
     val notes: String = "",
     /** For an AC load ([LoadDefinition.isAcLoad]) — the BTU rating the editor derived [ratedWatts] from (`btu / 10`), kept alongside so the editor can round-trip a BTU figure rather than back-computing it from watts. Null for a non-AC load, or an AC load whose watts were typed directly instead of via BTU. */
-    val btu: Double? = null
+    val btu: Double? = null,
+    /**
+     * Phase 31 ("pick runtime and amount and when they are likely to run"): the hour (0-23.99,
+     * decimal — same HH:MM-editable convention as [com.lumix.estimator.domain.commercial.Shift]/
+     * [com.lumix.estimator.domain.commercial.BusinessHours]) this load typically STARTS its daily
+     * run. Paired with [operatingHoursPerDay] this gives a single contiguous typical window
+     * (start -> start + hours) — informational/planning only for now, not yet fed into
+     * [CommercialIndustrialCalculator]'s connected/design-load math (which stays a flat daily-hours
+     * multiplier, same as before this field existed) or into any coincident-peak/overlap
+     * calculation. Null means "not specified." A full drag-editable multi-block time-bar (the
+     * residential [com.lumix.estimator.domain.simulation.SimAppliance] treatment) remains
+     * deferred — see the Phase 28/29 completion notes.
+     */
+    val typicalStartHour: Double? = null
 ) {
     val totalConnectedWatts: Double get() = ratedWatts * quantity
 

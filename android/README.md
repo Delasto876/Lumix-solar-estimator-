@@ -7386,3 +7386,42 @@ ambiguous.
 round's changes are correct by code review and balance-checked (braces/parens/brackets all match);
 worth a visual pass on a device/emulator, particularly the dropdown-selection → auto-fill →
 still-editable flow.
+
+## A115 — Phase 31: always-visible catalog loads + "when" field for Commercial/Industrial
+
+Follow-up to A114: "for industrial, loads are blank where are the default loads and add them back
+so i can pick runtime and amount and when they are likely to run."
+
+**Root cause — not a bug, a UX mismatch.** `CommercialIndustrialLoadCatalog.industrialLoads` already
+had 18 real entries (motor, pump, compressor, refrigeration, production machinery, welder, large
+HVAC, conveyor, CNC, workshop equipment, servers, security, etc.) — the catalog was never empty. The
+"Loads" step just showed an empty "Your loads" list plus a *collapsed* "Add a load" card you had to
+expand and tap "+Add" on, per item, before anything appeared — unlike the residential wizard's
+`StepHouseholdAppliances`, which lists every `ApplianceType` directly with an inline quantity field
+and no add step at all. That mismatch is what read as "blank."
+
+**Fix: same always-visible pattern as residential.** `LoadsSection` now lists every catalog
+`LoadDefinition` directly (`CatalogLoadRow`, one row per type, quantity starts at 0 = not included) —
+mirroring `StepHouseholdAppliances`' `ApplianceRow` almost exactly (label + typical wattage, `Qty`
+IntField alongside). Raising the quantity above 0 reveals the rest of the row inline: Watts (or BTU,
+for AC-type loads) each, power factor, runtime, and the new "when" field. At most one `LoadInstance`
+now exists per non-custom catalog id — quantity is "how many of this type," same as residential — the
+catalog's own "Custom Load" entry is the one exception, kept as a repeatable add/remove list in its
+own "Custom loads" card, since a custom item has no fixed identity to key a single row on.
+
+**New: "when they are likely to run."** `LoadInstance` gained an additive, nullable
+`typicalStartHour: Double?` — the hour (HH:MM, via the same `TimeField` this file already uses for
+shift/business hours) a load typically starts its run each day. Paired with the existing
+`operatingHoursPerDay` (runtime), that gives amount (quantity) + runtime + when, the three things
+asked for. It's honestly scoped as planning/informational only in its own doc comment — it does NOT
+yet feed `CommercialIndustrialCalculator`'s connected/design-load math (still a flat daily-hours
+multiplier, unchanged) or any coincident-peak/overlap calculation. A full drag-editable multi-block
+time-bar (the residential `SimAppliance` treatment) remains the deferred, much larger version of this
+same idea — noted again here rather than silently building a partial version and calling it done.
+
+**Verification caveat:** same as every UI-only round — no Compose UI test harness in this project,
+`./gradlew` still blocked by the sandbox's network limitation. Balance-checked
+(`StepCommercialIndustrialDesign.kt` 179/179 braces, 446/446 parens, 22/22 brackets;
+`LoadModels.kt` unaffected in shape, new field is additive-only) and correct by code review; every
+existing `LoadInstance(...)` construction site (tests + `newInstanceFrom`) uses named arguments, so
+the new trailing default field doesn't break any of them.

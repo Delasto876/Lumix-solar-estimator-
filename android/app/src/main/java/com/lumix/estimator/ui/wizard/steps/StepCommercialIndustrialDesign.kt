@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -43,7 +44,6 @@ import com.lumix.estimator.domain.commercial.ParallelInverterValidator
 import com.lumix.estimator.domain.commercial.Shift
 import com.lumix.estimator.domain.commercial.StringAssignment
 import com.lumix.estimator.domain.simulation.DayType
-import com.lumix.estimator.ui.components.CollapsibleSectionCard
 import com.lumix.estimator.ui.components.IntField
 import com.lumix.estimator.ui.components.LabeledDropdown
 import com.lumix.estimator.ui.components.NumberField
@@ -534,6 +534,19 @@ private fun BatteryPerInverterSection(design: CommercialIndustrialDesign, update
 }
 
 @Composable
+/**
+ * Phase 31 ("for industrial, loads are blank where are the default loads and add them back so i
+ * can pick runtime and amount and when they are likely to run"): every catalog load type is now
+ * listed directly, always visible — matching how [StepHouseholdAppliances]' residential
+ * `ApplianceType.entries` list already works (one row per type, quantity 0 = not included) —
+ * instead of an empty "Your loads" list that only grew once you expanded a separate collapsed
+ * catalog and tapped "+Add" per item. At most one [LoadInstance] exists per non-custom
+ * [LoadDefinition.id] in [CommercialIndustrialDesign.loads] (quantity covers "how many of this
+ * type"); the catalog's own "Custom Load" entry is the one exception still handled as a
+ * repeatable add/remove list, since a custom entry has no fixed identity to key a single row on
+ * and an installer may need several differently-specced custom loads.
+ */
+@Composable
 private fun LoadsSection(
     systemType: SystemType,
     design: CommercialIndustrialDesign,
@@ -541,35 +554,120 @@ private fun LoadsSection(
 ) {
     val palette = LocalLumixPalette.current
     val catalog = CommercialIndustrialLoadCatalog.loadsFor(systemType)
+    val standardDefs = catalog.filter { !it.isCustom }
+    val customDef = catalog.firstOrNull { it.isCustom }
 
-    SectionCard(title = "Your loads") {
-        if (design.loads.isEmpty()) {
-            Text("No loads added yet — add some below.", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
-        }
-        design.loads.forEachIndexed { index, load ->
-            val isAcLoad = CommercialIndustrialLoadCatalog.definitionById(load.definitionId)?.isAcLoad == true
-            LoadRow(load, isAcLoad) { updated ->
-                updateDesign { it.copy(loads = it.loads.toMutableList().apply { this[index] = updated }) }
+    SectionCard(title = "Loads") {
+        Text(
+            "Enter how many of each you have, how many hours/day they typically run, and roughly when. Everything starts at 0 (not included) — only loads with a quantity are counted.",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary
+        )
+        standardDefs.forEachIndexed { index, def ->
+            val existing = design.loads.firstOrNull { it.definitionId == def.id }
+            CatalogLoadRow(def, existing) { updated ->
+                updateDesign {
+                    val list = it.loads.toMutableList()
+                    val existingIndex = list.indexOfFirst { l -> l.definitionId == def.id }
+                    when {
+                        updated == null && existingIndex >= 0 -> list.removeAt(existingIndex)
+                        updated != null && existingIndex >= 0 -> list[existingIndex] = updated
+                        updated != null -> list.add(updated)
+                    }
+                    it.copy(loads = list)
+                }
             }
-            TextButton(onClick = { updateDesign { it.copy(loads = it.loads.toMutableList().apply { removeAt(index) }) } }) {
-                Text("Remove", color = palette.warningRedText)
+            if (index < standardDefs.size - 1) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             }
         }
     }
 
-    CollapsibleSectionCard(title = "Add a load", subtitle = "${catalog.size} types available") {
-        catalog.forEach { def ->
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(def.label, color = palette.textPrimary)
-                    Text(
-                        if (def.isAcLoad) "${def.defaultBtu?.toInt() ?: 0} BTU typical" else "${def.defaultRatedWatts.toInt()}W typical",
-                        style = MaterialTheme.typography.labelSmall, color = palette.textSecondary
+    if (customDef != null) {
+        SectionCard(title = "Custom loads") {
+            val customEntries = design.loads.withIndex().filter { (_, load) -> load.definitionId == customDef.id }
+            if (customEntries.isEmpty()) {
+                Text(
+                    "Anything not in the list above — add it here with its own wattage.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary
+                )
+            }
+            customEntries.forEach { (index, load) ->
+                LoadRow(load, isAcLoad = false) { updated ->
+                    updateDesign { it.copy(loads = it.loads.toMutableList().apply { this[index] = updated }) }
+                }
+                TextButton(onClick = { updateDesign { it.copy(loads = it.loads.toMutableList().apply { removeAt(index) }) } }) {
+                    Text("Remove", color = palette.warningRedText)
+                }
+            }
+            TextButton(onClick = { updateDesign { it.copy(loads = it.loads + newInstanceFrom(customDef)) } }) {
+                Text("+ Add custom load")
+            }
+        }
+    }
+}
+
+@Composable
+private fun CatalogLoadRow(def: LoadDefinition, instance: LoadInstance?, onChange: (LoadInstance?) -> Unit) {
+    val palette = LocalLumixPalette.current
+    val quantity = instance?.quantity ?: 0
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(def.label, style = MaterialTheme.typography.bodyLarge, color = palette.textPrimary)
+                Text(
+                    if (def.isAcLoad) "${def.defaultBtu?.toInt() ?: 0} BTU typical" else "${def.defaultRatedWatts.toInt()}W typical",
+                    style = MaterialTheme.typography.labelSmall, color = palette.textSecondary
+                )
+            }
+            IntField(
+                label = "Qty",
+                value = quantity,
+                onValueChange = { v ->
+                    val q = v.coerceAtLeast(0)
+                    when {
+                        q <= 0 -> onChange(null)
+                        instance != null -> onChange(instance.copy(quantity = q))
+                        else -> onChange(newInstanceFrom(def).copy(quantity = q))
+                    }
+                },
+                modifier = Modifier.weight(0.6f)
+            )
+        }
+        if (instance != null && quantity > 0) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+                if (def.isAcLoad) {
+                    NumberField(
+                        label = "BTU", value = instance.btu ?: (instance.ratedWatts * COMMERCIAL_AC_BTU_PER_WATT), suffix = "BTU",
+                        onValueChange = { v -> onChange(instance.copy(btu = v, ratedWatts = v / COMMERCIAL_AC_BTU_PER_WATT)) },
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    NumberField(
+                        label = "Watts (each)", value = instance.ratedWatts, suffix = "W",
+                        onValueChange = { v -> onChange(instance.copy(ratedWatts = v)) },
+                        modifier = Modifier.weight(1f)
                     )
                 }
-                TextButton(onClick = { updateDesign { it.copy(loads = it.loads + newInstanceFrom(def)) } }) {
-                    Text("+ Add")
-                }
+                NumberField(
+                    label = "Power factor", value = instance.powerFactor,
+                    onValueChange = { v -> onChange(instance.copy(powerFactor = v.coerceIn(0.01, 1.0))) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+                NumberField(
+                    label = "Runtime (hours/day)", value = instance.operatingHoursPerDay, suffix = "h",
+                    onValueChange = { v -> onChange(instance.copy(operatingHoursPerDay = v.coerceIn(0.0, 24.0))) },
+                    modifier = Modifier.weight(1f)
+                )
+                TimeField(
+                    label = "Typically starts", hour = instance.typicalStartHour ?: 0.0,
+                    onChange = { v -> onChange(instance.copy(typicalStartHour = v)) },
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }
@@ -629,6 +727,11 @@ private fun LoadRow(load: LoadInstance, isAcLoad: Boolean, onChange: (LoadInstan
                 modifier = Modifier.weight(1f)
             )
         }
+        TimeField(
+            label = "Typically starts", hour = load.typicalStartHour ?: 0.0,
+            onChange = { v -> onChange(load.copy(typicalStartHour = v)) },
+            modifier = Modifier.padding(top = 6.dp)
+        )
     }
 }
 
