@@ -7492,3 +7492,59 @@ regression + an exact before/after delta proving a configured load's real kW lan
 `SimulationScreen.kt`); `./gradlew` still blocked by the sandbox's own network limitation, so the
 Compose UI itself (the new `CommercialAppliancesSheetContent` branch) is correct by code review
 only, same caveat as every UI round before this one.
+
+## A117 — Phase 33: higher JPS utility service amps for Commercial/Industrial, via an ATS bypass
+
+Follow-up to A116: "for commercial and industrial in simulation we can choose higher jps amp to
+100A 200A, 300A 400A 600A or 800A these are through a automatic change over switch rather than
+through the inverter so would be from jps straight to load but keep the amp for residential the
+same."
+
+**The picker.** `GridServiceAmpsSelector` (the "Utility service limit" chip row on the Simulation
+screen's Inverter Mode card) now takes a caller-supplied preset list instead of a hard-coded one.
+RESIDENTIAL keeps the exact same `15A / 30A / 60A / 100A` row as before (`SimulationEngine
+.RESIDENTIAL_GRID_SERVICE_AMP_PRESETS` — unchanged values, just relocated so the UI reads them from
+one shared place instead of a private list local to the screen). Commercial/Industrial quotes now
+show `100A / 200A / 300A / 400A / 600A / 800A` (`SimulationEngine.COMMERCIAL_GRID_SERVICE_AMP_PRESETS`),
+with a caption explaining why: "Fed through a dedicated automatic transfer switch (ATS) straight to
+the load panel — not through the inverter, so this isn't limited by its AC rating."
+
+**Why the picker alone wasn't enough.** Before touching the UI, traced how `gridServiceAmps`
+actually behaves in `SimulationEngine.buildDayTimeline`: in SOL mode, the engine already refuses to
+let JPS serve the house at all ("JPS is never touched, even if it's connected"), and in every other
+mode grid-to-house is otherwise gated by `inverterMode`. Just handing an 800A option to the picker
+without touching that logic would have meant selecting it, in SOL mode, changed nothing — a picker
+that looks functional but silently does nothing, which this project's own standing rule (see A116's
+own "we investigated before writing anything" note) treats as worse than not building it.
+
+**The fix — `gridBypassesInverter` (default `false`, so residential is untouched byte-for-byte).**
+A real Commercial/Industrial ATS is wired straight from JPS to the load panel — a separate physical
+path from the inverter's own grid-in terminal, so it isn't subject to the inverter's own SOL/SBU/UTI
+mode selection at all. `buildDayTimeline` gained a `gridBypassesInverter: Boolean = false` parameter;
+when `true` (set automatically for any `SystemType != RESIDENTIAL`, not a further manual toggle —
+it's a structural property of the system, not a choice), SOL mode's "never touch JPS" rule is
+lifted specifically for the house-load fallback (still tried only after solar and battery, same
+priority SBU already uses — this widens SOL toward SBU's own grid-as-fallback behavior, it doesn't
+override UTI's grid-first priority). Grid-to-battery charging is untouched either way — still gated
+by `inverterMode == UTI` + `gridChargeEnabled` only, since an ATS can feed the load panel, not
+charge the battery; that stays the inverter's own job. The existing `gridServiceAmps` amp-cap clamp
+needed no changes at all — it was already generic over any amp figure, residential or otherwise.
+
+`SimulationViewModel` derives `gridBypassesInverter` from `QuoteInputs.systemCategory` (re-derived
+on every timeline rebuild rather than stored as its own state field, since the category never
+changes mid-simulation) and snaps a loaded quote's starting `gridServiceAmps` to the first valid
+preset for its category if the Settings-backed default isn't one of them — so a fresh Commercial
+quote starts on 100A instead of silently landing on an orphaned 30A selection that doesn't appear
+highlighted in its own preset row.
+
+**Verification:** `Phase33GridBypassInverterTest` — the two preset lists are exactly what was
+asked for; SOL mode with the bypass omitted (residential) still leaves JPS untouched and load
+unmet, unchanged from before; SOL mode with the bypass serves the load from JPS instead (and still
+correctly excludes that power from `inverterLoadKw`, confirming the "doesn't route through the
+inverter" claim is actually true in the model, not just the label); and an intentionally undersized
+ATS amp cap still throttles and produces unmet load, confirming the bypass is a real path with a
+real limit, not an unlimited escape hatch. Balance-checked every touched file
+(`SimulationEngine.kt`, `SimulationViewModel.kt`, `SimulationScreen.kt`); `./gradlew` still blocked
+by the sandbox's own network limitation, so the Compose UI changes (the new caption, the
+caller-supplied presets) are correct by code review only, same caveat as every UI round before this
+one.

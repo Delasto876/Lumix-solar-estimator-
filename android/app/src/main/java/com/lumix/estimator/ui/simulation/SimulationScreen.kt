@@ -314,6 +314,7 @@ fun SimulationScreen(
                             color = palette.textSecondary,
                             modifier = Modifier.padding(top = 10.dp)
                         )
+                        val isCommercialOrIndustrial = state.inputs?.systemCategory != SystemType.RESIDENTIAL
                         Text(
                             "Utility service limit",
                             style = MaterialTheme.typography.labelMedium,
@@ -321,7 +322,23 @@ fun SimulationScreen(
                             color = palette.textPrimary,
                             modifier = Modifier.padding(top = 14.dp)
                         )
-                        GridServiceAmpsSelector(selected = state.gridServiceAmps, onSelect = viewModel::setGridServiceAmps)
+                        GridServiceAmpsSelector(
+                            selected = state.gridServiceAmps,
+                            onSelect = viewModel::setGridServiceAmps,
+                            presets = if (isCommercialOrIndustrial) {
+                                SimulationEngine.COMMERCIAL_GRID_SERVICE_AMP_PRESETS
+                            } else {
+                                SimulationEngine.RESIDENTIAL_GRID_SERVICE_AMP_PRESETS
+                            }
+                        )
+                        if (isCommercialOrIndustrial) {
+                            Text(
+                                "Fed through a dedicated automatic transfer switch (ATS) straight to the load panel — not through the inverter, so this isn't limited by its AC rating.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.textSecondary,
+                                modifier = Modifier.padding(top = 6.dp)
+                            )
+                        }
                         if (state.inverterMode == InverterMode.UTI && config.hasBattery) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
@@ -544,10 +561,14 @@ private fun InverterModeSelector(selected: InverterMode, onSelect: (InverterMode
     }
 }
 
-private val GRID_SERVICE_AMP_PRESETS = listOf(15.0, 30.0, 60.0, 100.0)
-
+/**
+ * Phase 33 ("for commercial and industrial in simulation we can choose higher jps amp"):
+ * [presets] is now caller-supplied rather than a fixed list — [SimulationEngine
+ * .RESIDENTIAL_GRID_SERVICE_AMP_PRESETS] (unchanged, 15/30/60/100A) for a RESIDENTIAL quote,
+ * [SimulationEngine.COMMERCIAL_GRID_SERVICE_AMP_PRESETS] (100/200/300/400/600/800A) otherwise.
+ */
 @Composable
-private fun GridServiceAmpsSelector(selected: Double, onSelect: (Double) -> Unit) {
+private fun GridServiceAmpsSelector(selected: Double, onSelect: (Double) -> Unit, presets: List<Double>) {
     val palette = LocalLumixPalette.current
     Row(
         modifier = Modifier
@@ -558,7 +579,7 @@ private fun GridServiceAmpsSelector(selected: Double, onSelect: (Double) -> Unit
             .padding(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        GRID_SERVICE_AMP_PRESETS.forEach { amps ->
+        presets.forEach { amps ->
             val isSelected = amps == selected
             Text(
                 "${amps.toInt()}A",

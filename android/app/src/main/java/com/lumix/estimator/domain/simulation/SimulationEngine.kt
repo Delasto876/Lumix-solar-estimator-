@@ -76,6 +76,19 @@ object SimulationEngine {
     const val GRID_SERVICE_VOLTAGE = 220.0
     const val DEFAULT_GRID_SERVICE_AMPS = 30.0
 
+    /** Residential utility service breaker sizes — unchanged by Phase 33 (kept exactly as before). */
+    val RESIDENTIAL_GRID_SERVICE_AMP_PRESETS = listOf(15.0, 30.0, 60.0, 100.0)
+    /**
+     * Phase 33 ("for commercial and industrial in simulation we can choose higher jps amp to 100A
+     * 200A, 300A 400A 600A or 800A these are through a automatic change over switch rather than
+     * through the inverter so would be from jps straight to load"): a Commercial/Industrial
+     * utility service is a much larger main breaker than a residential one, fed to the load panel
+     * via its own automatic transfer switch (ATS) rather than through the inverter's own grid-in
+     * terminal — see [buildDayTimeline]'s own `gridBypassesInverter` parameter doc for what that
+     * means for the flow physics, not just the picker's number range.
+     */
+    val COMMERCIAL_GRID_SERVICE_AMP_PRESETS = listOf(100.0, 200.0, 300.0, 400.0, 600.0, 800.0)
+
     // A81 (Phase 18, restored): Jamaica has no DST, so a fixed UTC offset stands in for a full
     // timezone lookup — consistent with the rest of this Jamaica-focused app (see
     // solar/SolarPositionCalculator verification, which uses the same offset).
@@ -191,6 +204,21 @@ object SimulationEngine {
         inverterMode: InverterMode = InverterMode.SBU,
         gridChargeEnabled: Boolean = true,
         gridServiceAmps: Double = DEFAULT_GRID_SERVICE_AMPS,
+        /**
+         * Phase 33 ("through a automatic change over switch rather than through the inverter so
+         * would be from jps straight to load"): default `false` reproduces every existing
+         * (residential) caller's behavior byte-for-byte — grid only serves the house when
+         * [inverterMode] is UTI (line up top) or, in SBU, as a fallback once solar+battery are
+         * exhausted, and NEVER in SOL mode. `true` (set only for Commercial/Industrial quotes)
+         * models a separate utility ATS wired straight to the load panel, independent of the
+         * inverter's own grid-in terminal/mode selection — so grid remains available as a
+         * solar+battery-first fallback (still tried after solar/battery, same priority SBU
+         * already uses) even when [inverterMode] is SOL, since the ATS doesn't route through the
+         * inverter at all. Does NOT change grid-to-battery charging (still gated by
+         * [inverterMode] == UTI + [gridChargeEnabled] only) — an ATS can feed the load panel, not
+         * charge the battery, which stays the inverter's own job.
+         */
+        gridBypassesInverter: Boolean = false,
         dayType: DayType = DayType.WEEKDAY,
         /** A54: first frame's clock hour — 0.0 for a normal midnight-to-midnight day (every existing
          * caller). [BackupEstimator] starts this at dusk instead, to run an outage timeline forward
@@ -326,10 +354,18 @@ object SimulationEngine {
             // backup — it does not discharge to serve the house while grid is up), and JPS can
             // simultaneously top off the battery when [gridChargeEnabled]. Solar still serves
             // the house and charges the battery for free first, ahead of the grid either way.
+            //
+            // [gridBypassesInverter] (Phase 33, Commercial/Industrial only): models a separate
+            // utility ATS feeding the load panel directly, so SOL's own "JPS is never touched"
+            // rule doesn't apply — see that parameter's own doc.
             val gridConnectedNow = config.gridConnectable && gridConnected
             val utiServesHouseFromGrid = inverterMode == InverterMode.UTI && gridConnectedNow
             val allowGridChargeBattery = inverterMode == InverterMode.UTI && gridChargeEnabled && gridConnectedNow
-            val solarOnlyMode = inverterMode == InverterMode.SOL
+            // Phase 33: an ATS-fed utility connection doesn't care what the inverter's own mode
+            // dial is set to — SOL would otherwise refuse grid entirely (see this block's own
+            // comment above). gridBypassesInverter only ever widens SOL's own behavior to SBU's
+            // (solar+battery first, grid as fallback) — never removes UTI's grid-first priority.
+            val solarOnlyMode = inverterMode == InverterMode.SOL && !gridBypassesInverter
 
             var solarToHouse = min(pv, demand)
             var remainingPv = pv - solarToHouse

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.QuoteInputs
+import com.lumix.estimator.domain.SystemType
 import com.lumix.estimator.domain.commercial.LoadInstance
 import com.lumix.estimator.domain.commercial.commercialLoadKwAt
 import com.lumix.estimator.domain.simulation.ApplianceState
@@ -111,7 +112,20 @@ class SimulationViewModel(
             val commercialLoads = saved.inputs.commercialIndustrialDesign?.loads ?: emptyList()
             val gridConnected = config.gridConnectable
             val technicalMode = settingsRepository.defaultTechnicalMode.first()
+            // Phase 33: an ATS-fed Commercial/Industrial utility service is sized nothing like a
+            // residential main breaker (100-800A vs 15-100A) and feeds the load panel directly
+            // rather than through the inverter's own mode-gated grid-in terminal — see
+            // SimulationEngine.buildDayTimeline's own `gridBypassesInverter` doc. RESIDENTIAL stays
+            // exactly as before: same preset list, same settings-backed default, gridBypassesInverter
+            // always false.
+            val gridBypassesInverter = saved.inputs.systemCategory != SystemType.RESIDENTIAL
+            val gridServiceAmpPresets = if (gridBypassesInverter) {
+                SimulationEngine.COMMERCIAL_GRID_SERVICE_AMP_PRESETS
+            } else {
+                SimulationEngine.RESIDENTIAL_GRID_SERVICE_AMP_PRESETS
+            }
             val gridServiceAmps = settingsRepository.defaultGridServiceAmps.first()
+                .let { defaultAmps -> if (defaultAmps in gridServiceAmpPresets) defaultAmps else gridServiceAmpPresets.first() }
             // No inverterMode/gridChargeEnabled/dayType/startSocFraction passed here — the clean
             // SimulationUiState() set above and buildDayTimeline's own defaults already agree
             // (SBU / true / WEEKDAY / 0.6), so this quote starts from the same known-clean state
@@ -124,6 +138,7 @@ class SimulationViewModel(
                 applianceStates = appliances,
                 commercialLoads = commercialLoads,
                 gridServiceAmps = gridServiceAmps,
+                gridBypassesInverter = gridBypassesInverter,
                 installMonth = config.installMonth,
                 weatherCurve = weatherCurve
             )
@@ -233,6 +248,10 @@ class SimulationViewModel(
     ) {
         val config = _state.value.config ?: return
         val effectiveGridConnected = gridConnected && config.gridConnectable
+        // Phase 33: fixed per-quote (the system category never changes mid-simulation), so this
+        // is re-derived from the loaded inputs on every rebuild rather than carried as its own
+        // mutable state field.
+        val gridBypassesInverter = _state.value.inputs?.systemCategory != SystemType.RESIDENTIAL
         val weatherCurve = WeatherEngine.generate(weatherScenario, config.installMonth, solarConditionsDeviation)
         val timeline = SimulationEngine.buildDayTimeline(
             config,
@@ -243,6 +262,7 @@ class SimulationViewModel(
             inverterMode = inverterMode,
             gridChargeEnabled = gridChargeEnabled,
             gridServiceAmps = gridServiceAmps,
+            gridBypassesInverter = gridBypassesInverter,
             dayType = dayType,
             installMonth = config.installMonth,
             weatherCurve = weatherCurve
