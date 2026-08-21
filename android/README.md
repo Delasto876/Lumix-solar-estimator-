@@ -7600,3 +7600,58 @@ untouched default warns while an explicitly-confirmed value (even the same 60%, 
 not. The MPPT cap and battery-resync fixes are UI-layer only — correct by code review, same caveat
 as every Compose-only round (no test harness in this project, `./gradlew` still blocked by the
 sandbox's network limitation).
+
+## A119 — Phase 35: on/off timeline bar + duty cycle for Commercial/Industrial loads
+
+Follow-up to A116-A118, pointing at the residential Appliances sheet's own screenshots: "I would
+love this set up also for industrial loads the time bar to show when equipment is on or off,
+remember the half cycle and efficiency of these equipment power factor and power engineering
+math's and physics."
+
+**Time bar — new `LoadWindowTimelineBar`.** Every active Commercial/Industrial load row now shows
+the same slim horizontal on/off preview the residential Appliances sheet already has (`ui/components
+/CatalogLoadRow.kt`) — drawn from the load's own `typicalStartHour`/`operatingHoursPerDay` window,
+with the same midnight-wraparound handling `commercialLoadKwAt` itself uses, so the bar always
+shows exactly what's actually contributing to the live simulation dial, never a decorative
+approximation. A separate composable from residential's own `MiniTimelineBar` (which draws a list
+of `ApplianceRun`s) rather than forcing a single-window commercial load into that multi-run shape.
+
+**"Half cycle" — a real bug, not just missing UI.** `LoadInstance.dutyCycleFraction` already
+existed (used in the wizard's connected/design-load totals since Phase 27) but `commercialLoadKwAt`
+— the function that drives the live simulation dial — never read it, always assuming a load draws
+its full nameplate wattage for the entire time its window is active. A compressor, pump, or other
+cycling motor with a real 50% duty cycle was overstated 2x in the simulation. Fixed by scaling the
+real-power contribution by `dutyCycleFraction`; existing tests are unaffected since the field's own
+default (1.0 = continuous) reproduces the exact prior behavior for every load that never set it.
+Duty cycle is now also directly editable on the load row (it wasn't before), next to power factor.
+
+**Power factor / "power engineering maths" — surfaced, not just stored.** `LoadInstance` already
+computed real kW vs. apparent kVA correctly (`ElectricalPower.apparentPowerKva = kW / PF`, the
+formula this app's own §4 spec named) for the wizard's totals, but that math was invisible on the
+individual load row itself. Each active load now shows a live "X kW real (while on) · Y kVA
+apparent · PF Z" line, reusing `LoadInstance.maximumExpectedRealPowerKw`/
+`maximumExpectedApparentPowerKva` directly (the same figures duty cycle and quantity already feed
+into) — one source of truth, not a second hand-rolled calculation.
+
+**"Efficiency" — honestly scoped, not invented.** No generic per-equipment-class motor efficiency
+figure is added. Real motor/compressor efficiency varies enormously by make and model, and this
+codebase's own standing rule (see `EquipmentSpecs.kt`'s own doc) is never to invent a
+manufacturer-shaped number without a real datasheet behind it — the same reasoning that already
+keeps `EquipmentSpecs.InverterSpec`/`BatterySpecSheet` fields honestly null rather than guessed.
+Duty cycle and power factor — the two real, already-modeled electrical properties the installer's
+message also named — are what's wired in this round; a distinct motor-efficiency field remains
+future work if a real reference figure is ever supplied.
+
+**Still deferred, disclosed rather than silently built partial:** multi-run/day-type scheduling
+(a load running in shift 1 and shift 3 but not shift 2, multiple separate on-windows per day) —
+`LoadInstance` remains single-window, unlike residential's `ApplianceRun` list. A full "tap
+SCHEDULE to edit" sub-screen matching residential's `ApplianceScheduleEditorContent` wasn't built;
+every field (including the new duty cycle) is already inline-editable directly on the row instead,
+which covers the single-window case this round scoped to.
+
+**Verification:** `Phase35DutyCycleTest` — full duty cycle (1.0) is byte-identical to pre-fix
+behavior, a 0.5 duty cycle halves the reported power while the window is active (and stays zero
+outside it), duty cycle combines correctly with quantity, and a 0.0 duty cycle contributes nothing.
+The timeline bar and the new kW/kVA/PF/duty-cycle UI are Compose-layer — correct by code review
+only, same caveat as every UI round (no test harness in this project, `./gradlew` still blocked by
+the sandbox's network limitation).

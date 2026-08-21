@@ -1,9 +1,11 @@
 package com.lumix.estimator.ui.components
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.MaterialTheme
@@ -11,10 +13,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.domain.commercial.LoadDefinition
 import com.lumix.estimator.domain.commercial.LoadInstance
 import com.lumix.estimator.ui.theme.LocalLumixPalette
+import com.lumix.estimator.ui.theme.LumixColors
 import kotlin.math.roundToInt
 
 /**
@@ -68,10 +74,42 @@ fun TimeField(label: String, hour: Double, onChange: (Double) -> Unit, modifier:
 }
 
 /**
+ * Phase 35 ("the time bar to show when equipment is on or off"): a slim, non-interactive 24h
+ * preview bar for one load's single on-window — [startHour] through [startHour] + [durationHours],
+ * wrapping past midnight the same way [com.lumix.estimator.domain.commercial.commercialLoadKwAt]
+ * itself does, so what this draws always matches what actually contributes to the live simulation
+ * dial. Same visual language as the residential Appliances sheet's own `MiniTimelineBar` (a
+ * different composable — that one draws a `List<ApplianceRun>`, this one draws a single window —
+ * kept separate rather than forcing a commercial load into an artificial multi-run shape it
+ * doesn't have).
+ */
+@Composable
+fun LoadWindowTimelineBar(startHour: Double, durationHours: Double, modifier: Modifier = Modifier) {
+    val palette = LocalLumixPalette.current
+    Canvas(modifier = modifier.height(6.dp)) {
+        drawRoundRect(color = palette.glass, cornerRadius = CornerRadius(3.dp.toPx()), size = size)
+        if (durationHours <= 0.0) return@Canvas
+        val color = LumixColors.SolarYellow.copy(alpha = 0.8f)
+        val start = startHour.mod(24.0)
+        val startX = (start / 24.0 * size.width).toFloat()
+        val endHour = start + durationHours
+        if (endHour <= 24.0) {
+            val endX = (endHour / 24.0 * size.width).toFloat()
+            drawRoundRect(color = color, topLeft = Offset(startX, 0f), size = Size((endX - startX).coerceAtLeast(2f), size.height), cornerRadius = CornerRadius(size.height / 2f))
+        } else {
+            drawRoundRect(color = color, topLeft = Offset(startX, 0f), size = Size((size.width - startX).coerceAtLeast(2f), size.height), cornerRadius = CornerRadius(size.height / 2f))
+            val wrapEndX = ((endHour - 24.0) / 24.0 * size.width).toFloat()
+            drawRoundRect(color = color, topLeft = Offset(0f, 0f), size = Size(wrapEndX.coerceAtLeast(2f), size.height), cornerRadius = CornerRadius(size.height / 2f))
+        }
+    }
+}
+
+/**
  * One catalog load type, always visible — matching how the residential wizard's
  * `ApplianceType.entries` list already works (one row per type, quantity 0 = not included) instead
  * of an "Add a load" step. Raising the quantity above 0 reveals Watts (or BTU, for AC-type loads),
- * power factor, runtime, and "when it typically starts."
+ * power factor, duty cycle, runtime, "when it typically starts," a real-power/apparent-power
+ * readout, and a visual on/off timeline preview.
  */
 @Composable
 fun CatalogLoadRow(def: LoadDefinition, instance: LoadInstance?, onChange: (LoadInstance?) -> Unit) {
@@ -121,6 +159,12 @@ fun CatalogLoadRow(def: LoadDefinition, instance: LoadInstance?, onChange: (Load
                     onValueChange = { v -> onChange(instance.copy(powerFactor = v.coerceIn(0.01, 1.0))) },
                     modifier = Modifier.weight(1f)
                 )
+                NumberField(
+                    label = "Duty cycle", value = instance.dutyCycleFraction,
+                    supportingText = "Fraction of \"on\" time actually drawing rated power",
+                    onValueChange = { v -> onChange(instance.copy(dutyCycleFraction = v.coerceIn(0.0, 1.0))) },
+                    modifier = Modifier.weight(1f)
+                )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
                 NumberField(
@@ -134,6 +178,26 @@ fun CatalogLoadRow(def: LoadDefinition, instance: LoadInstance?, onChange: (Load
                     modifier = Modifier.weight(1f)
                 )
             }
+            // Phase 35 ("power engineering math's and physics"): surfaces the same kW/kVA/PF
+            // formulas LoadInstance already computes for the wizard's connected/design-load
+            // totals (ElectricalPower.apparentPowerKva = kW / PF) — real power scaled by the duty
+            // cycle above is what actually contributes to the simulation dial (commercialLoadKwAt);
+            // apparent power (kVA) is the larger figure a breaker/wire/generator must be sized to.
+            Text(
+                "%.2f kW real (while on) · %.2f kVA apparent · PF %.2f".format(
+                    instance.maximumExpectedRealPowerKw,
+                    instance.maximumExpectedApparentPowerKva,
+                    instance.effectivePowerFactor
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+            LoadWindowTimelineBar(
+                startHour = instance.typicalStartHour ?: 0.0,
+                durationHours = instance.operatingHoursPerDay,
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+            )
         }
     }
 }

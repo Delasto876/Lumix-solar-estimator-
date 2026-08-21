@@ -14,6 +14,15 @@ package com.lumix.estimator.domain.commercial
  * [com.lumix.estimator.domain.simulation.ApplianceRun.isActiveAt] does. A load with zero
  * [LoadInstance.operatingHoursPerDay] (the default for a freshly-added load whose runtime hasn't
  * been set yet) never contributes — an honest empty window, not a silent all-day assumption.
+ *
+ * Phase 35 ("remember the half cycle... of these equipment"): while a load's window is active, it
+ * contributes [LoadInstance.ratedWatts] scaled by [LoadInstance.dutyCycleFraction] — a compressor,
+ * pump, or other cycling motor doesn't draw its full nameplate power continuously for the entire
+ * time it's "on" (it cycles), the same real-vs-nameplate distinction
+ * [com.lumix.estimator.domain.simulation.SimApplianceType.dutyFactor] already models for
+ * residential appliances. [LoadInstance.dutyCycleFraction] itself already existed (used in the
+ * wizard's own connected/design-load totals since Phase 27) — this was the one place in the code
+ * that read [LoadInstance.ratedWatts] directly without it.
  */
 fun commercialLoadKwAt(loads: List<LoadInstance>, hour: Double): Double {
     val h = hour.mod(24.0)
@@ -23,6 +32,6 @@ fun commercialLoadKwAt(loads: List<LoadInstance>, hour: Double): Double {
         val start = (load.typicalStartHour ?: 0.0).mod(24.0)
         val end = start + duration
         val active = if (end <= 24.0) h >= start && h < end else h >= start || h < (end - 24.0)
-        if (active) load.quantity * load.ratedWatts / 1000.0 else 0.0
+        if (active) load.quantity * load.ratedWatts * load.dutyCycleFraction.coerceIn(0.0, 1.0) / 1000.0 else 0.0
     }
 }
