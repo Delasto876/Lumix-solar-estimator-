@@ -51,7 +51,17 @@ data class LoadDefinition(
     /** Typical starting/surge multiplier of [defaultRatedWatts] for this load type (e.g. ~3x for a motor's locked-rotor surge) — a starting point [LoadInstance.startingSurgeWatts] can override with a real nameplate/datasheet figure. Null for non-motor loads with no meaningful surge. */
     val defaultStartingSurgeMultiplier: Double? = null,
     /** True only for the catalog's own "Custom Load" entries (e.g. `commercial_custom`/`industrial_custom` in [CommercialIndustrialLoadCatalog]) — the installer fills in [LoadInstance.label]/[LoadInstance.ratedWatts]/etc. themselves rather than picking a preset. */
-    val isCustom: Boolean = false
+    val isCustom: Boolean = false,
+    /**
+     * True for an air-conditioning load — the catalog picker/editor uses BTU (the unit installers
+     * actually spec AC by, matching the residential wizard's own AC picker) instead of raw watts
+     * for this entry. [defaultRatedWatts] is still the authoritative starting wattage
+     * (`defaultBtu / 10`, the same non-inverter BTU/W ratio [com.lumix.estimator.domain
+     * .SystemCalculator.acBtuPerWatt] uses) — [defaultBtu] exists purely so the UI has a BTU figure
+     * to seed the editor with, not a second source of truth for sizing.
+     */
+    val isAcLoad: Boolean = false,
+    val defaultBtu: Double? = null
 )
 
 /**
@@ -79,7 +89,9 @@ data class LoadInstance(
     val priority: LoadPriority = LoadPriority.NON_CRITICAL,
     /** Phase 27 §3 ("Simultaneous operation/diversity factor") applied AT THE INDIVIDUAL LOAD level — e.g. "only 1 of these 4 identical compressors ever runs at once" (0.25). Separate from and multiplicative with the SYSTEM-level [DiversityFactor] (§5), which covers "not every load group peaks together." */
     val simultaneousFactor: Double = 1.0,
-    val notes: String = ""
+    val notes: String = "",
+    /** For an AC load ([LoadDefinition.isAcLoad]) — the BTU rating the editor derived [ratedWatts] from (`btu / 10`), kept alongside so the editor can round-trip a BTU figure rather than back-computing it from watts. Null for a non-AC load, or an AC load whose watts were typed directly instead of via BTU. */
+    val btu: Double? = null
 ) {
     val totalConnectedWatts: Double get() = ratedWatts * quantity
 

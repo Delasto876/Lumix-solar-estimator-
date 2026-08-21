@@ -315,7 +315,8 @@ private fun LoadsSection(
             Text("No loads added yet — add some below.", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
         }
         design.loads.forEachIndexed { index, load ->
-            LoadRow(load) { updated ->
+            val isAcLoad = CommercialIndustrialLoadCatalog.definitionById(load.definitionId)?.isAcLoad == true
+            LoadRow(load, isAcLoad) { updated ->
                 updateDesign { it.copy(loads = it.loads.toMutableList().apply { this[index] = updated }) }
             }
             TextButton(onClick = { updateDesign { it.copy(loads = it.loads.toMutableList().apply { removeAt(index) }) } }) {
@@ -329,7 +330,10 @@ private fun LoadsSection(
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(def.label, color = palette.textPrimary)
-                    Text("${def.defaultRatedWatts.toInt()}W typical", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+                    Text(
+                        if (def.isAcLoad) "${def.defaultBtu?.toInt() ?: 0} BTU typical" else "${def.defaultRatedWatts.toInt()}W typical",
+                        style = MaterialTheme.typography.labelSmall, color = palette.textSecondary
+                    )
                 }
                 TextButton(onClick = { updateDesign { it.copy(loads = it.loads + newInstanceFrom(def)) } }) {
                     Text("+ Add")
@@ -349,11 +353,15 @@ private fun newInstanceFrom(def: LoadDefinition): LoadInstance = LoadInstance(
     powerFactor = def.defaultPowerFactor,
     operationType = def.defaultOperationType,
     priority = def.defaultPriority,
-    startingSurgeWatts = def.defaultStartingSurgeMultiplier?.let { it * def.defaultRatedWatts }
+    startingSurgeWatts = def.defaultStartingSurgeMultiplier?.let { it * def.defaultRatedWatts },
+    btu = def.defaultBtu
 )
 
+/** Matches SystemCalculator.acBtuPerWatt(AcInverterType.NON_INVERTER) — commercial/industrial AC loads have no inverter/non-inverter distinction of their own yet, so this uses the same non-inverter ratio residential AC defaults to. */
+private const val COMMERCIAL_AC_BTU_PER_WATT = 10.0
+
 @Composable
-private fun LoadRow(load: LoadInstance, onChange: (LoadInstance) -> Unit) {
+private fun LoadRow(load: LoadInstance, isAcLoad: Boolean, onChange: (LoadInstance) -> Unit) {
     val palette = LocalLumixPalette.current
     Column(modifier = Modifier.padding(vertical = 6.dp)) {
         Text(load.label, fontWeight = FontWeight.Bold, color = palette.textPrimary)
@@ -363,11 +371,19 @@ private fun LoadRow(load: LoadInstance, onChange: (LoadInstance) -> Unit) {
                 onValueChange = { v -> onChange(load.copy(quantity = v.coerceAtLeast(1))) },
                 modifier = Modifier.weight(1f)
             )
-            NumberField(
-                label = "Watts", value = load.ratedWatts, suffix = "W",
-                onValueChange = { v -> onChange(load.copy(ratedWatts = v)) },
-                modifier = Modifier.weight(1f)
-            )
+            if (isAcLoad) {
+                NumberField(
+                    label = "BTU", value = load.btu ?: (load.ratedWatts * COMMERCIAL_AC_BTU_PER_WATT), suffix = "BTU",
+                    onValueChange = { v -> onChange(load.copy(btu = v, ratedWatts = v / COMMERCIAL_AC_BTU_PER_WATT)) },
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                NumberField(
+                    label = "Watts", value = load.ratedWatts, suffix = "W",
+                    onValueChange = { v -> onChange(load.copy(ratedWatts = v)) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             NumberField(
