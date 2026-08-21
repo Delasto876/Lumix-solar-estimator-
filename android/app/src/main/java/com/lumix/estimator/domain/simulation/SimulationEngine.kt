@@ -1,5 +1,7 @@
 package com.lumix.estimator.domain.simulation
 
+import com.lumix.estimator.domain.commercial.LoadInstance
+import com.lumix.estimator.domain.commercial.commercialLoadKwAt
 import com.lumix.estimator.solar.SolarIrradianceModel
 // A81 (Phase 18, restored): aliased — this file's own package already declares a same-named
 // `SolarPosition` (A80's month/day-length sunrise-sunset model). This is a different, older
@@ -180,6 +182,12 @@ object SimulationEngine {
         resolutionMinutes: Int = 5,
         applianceLoadKw: Double = 0.0,
         applianceStates: Map<SimApplianceType, ApplianceState> = emptyMap(),
+        /**
+         * Phase 32: Commercial/Industrial loads, layered on top exactly like [applianceStates] is
+         * for residential — empty for every residential/pre-existing caller (the default), so this
+         * is purely additive and doesn't change a single existing timeline byte-for-byte.
+         */
+        commercialLoads: List<LoadInstance> = emptyList(),
         inverterMode: InverterMode = InverterMode.SBU,
         gridChargeEnabled: Boolean = true,
         gridServiceAmps: Double = DEFAULT_GRID_SERVICE_AMPS,
@@ -224,6 +232,8 @@ object SimulationEngine {
         // than being smoothed into an average. [applianceLoadKw] is a flat legacy contribution
         // (still used by simple, unscheduled call sites); [applianceStates] layers each
         // appliance's own scheduled run windows on top, hour by hour, for real precision.
+        // [commercialLoads] (Phase 32) is the Commercial/Industrial equivalent of
+        // [applianceStates] — empty (zero contribution) for every residential quote.
         val backgroundPerHourKw = (config.avgDailyLoadKwh / 24.0 * BACKGROUND_LOAD_FRACTION).coerceAtLeast(BACKGROUND_LOAD_FLOOR_KW)
         val dt = resolutionMinutes / 60.0
         // A80: real month-specific sunrise/sunset when installMonth is set; the exact fixed
@@ -286,7 +296,7 @@ object SimulationEngine {
             val pv = (irradianceFraction * config.pvCapacityKw * temperatureDerate * SystemLosses.fixedSystemEfficiency)
                 .coerceIn(0.0, config.maxPvInputKw)
 
-            val load = ((loadFactor(hour, dayType) * backgroundPerHourKw + applianceLoadKw + totalApplianceLoadKwAt(applianceStates, hour, dayType)) * loadMultiplier)
+            val load = ((loadFactor(hour, dayType) * backgroundPerHourKw + applianceLoadKw + totalApplianceLoadKwAt(applianceStates, hour, dayType) + commercialLoadKwAt(commercialLoads, hour)) * loadMultiplier)
                 .coerceAtLeast(0.0)
             // A87 (spec Phase 24 §3 — "INVERTER SELF-CONSUMPTION... Required PV: 400 + 100 + 1500
             // = 2000W"): the inverter's own housekeeping draw is a genuinely separate demand from

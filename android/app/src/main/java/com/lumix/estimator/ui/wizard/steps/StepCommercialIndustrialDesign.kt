@@ -37,19 +37,21 @@ import com.lumix.estimator.domain.commercial.DiversityFactor
 import com.lumix.estimator.domain.commercial.DiversityFactorPreset
 import com.lumix.estimator.domain.commercial.IndustrialShiftSchedule
 import com.lumix.estimator.domain.commercial.InverterUnitPvDesign
-import com.lumix.estimator.domain.commercial.LoadDefinition
 import com.lumix.estimator.domain.commercial.LoadInstance
 import com.lumix.estimator.domain.commercial.ParallelInverterDesign
 import com.lumix.estimator.domain.commercial.ParallelInverterValidator
 import com.lumix.estimator.domain.commercial.Shift
 import com.lumix.estimator.domain.commercial.StringAssignment
 import com.lumix.estimator.domain.simulation.DayType
+import com.lumix.estimator.ui.components.CatalogLoadRow
+import com.lumix.estimator.ui.components.COMMERCIAL_AC_BTU_PER_WATT
 import com.lumix.estimator.ui.components.IntField
 import com.lumix.estimator.ui.components.LabeledDropdown
 import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.components.SectionCard
+import com.lumix.estimator.ui.components.TimeField
+import com.lumix.estimator.ui.components.newInstanceFrom
 import com.lumix.estimator.ui.theme.LocalLumixPalette
-import kotlin.math.roundToInt
 
 /**
  * Phase 28 §9/§13 (the manual COMMERCIAL/INDUSTRIAL design workflow — no auto-recommendation
@@ -256,29 +258,6 @@ private fun ShiftRow(label: String, shift: Shift?, onChange: (Shift) -> Unit) {
             TimeField(
                 label = "End", hour = shift?.endHour ?: 0.0,
                 onChange = { v -> onChange(Shift(shift?.startHour ?: 0.0, v)) },
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
-}
-
-/** HH:MM time entry — the decimal-hour figures every Shift/BusinessHours field is stored as underneath are hard to type directly, so this splits into two IntFields and converts. */
-@Composable
-private fun TimeField(label: String, hour: Double, onChange: (Double) -> Unit, modifier: Modifier = Modifier) {
-    val palette = LocalLumixPalette.current
-    val h = hour.toInt().coerceIn(0, 23)
-    val m = ((hour - h) * 60.0).roundToInt().coerceIn(0, 59)
-    Column(modifier = modifier) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            IntField(
-                label = "HH", value = h,
-                onValueChange = { newH -> onChange(newH.coerceIn(0, 23) + m / 60.0) },
-                modifier = Modifier.weight(1f)
-            )
-            IntField(
-                label = "MM", value = m,
-                onValueChange = { newM -> onChange(h + newM.coerceIn(0, 59) / 60.0) },
                 modifier = Modifier.weight(1f)
             )
         }
@@ -607,88 +586,6 @@ private fun LoadsSection(
         }
     }
 }
-
-@Composable
-private fun CatalogLoadRow(def: LoadDefinition, instance: LoadInstance?, onChange: (LoadInstance?) -> Unit) {
-    val palette = LocalLumixPalette.current
-    val quantity = instance?.quantity ?: 0
-
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(def.label, style = MaterialTheme.typography.bodyLarge, color = palette.textPrimary)
-                Text(
-                    if (def.isAcLoad) "${def.defaultBtu?.toInt() ?: 0} BTU typical" else "${def.defaultRatedWatts.toInt()}W typical",
-                    style = MaterialTheme.typography.labelSmall, color = palette.textSecondary
-                )
-            }
-            IntField(
-                label = "Qty",
-                value = quantity,
-                onValueChange = { v ->
-                    val q = v.coerceAtLeast(0)
-                    when {
-                        q <= 0 -> onChange(null)
-                        instance != null -> onChange(instance.copy(quantity = q))
-                        else -> onChange(newInstanceFrom(def).copy(quantity = q))
-                    }
-                },
-                modifier = Modifier.weight(0.6f)
-            )
-        }
-        if (instance != null && quantity > 0) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-                if (def.isAcLoad) {
-                    NumberField(
-                        label = "BTU", value = instance.btu ?: (instance.ratedWatts * COMMERCIAL_AC_BTU_PER_WATT), suffix = "BTU",
-                        onValueChange = { v -> onChange(instance.copy(btu = v, ratedWatts = v / COMMERCIAL_AC_BTU_PER_WATT)) },
-                        modifier = Modifier.weight(1f)
-                    )
-                } else {
-                    NumberField(
-                        label = "Watts (each)", value = instance.ratedWatts, suffix = "W",
-                        onValueChange = { v -> onChange(instance.copy(ratedWatts = v)) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                NumberField(
-                    label = "Power factor", value = instance.powerFactor,
-                    onValueChange = { v -> onChange(instance.copy(powerFactor = v.coerceIn(0.01, 1.0))) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-                NumberField(
-                    label = "Runtime (hours/day)", value = instance.operatingHoursPerDay, suffix = "h",
-                    onValueChange = { v -> onChange(instance.copy(operatingHoursPerDay = v.coerceIn(0.0, 24.0))) },
-                    modifier = Modifier.weight(1f)
-                )
-                TimeField(
-                    label = "Typically starts", hour = instance.typicalStartHour ?: 0.0,
-                    onChange = { v -> onChange(instance.copy(typicalStartHour = v)) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
-
-private fun newInstanceFrom(def: LoadDefinition): LoadInstance = LoadInstance(
-    definitionId = def.id,
-    label = def.label,
-    ratedWatts = def.defaultRatedWatts,
-    voltage = def.defaultVoltage,
-    phase = def.defaultPhase,
-    frequencyHz = def.defaultFrequencyHz,
-    powerFactor = def.defaultPowerFactor,
-    operationType = def.defaultOperationType,
-    priority = def.defaultPriority,
-    startingSurgeWatts = def.defaultStartingSurgeMultiplier?.let { it * def.defaultRatedWatts },
-    btu = def.defaultBtu
-)
-
-/** Matches SystemCalculator.acBtuPerWatt(AcInverterType.NON_INVERTER) — commercial/industrial AC loads have no inverter/non-inverter distinction of their own yet, so this uses the same non-inverter ratio residential AC defaults to. */
-private const val COMMERCIAL_AC_BTU_PER_WATT = 10.0
 
 @Composable
 private fun LoadRow(load: LoadInstance, isAcLoad: Boolean, onChange: (LoadInstance) -> Unit) {

@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.lumix.estimator.data.QuoteRepository
 import com.lumix.estimator.data.SettingsRepository
 import com.lumix.estimator.domain.QuoteInputs
+import com.lumix.estimator.domain.commercial.LoadInstance
+import com.lumix.estimator.domain.commercial.commercialLoadKwAt
 import com.lumix.estimator.domain.simulation.ApplianceState
 import com.lumix.estimator.domain.simulation.DayType
 import com.lumix.estimator.domain.simulation.InverterMode
@@ -42,6 +44,8 @@ data class SimulationUiState(
     val isPlaying: Boolean = false,
     val speed: Float = 1f,
     val appliances: Map<SimApplianceType, ApplianceState> = emptyMap(),
+    /** Phase 32: the Commercial/Industrial equivalent of [appliances] — empty for a RESIDENTIAL quote (seeded from [QuoteInputs.commercialIndustrialDesign] otherwise). */
+    val commercialLoads: List<LoadInstance> = emptyList(),
     val gridConnected: Boolean = true,
     val inverterMode: InverterMode = InverterMode.SBU,
     val gridChargeEnabled: Boolean = true,
@@ -65,6 +69,9 @@ data class SimulationUiState(
 ) {
     /** Total appliance load right now, at [currentHour] on [dayType] — reflects each appliance's own schedule. */
     val applianceLoadKw: Double get() = totalApplianceLoadKwAt(appliances, currentHour, dayType)
+
+    /** Phase 32: the Commercial/Industrial equivalent of [applianceLoadKw]. */
+    val commercialLoadKw: Double get() = commercialLoadKwAt(commercialLoads, currentHour)
 }
 
 class SimulationViewModel(
@@ -99,6 +106,9 @@ class SimulationViewModel(
             val saved = quoteRepository.getSavedQuote(quoteId) ?: return@launch
             val config = SimSystemConfig.from(saved.result, saved.inputs)
             val appliances = defaultApplianceStates(saved.inputs)
+            // Phase 32: the Commercial/Industrial equivalent of [appliances] — empty for a
+            // RESIDENTIAL quote, since commercialIndustrialDesign is only ever set otherwise.
+            val commercialLoads = saved.inputs.commercialIndustrialDesign?.loads ?: emptyList()
             val gridConnected = config.gridConnectable
             val technicalMode = settingsRepository.defaultTechnicalMode.first()
             val gridServiceAmps = settingsRepository.defaultGridServiceAmps.first()
@@ -112,6 +122,7 @@ class SimulationViewModel(
                 config,
                 gridConnected = gridConnected,
                 applianceStates = appliances,
+                commercialLoads = commercialLoads,
                 gridServiceAmps = gridServiceAmps,
                 installMonth = config.installMonth,
                 weatherCurve = weatherCurve
@@ -124,6 +135,7 @@ class SimulationViewModel(
                     inputs = saved.inputs,
                     config = config,
                     appliances = appliances,
+                    commercialLoads = commercialLoads,
                     gridConnected = gridConnected,
                     gridServiceAmps = gridServiceAmps,
                     weatherCurve = weatherCurve,
@@ -144,6 +156,11 @@ class SimulationViewModel(
     fun setApplianceState(type: SimApplianceType, newState: ApplianceState) {
         val updated = _state.value.appliances.toMutableMap().apply { this[type] = newState }
         rebuildTimeline(appliances = updated)
+    }
+
+    /** Phase 32: replaces the full Commercial/Industrial loads list — the "when they run" edits (quantity/watts/hours/typicalStartHour) apply here exactly like [setApplianceState] does for residential. Session-only, same as every other simulation edit — never written back to the saved quote's own [QuoteInputs.commercialIndustrialDesign]. */
+    fun setCommercialLoads(loads: List<LoadInstance>) {
+        rebuildTimeline(commercialLoads = loads)
     }
 
     fun setGridConnected(connected: Boolean) {
@@ -204,6 +221,7 @@ class SimulationViewModel(
 
     private fun rebuildTimeline(
         appliances: Map<SimApplianceType, ApplianceState> = _state.value.appliances,
+        commercialLoads: List<LoadInstance> = _state.value.commercialLoads,
         gridConnected: Boolean = _state.value.gridConnected,
         inverterMode: InverterMode = _state.value.inverterMode,
         gridChargeEnabled: Boolean = _state.value.gridChargeEnabled,
@@ -221,6 +239,7 @@ class SimulationViewModel(
             gridConnected = effectiveGridConnected,
             startSocFraction = startSocFraction,
             applianceStates = appliances,
+            commercialLoads = commercialLoads,
             inverterMode = inverterMode,
             gridChargeEnabled = gridChargeEnabled,
             gridServiceAmps = gridServiceAmps,
@@ -231,6 +250,7 @@ class SimulationViewModel(
         _state.update {
             it.copy(
                 appliances = appliances,
+                commercialLoads = commercialLoads,
                 gridConnected = effectiveGridConnected,
                 inverterMode = inverterMode,
                 gridChargeEnabled = gridChargeEnabled,

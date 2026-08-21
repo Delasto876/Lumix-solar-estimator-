@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lumix.estimator.domain.SystemType
 import com.lumix.estimator.domain.simulation.DayType
 import com.lumix.estimator.domain.simulation.EnergyFlowResolver
 import com.lumix.estimator.domain.simulation.InverterMode
@@ -428,7 +429,10 @@ fun SimulationScreen(
                     appliances = state.appliances,
                     currentHour = state.currentHour,
                     onSetAppliance = { type, applianceState -> viewModel.setApplianceState(type, applianceState) },
-                    dayType = state.dayType
+                    dayType = state.dayType,
+                    systemCategory = state.inputs?.systemCategory ?: SystemType.RESIDENTIAL,
+                    commercialLoads = state.commercialLoads,
+                    onSetCommercialLoads = viewModel::setCommercialLoads
                 )
             }
         }

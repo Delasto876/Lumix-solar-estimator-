@@ -7425,3 +7425,70 @@ same idea — noted again here rather than silently building a partial version a
 `LoadModels.kt` unaffected in shape, new field is additive-only) and correct by code review; every
 existing `LoadInstance(...)` construction site (tests + `newInstanceFrom`) uses named arguments, so
 the new trailing default field doesn't break any of them.
+
+## A116 — Phase 32: Commercial/Industrial simulation appliance picker (real, not cosmetic)
+
+Follow-up to A115: "for the appliance section, for residential, update based on... what was chosen
+[at] the beginning, if residential show residential in appliance picker, if commercial or
+industrial choose those in appliances picker." The simulation's Appliances bottom sheet
+(`AppliancesSheetContent`) was, before this round, built exclusively around the residential
+`SimApplianceType` catalog — `defaultApplianceStates(inputs)` only ever reads
+`QuoteInputs.appliances`/`QuoteInputs.ac`, so a Commercial/Industrial quote's simulation always
+showed the residential appliance list (Refrigerator, Kettle, Toaster, ...) with everything off,
+regardless of what was actually configured on the quote's own Commercial/Industrial design step.
+
+Investigated before writing anything: this wasn't just a picker-labeling issue.
+`SimulationEngine.buildDayTimeline`'s house load formula
+(`backgroundPerHourKw + applianceLoadKw + totalApplianceLoadKwAt(...)`) had no term at all for
+`CommercialIndustrialDesign.loads` — so even if the picker had shown the right list, editing a
+commercial load's quantity/hours there would have changed nothing about the simulated numbers. A
+reskin without real wiring would have been more misleading than the original bug, so this round
+wires the whole path through, additively:
+
+**New: `commercialLoadKwAt(loads, hour)`** (`domain/commercial/CommercialLoadSimulation.kt`) — the
+Commercial/Industrial analogue of `totalApplianceLoadKwAt`. Treats each `LoadInstance` as one
+contiguous daily window (`typicalStartHour` — added in A115 — through `operatingHoursPerDay` later,
+wrapping past midnight the same way `ApplianceRun.isActiveAt` already does), summing
+`quantity x ratedWatts` for whichever loads are active at that hour. A load with 0
+`operatingHoursPerDay` (a freshly-added load whose runtime hasn't been set) never contributes.
+
+**`SimulationEngine.buildDayTimeline`** gained a `commercialLoads: List<LoadInstance> = emptyList()`
+parameter, added into the house-load formula exactly like `applianceStates` already is. Default
+empty list — every existing residential caller (all 14 files that call this function) is completely
+unaffected; a new regression test asserts the residential timeline is byte-identical whether the
+parameter is passed as an empty list or omitted entirely.
+
+**`SimulationViewModel`** gained `commercialLoads` session state (seeded from
+`QuoteInputs.commercialIndustrialDesign?.loads` in `load()`, same as `appliances` is seeded from
+`QuoteInputs.appliances`) and `setCommercialLoads()`, threaded through `rebuildTimeline()` exactly
+like `setApplianceState()` already is — session-only edits, never written back to the saved quote,
+matching how every other simulation-screen edit already behaves.
+
+**`AppliancesSheetContent`** gained a `systemCategory` parameter. RESIDENTIAL (the default) renders
+the existing `SimApplianceType` UI completely unchanged — zero risk to the residential experience.
+Anything else renders the new `CommercialAppliancesSheetContent`: the same "CURRENT LOAD" readout
+(now driven by `commercialLoadKwAt`) and the same always-visible catalog list shape A115 already
+built for the wizard's own Loads step — reusing the identical `CatalogLoadRow` composable (extracted
+out of `StepCommercialIndustrialDesign.kt` into `ui/components/CatalogLoadRow.kt`, alongside
+`TimeField`/`newInstanceFrom`/`COMMERCIAL_AC_BTU_PER_WATT`, so both places share one row instead of
+maintaining two copies). Editing quantity/watts/hours/typically-starts here immediately changes the
+live simulated house load, the same way toggling a residential appliance already does.
+
+**Scoped out of this round, disclosed rather than silently skipped:** the wizard's "Custom Load"
+repeatable-add flow isn't duplicated in this sheet (it reviews/adjusts the catalog's standard load
+types; custom loads stay a wizard-only concept). The "Load Audit" card's category breakdown
+(`applianceDailyEnergyByCategoryKwh`) is still residential-only and shows nothing useful for a
+Commercial/Industrial quote — a secondary display, not touched this round. `BackupEstimator`/
+`OvernightLoadProfile` (outage-hours estimation) don't take a `commercialLoads` parameter yet either
+— only the main day timeline (what the Appliances sheet and the live dial both read) was wired.
+
+**Verification:** `Phase32CommercialLoadSimulationTest` (6 cases: active window, quantity
+multiplication, midnight wraparound, null-start-hour default, zero-duration = zero contribution,
+multi-load summing) and `Phase32CommercialLoadEngineWiringTest` (residential byte-identical
+regression + an exact before/after delta proving a configured load's real kW lands in
+`SimFrame.houseLoadKw` only during its window). Balance-checked every touched file
+(`CommercialLoadSimulation.kt`, `SimulationEngine.kt`, `SimulationViewModel.kt`,
+`CatalogLoadRow.kt`, `StepCommercialIndustrialDesign.kt`, `AppliancesSheet.kt`,
+`SimulationScreen.kt`); `./gradlew` still blocked by the sandbox's own network limitation, so the
+Compose UI itself (the new `CommercialAppliancesSheetContent` branch) is correct by code review
+only, same caveat as every UI round before this one.

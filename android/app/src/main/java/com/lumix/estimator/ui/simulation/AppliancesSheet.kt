@@ -33,6 +33,10 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lumix.estimator.domain.SystemType
+import com.lumix.estimator.domain.commercial.CommercialIndustrialLoadCatalog
+import com.lumix.estimator.domain.commercial.LoadInstance
+import com.lumix.estimator.domain.commercial.commercialLoadKwAt
 import com.lumix.estimator.domain.simulation.ApplianceRun
 import com.lumix.estimator.domain.simulation.ApplianceState
 import com.lumix.estimator.domain.simulation.DayType
@@ -40,6 +44,7 @@ import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.defaultScheduleFor
 import com.lumix.estimator.domain.simulation.totalApplianceLoadKwAt
 import com.lumix.estimator.ui.components.AnimatedCounterText
+import com.lumix.estimator.ui.components.CatalogLoadRow
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixColors
 import com.lumix.estimator.ui.theme.LumixRadius
@@ -124,8 +129,28 @@ fun AppliancesSheetContent(
     currentHour: Double,
     onSetAppliance: (SimApplianceType, ApplianceState) -> Unit,
     modifier: Modifier = Modifier,
-    dayType: DayType = DayType.WEEKDAY
+    dayType: DayType = DayType.WEEKDAY,
+    /**
+     * Phase 32 ("for the appliance section... if commercial or industrial choose those in
+     * appliances picker"): which catalog this sheet shows. RESIDENTIAL (the default, every
+     * pre-existing caller) renders the [SimApplianceType] picker below completely unchanged;
+     * anything else renders [CommercialAppliancesSheetContent] instead.
+     */
+    systemCategory: SystemType = SystemType.RESIDENTIAL,
+    commercialLoads: List<LoadInstance> = emptyList(),
+    onSetCommercialLoads: (List<LoadInstance>) -> Unit = {}
 ) {
+    if (systemCategory != SystemType.RESIDENTIAL) {
+        CommercialAppliancesSheetContent(
+            systemCategory = systemCategory,
+            loads = commercialLoads,
+            currentHour = currentHour,
+            onSetLoads = onSetCommercialLoads,
+            modifier = modifier
+        )
+        return
+    }
+
     val palette = LocalLumixPalette.current
     val currentLoadKw = totalApplianceLoadKwAt(appliances, currentHour, dayType)
     var editingType by remember { mutableStateOf<SimApplianceType?>(null) }
@@ -193,6 +218,75 @@ fun AppliancesSheetContent(
                 )
                 HorizontalDivider()
             }
+        }
+    }
+}
+
+/**
+ * Phase 32: the Commercial/Industrial counterpart of the RESIDENTIAL body above — same "CURRENT
+ * LOAD" readout and always-visible catalog list shape, but sourced from
+ * [CommercialIndustrialLoadCatalog.loadsFor] / [LoadInstance] (the exact loads configured on the
+ * quote's Commercial/Industrial design step, via [CatalogLoadRow] — the same row this sheet's
+ * wizard counterpart, [com.lumix.estimator.ui.wizard.steps.StepCommercialIndustrialDesign], uses)
+ * instead of the residential [SimApplianceType] catalog. Deliberately scoped to the catalog's
+ * standard load types only — the wizard's own "Custom Load" repeatable-add flow isn't duplicated
+ * here; this sheet reviews/adjusts what's already configured rather than re-designing the load
+ * list from scratch.
+ */
+@Composable
+private fun CommercialAppliancesSheetContent(
+    systemCategory: SystemType,
+    loads: List<LoadInstance>,
+    currentHour: Double,
+    onSetLoads: (List<LoadInstance>) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val palette = LocalLumixPalette.current
+    val currentLoadKw = commercialLoadKwAt(loads, currentHour)
+    val catalog = CommercialIndustrialLoadCatalog.loadsFor(systemCategory).filter { !it.isCustom }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 8.dp)
+    ) {
+        Text(
+            "LOADS",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = palette.textSecondary
+        )
+
+        Text("CURRENT LOAD (at ${formatSimTime(currentHour)})", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary, modifier = Modifier.padding(top = 12.dp))
+        AnimatedCounterText(
+            targetValue = currentLoadKw,
+            format = { "%.2f kW".format(it) },
+            style = numberDisplayStyle(size = 34.sp),
+            color = palette.solarYellowText
+        )
+        Text(
+            "Every load below runs on its own real window — set how many you have, how many hours/day they typically run, and roughly when. Only loads with a quantity above 0 draw any power.",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary,
+            modifier = Modifier.padding(top = 6.dp)
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+        catalog.forEachIndexed { index, def ->
+            val existing = loads.firstOrNull { it.definitionId == def.id }
+            CatalogLoadRow(def, existing) { updated ->
+                val list = loads.toMutableList()
+                val existingIndex = list.indexOfFirst { it.definitionId == def.id }
+                when {
+                    updated == null && existingIndex >= 0 -> list.removeAt(existingIndex)
+                    updated != null && existingIndex >= 0 -> list[existingIndex] = updated
+                    updated != null -> list.add(updated)
+                }
+                onSetLoads(list)
+            }
+            if (index < catalog.size - 1) HorizontalDivider()
         }
     }
 }
