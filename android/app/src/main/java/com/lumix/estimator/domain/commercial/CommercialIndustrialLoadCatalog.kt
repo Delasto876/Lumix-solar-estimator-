@@ -58,6 +58,48 @@ object CommercialIndustrialLoadCatalog {
         LoadDefinition("commercial_signage", "Signage", LoadCategory.COMMERCIAL, defaultRatedWatts = 150.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS),
         LoadDefinition("commercial_exterior_lighting", "Exterior Lighting", LoadCategory.COMMERCIAL, defaultRatedWatts = 60.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS),
         LoadDefinition("commercial_interior_lighting", "Interior Lighting (per fixture)", LoadCategory.COMMERCIAL, defaultRatedWatts = 40.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS),
+        // Phase 44 (spec §4-§10 — the per-facility-type default load lists): additive entries this
+        // round added to cover items those sections name that the existing catalog above didn't yet
+        // have a match for. Every id above this comment is untouched — an already-saved LoadInstance
+        // referencing one still resolves, same as every prior additive round to this catalog.
+        LoadDefinition("commercial_conveyor", "Conveyor Motor", LoadCategory.COMMERCIAL, defaultRatedWatts = 750.0, defaultPowerFactor = 0.82, defaultOperationType = LoadOperationType.INTERMITTENT, isMotorLoad = true, defaultStartingSurgeMultiplier = 3.5),
+        LoadDefinition("commercial_automatic_door", "Automatic Door", LoadCategory.COMMERCIAL, defaultRatedWatts = 300.0, defaultPowerFactor = 0.85, defaultOperationType = LoadOperationType.INTERMITTENT, isMotorLoad = true, defaultStartingSurgeMultiplier = 2.5),
+        LoadDefinition("commercial_scale", "Scale (retail/bakery)", LoadCategory.COMMERCIAL, defaultRatedWatts = 50.0, defaultPowerFactor = 0.95),
+        LoadDefinition("commercial_barcode_scanner", "Barcode Scanner", LoadCategory.COMMERCIAL, defaultRatedWatts = 15.0, defaultPowerFactor = 0.95),
+        LoadDefinition("commercial_bakery_equipment", "Bakery Equipment", LoadCategory.COMMERCIAL, defaultRatedWatts = 5000.0, defaultVoltage = 240.0, defaultPowerFactor = 1.0, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_ceiling_fan", "Ceiling Fan", LoadCategory.COMMERCIAL, defaultRatedWatts = 75.0, defaultPowerFactor = 0.9, defaultOperationType = LoadOperationType.CONTINUOUS, isMotorLoad = true, defaultStartingSurgeMultiplier = 2.0),
+        LoadDefinition("commercial_smart_board", "Smart Board", LoadCategory.COMMERCIAL, defaultRatedWatts = 150.0, defaultPowerFactor = 0.98, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_projector", "Projector", LoadCategory.COMMERCIAL, defaultRatedWatts = 300.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_pa_system", "PA / Audio System", LoadCategory.COMMERCIAL, defaultRatedWatts = 200.0, defaultPowerFactor = 0.9, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_laptop", "Laptop / Mobile Computer", LoadCategory.COMMERCIAL, defaultRatedWatts = 65.0, defaultPowerFactor = 0.98),
+        LoadDefinition("commercial_voip_phone", "VoIP Phone", LoadCategory.COMMERCIAL, defaultRatedWatts = 8.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS),
+        LoadDefinition("commercial_ups", "UPS System", LoadCategory.COMMERCIAL, defaultRatedWatts = 300.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS, defaultPriority = LoadPriority.CRITICAL),
+        LoadDefinition("commercial_access_control", "Access Control System", LoadCategory.COMMERCIAL, defaultRatedWatts = 40.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS, defaultPriority = LoadPriority.CRITICAL),
+        LoadDefinition("commercial_water_cooler", "Water Cooler / Dispenser", LoadCategory.COMMERCIAL, defaultRatedWatts = 100.0, defaultPowerFactor = 0.9, defaultOperationType = LoadOperationType.CONTINUOUS),
+        LoadDefinition("commercial_emergency_lighting", "Emergency Lighting", LoadCategory.COMMERCIAL, defaultRatedWatts = 50.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.CONTINUOUS, defaultPriority = LoadPriority.CRITICAL),
+        LoadDefinition("commercial_fryer", "Deep Fryer", LoadCategory.COMMERCIAL, defaultRatedWatts = 3000.0, defaultVoltage = 240.0, defaultPowerFactor = 1.0, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_griddle", "Griddle", LoadCategory.COMMERCIAL, defaultRatedWatts = 3500.0, defaultVoltage = 240.0, defaultPowerFactor = 1.0, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_mixer", "Commercial Mixer", LoadCategory.COMMERCIAL, defaultRatedWatts = 750.0, defaultPowerFactor = 0.85, defaultOperationType = LoadOperationType.INTERMITTENT, isMotorLoad = true, defaultStartingSurgeMultiplier = 2.5),
+        LoadDefinition("commercial_dishwasher", "Commercial Dishwasher", LoadCategory.COMMERCIAL, defaultRatedWatts = 3000.0, defaultVoltage = 240.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_exhaust_hood", "Exhaust Hood", LoadCategory.COMMERCIAL, defaultRatedWatts = 500.0, defaultPowerFactor = 0.85, defaultOperationType = LoadOperationType.CONTINUOUS, isMotorLoad = true, defaultStartingSurgeMultiplier = 2.5),
+        LoadDefinition("commercial_pool_pump", "Pool Pump", LoadCategory.COMMERCIAL, defaultRatedWatts = 1100.0, defaultPowerFactor = 0.85, defaultOperationType = LoadOperationType.CONTINUOUS, isMotorLoad = true, defaultStartingSurgeMultiplier = 3.0),
+        LoadDefinition("commercial_pool_equipment", "Pool Equipment (filter/heater)", LoadCategory.COMMERCIAL, defaultRatedWatts = 1500.0, defaultPowerFactor = 0.9, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_laundry_equipment", "Laundry Equipment (washer/dryer)", LoadCategory.COMMERCIAL, defaultRatedWatts = 3000.0, defaultVoltage = 240.0, defaultPowerFactor = 0.9, defaultOperationType = LoadOperationType.INTERMITTENT, isMotorLoad = true, defaultStartingSurgeMultiplier = 2.5),
+        LoadDefinition("commercial_tv", "Television", LoadCategory.COMMERCIAL, defaultRatedWatts = 120.0, defaultPowerFactor = 0.95, defaultOperationType = LoadOperationType.INTERMITTENT),
+        // Phase 44 (spec §7 — "IMPORTANT: Medical equipment must NOT receive arbitrary wattage
+        // values. Where manufacturer-rated power is unknown, mark the load as: 'Verify equipment
+        // specification' and allow manual entry"): these all default to 0W rather than an invented
+        // "typical" figure — the label itself carries the disclaimer, and the installer types in the
+        // real nameplate rating once they have it (0W simply contributes nothing until they do).
+        LoadDefinition("commercial_medical_refrigerator", "Medical Refrigerator (verify equipment specification)", LoadCategory.COMMERCIAL, defaultRatedWatts = 0.0, defaultOperationType = LoadOperationType.CONTINUOUS),
+        LoadDefinition("commercial_examination_equipment", "Examination Equipment (verify equipment specification)", LoadCategory.COMMERCIAL, defaultRatedWatts = 0.0),
+        LoadDefinition("commercial_patient_monitoring", "Patient Monitoring Equipment (verify equipment specification)", LoadCategory.COMMERCIAL, defaultRatedWatts = 0.0, defaultOperationType = LoadOperationType.CONTINUOUS, defaultPriority = LoadPriority.CRITICAL),
+        LoadDefinition("commercial_sterilization_equipment", "Sterilization Equipment (verify equipment specification)", LoadCategory.COMMERCIAL, defaultRatedWatts = 0.0, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_autoclave", "Autoclave (verify equipment specification)", LoadCategory.COMMERCIAL, defaultRatedWatts = 0.0, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_medical_imaging", "Medical Imaging Equipment (verify equipment specification)", LoadCategory.COMMERCIAL, defaultRatedWatts = 0.0, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_dialysis_equipment", "Dialysis Equipment (verify equipment specification)", LoadCategory.COMMERCIAL, defaultRatedWatts = 0.0, defaultOperationType = LoadOperationType.INTERMITTENT, defaultPriority = LoadPriority.CRITICAL),
+        LoadDefinition("commercial_diagnostic_equipment", "Diagnostic / Scanner Equipment (verify equipment specification)", LoadCategory.COMMERCIAL, defaultRatedWatts = 0.0, defaultOperationType = LoadOperationType.INTERMITTENT),
+        LoadDefinition("commercial_laboratory_equipment", "Laboratory Equipment (verify equipment specification)", LoadCategory.COMMERCIAL, defaultRatedWatts = 0.0),
         LoadDefinition("commercial_custom", "Custom Commercial Load", LoadCategory.COMMERCIAL, defaultRatedWatts = 0.0, isCustom = true)
     )
 

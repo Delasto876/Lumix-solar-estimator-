@@ -8165,3 +8165,63 @@ load libraries (Phase 44/45), the Transformer model (Phase 46 — §18, not touc
 facility-driven schedule defaults (Phase 47). `./gradlew` remains blocked by the same standing
 plugin-resolution network limitation; verified by balance-checking every touched file and hand-
 tracing every new formula/test assertion against the spec's own stated equations.
+
+## A128 — Phase 44: Commercial facility default load libraries
+
+Third phase of the Commercial/Industrial facility-load-profile update — the largest single piece:
+per-facility-type default load lists for all 26 `CommercialFacilityType` presets (spec §4-§10, §20).
+
+**33 new `LoadDefinition` entries** added to `CommercialIndustrialLoadCatalog.commercialLoads` (66
+total now, up from 33) to cover items §4-§10 name that nothing in the existing catalog matched: 24
+general entries — conveyor motors, automatic doors, scales, barcode scanners, bakery equipment,
+ceiling fans, smart boards, projectors, PA systems, laptops, VoIP phones, UPS systems, access
+control, water coolers, emergency lighting, fryers, griddles, mixers, dishwashers, exhaust hoods,
+pool pumps/equipment, laundry equipment, and TVs — all illustrative starting wattages, same
+disclosed convention as every existing catalog entry, fully editable. Every pre-existing id is
+untouched, so an already-saved quote's loads still resolve exactly as before.
+
+**Medical equipment gets the spec's own stricter treatment** (§7 — "Medical equipment must NOT
+receive arbitrary wattage values. Where manufacturer-rated power is unknown, mark the load as:
+'Verify equipment specification' and allow manual entry"): the remaining 9 new entries (medical
+refrigerator, examination equipment, patient monitoring, sterilization equipment, autoclave,
+medical imaging, dialysis equipment, diagnostic/scanner equipment, laboratory equipment) default to
+**0W**, not a guessed "typical" figure — the disclaimer is baked into the label itself, and the load
+contributes nothing until the installer types in the real nameplate rating. Locked in by a
+dedicated regression test.
+
+**New `FacilityLoadLibrary` object** — an exhaustive `when` over all 26 `CommercialFacilityType`
+values, each mapping to an ordered list of catalog ids "typical for this facility." The 6 facility
+types the spec gives an explicit worked-out list for (Supermarket §4, School §5, Call Centre §6,
+Clinic §7, Restaurant §8, Office §9 — Hotel §10 also covered) follow that list as closely as the
+catalog supports; the other 19 (Retail Store, Shopping Centre, Bank, University, Pharmacy, Dental
+Clinic, Church, Gym, Salon, Warehouse, Workshop/Garage, Car Wash, Gas Station, Small Manufacturing,
+Cold Storage, Data/IT Facility, etc.) don't have their own spec section, so their lists are a
+reasonable, fully-editable starting point built from the same catalog — disclosed as such in the
+object's own doc comment, not presented as a literal spec transcription. `CUSTOM` has no list; a
+custom-named facility falls back to the plain full catalog.
+
+**Wired into the wizard's existing "Loads" section, additively — nothing forced.** Per §1's own "Do
+NOT force facility assumptions on the user," this changes ordering/grouping only: when a facility is
+chosen, its typical loads appear first under a "Typical for [facility]" header, followed by "Other
+load types" showing the rest of the full catalog — every row still starts at quantity 0 (excluded)
+exactly like the existing Phase 31.2 always-visible-catalog behavior; picking a facility never
+auto-adds a single load or a single watt. No facility chosen (or a Custom facility name) falls back
+to the original flat, unprioritized list, unchanged. Because both the Estimate wizard and the
+Simulation screen already read the same `CommercialIndustrialDesign.loads`/`LoadInstance` data (no
+separate appliance list ever existed for the two), §20's "must control the default appliance list in
+BOTH ESTIMATE and SIMULATION" falls out of this for free — there was nothing separate to keep in
+sync.
+
+**Tests:** new `FacilityLoadLibraryTest.kt` — every one of the 26 facility types resolves to a list
+whose every id is a real catalog entry (catches a typo'd id that would otherwise silently vanish
+from the UI instead of failing loudly), no facility has a duplicate id, every non-Custom facility has
+at least one default load, Custom has none, Supermarket's list covers the spec's own refrigeration/
+POS/security emphasis, and Clinic's medical entries are locked to 0W with the verification disclaimer
+in their label.
+
+**Deferred:** the industrial-facility half of this same work (Phase 45 — 25 `IndustrialFacilityType`
+presets), the Transformer model (Phase 46), and facility-driven schedule defaults (Phase 47).
+`./gradlew` remains blocked by the same standing plugin-resolution network limitation; verified by
+balance-checking every touched file, cross-checking every `FacilityLoadLibrary` id against the real
+catalog with a script (zero unresolved references), and confirming the `when` over
+`CommercialFacilityType` is exhaustive (26/26 branches).

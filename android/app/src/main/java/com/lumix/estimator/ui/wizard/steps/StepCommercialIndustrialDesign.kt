@@ -38,6 +38,7 @@ import com.lumix.estimator.domain.commercial.DiversityFactor
 import com.lumix.estimator.domain.commercial.DiversityFactorPreset
 import com.lumix.estimator.domain.commercial.ElectricalService
 import com.lumix.estimator.domain.commercial.ElectricalServicePreset
+import com.lumix.estimator.domain.commercial.FacilityLoadLibrary
 import com.lumix.estimator.domain.commercial.IndustrialShiftSchedule
 import com.lumix.estimator.domain.commercial.InverterUnitPvDesign
 import com.lumix.estimator.domain.commercial.LoadInstance
@@ -626,8 +627,21 @@ private fun LoadsSection(
 ) {
     val palette = LocalLumixPalette.current
     val catalog = CommercialIndustrialLoadCatalog.loadsFor(systemType)
-    val standardDefs = catalog.filter { !it.isCustom }
+    val allStandardDefs = catalog.filter { !it.isCustom }
     val customDef = catalog.firstOrNull { it.isCustom }
+
+    // Phase 44 (spec §20 — "The selected facility type must control the default appliance list in
+    // BOTH ESTIMATE and SIMULATION"): reorders (never hides) the same full catalog so the loads
+    // typical for the chosen facility appear first, under their own header — everything still
+    // starts at quantity 0 per §1's "Do NOT force facility assumptions on the user," this only
+    // changes which rows the installer sees first. No facility chosen (or a Custom facility name)
+    // falls back to the plain full-catalog order, unchanged from before this phase.
+    val facilityLoadIds = design.facility.commercialType
+        ?.takeIf { it != com.lumix.estimator.domain.commercial.CommercialFacilityType.CUSTOM }
+        ?.let { FacilityLoadLibrary.defaultLoadIdsFor(it) }
+        ?: emptyList()
+    val typicalDefs = facilityLoadIds.mapNotNull { id -> allStandardDefs.firstOrNull { it.id == id } }
+    val otherDefs = allStandardDefs.filter { it.id !in facilityLoadIds }
 
     SectionCard(title = "Loads") {
         Text(
@@ -635,7 +649,9 @@ private fun LoadsSection(
             style = MaterialTheme.typography.labelSmall,
             color = palette.textSecondary
         )
-        standardDefs.forEachIndexed { index, def ->
+
+        @Composable
+        fun loadRow(def: com.lumix.estimator.domain.commercial.LoadDefinition) {
             val existing = design.loads.firstOrNull { it.definitionId == def.id }
             CatalogLoadRow(def, existing) { updated ->
                 updateDesign {
@@ -649,7 +665,30 @@ private fun LoadsSection(
                     it.copy(loads = list)
                 }
             }
-            if (index < standardDefs.size - 1) {
+        }
+
+        if (typicalDefs.isNotEmpty()) {
+            Text(
+                "Typical for ${design.facility.displayLabel}",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = palette.textPrimary
+            )
+            typicalDefs.forEach { def ->
+                loadRow(def)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            }
+            Text(
+                "Other load types",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = palette.textPrimary,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+        otherDefs.forEachIndexed { index, def ->
+            loadRow(def)
+            if (index < otherDefs.size - 1) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             }
         }
