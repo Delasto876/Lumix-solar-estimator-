@@ -36,6 +36,8 @@ import com.lumix.estimator.domain.commercial.CommercialIndustrialDesign
 import com.lumix.estimator.domain.commercial.CommercialIndustrialLoadCatalog
 import com.lumix.estimator.domain.commercial.DiversityFactor
 import com.lumix.estimator.domain.commercial.DiversityFactorPreset
+import com.lumix.estimator.domain.commercial.ElectricalService
+import com.lumix.estimator.domain.commercial.ElectricalServicePreset
 import com.lumix.estimator.domain.commercial.IndustrialShiftSchedule
 import com.lumix.estimator.domain.commercial.InverterUnitPvDesign
 import com.lumix.estimator.domain.commercial.LoadInstance
@@ -116,16 +118,53 @@ fun StepCommercialIndustrialDesign(inputs: QuoteInputs, onUpdate: ((QuoteInputs)
     }
 }
 
+/**
+ * Phase 43 (spec §16/§17 — the 7-preset Electrical Service picker plus real three-phase current/
+ * kVA math): extends the existing free-form phase/voltage/frequency fields (Phase 27 §14) with a
+ * quick-fill preset dropdown and a computed current/guidance readout. Every field below the preset
+ * dropdown stays directly editable exactly as before — picking a preset only seeds starting values.
+ */
 @Composable
 private fun ElectricalServiceSection(design: CommercialIndustrialDesign, updateDesign: ((CommercialIndustrialDesign) -> CommercialIndustrialDesign) -> Unit) {
     val service = design.electricalService
+
+    fun applyPreset(current: ElectricalService, preset: ElectricalServicePreset): ElectricalService = if (preset == ElectricalServicePreset.CUSTOM) {
+        current.copy(preset = preset)
+    } else {
+        current.copy(
+            preset = preset,
+            phase = preset.presetPhase ?: current.phase,
+            nominalVoltage = preset.presetNominalVoltage ?: current.nominalVoltage,
+            lineToNeutralVoltage = preset.presetLineToNeutralVoltage
+        )
+    }
+
+    // Bugfix (same class this file's own StepCommercialIndustrialDesign doc already warns about
+    // for `design`): must transform the LIVE electricalService (it.electricalService at update
+    // time), not the `service` val snapshot closed over from composition — reusing that snapshot
+    // would silently drop an edit whenever two updates fire before recomposition catches up. Any
+    // direct edit to phase/voltage also drops the preset back to CUSTOM — otherwise the dropdown
+    // would keep showing a preset label next to values the installer has since hand-changed.
+    fun editField(transform: (ElectricalService) -> ElectricalService) {
+        updateDesign { it.copy(electricalService = transform(it.electricalService).copy(preset = ElectricalServicePreset.CUSTOM)) }
+    }
+
     SectionCard(title = "Electrical service") {
+        LabeledDropdown(
+            label = "Electrical service preset",
+            options = ElectricalServicePreset.entries,
+            selected = service.preset,
+            optionLabel = { it.label },
+            onSelected = { preset -> updateDesign { it.copy(electricalService = applyPreset(it.electricalService, preset)) } },
+            supportingText = "Seeds phase/voltage below — every field stays editable either way.",
+            modifier = Modifier.fillMaxWidth()
+        )
         Text("Phase", style = MaterialTheme.typography.bodyMedium)
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
             com.lumix.estimator.domain.commercial.LoadPhaseType.entries.forEachIndexed { index, phase ->
                 SegmentedButton(
                     selected = service.phase == phase,
-                    onClick = { updateDesign { it.copy(electricalService = service.copy(phase = phase)) } },
+                    onClick = { editField { it.copy(phase = phase) } },
                     shape = SegmentedButtonDefaults.itemShape(index, com.lumix.estimator.domain.commercial.LoadPhaseType.entries.size)
                 ) {
                     Text(when (phase) {
@@ -138,21 +177,39 @@ private fun ElectricalServiceSection(design: CommercialIndustrialDesign, updateD
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             NumberField(
-                label = "Nominal voltage", value = service.nominalVoltage, suffix = "V",
-                onValueChange = { v -> updateDesign { it.copy(electricalService = service.copy(nominalVoltage = v)) } },
+                label = if (service.phase == com.lumix.estimator.domain.commercial.LoadPhaseType.THREE_PHASE) "Line-to-line voltage" else "Nominal voltage",
+                value = service.nominalVoltage, suffix = "V",
+                onValueChange = { v -> editField { it.copy(nominalVoltage = v) } },
                 modifier = Modifier.weight(1f)
             )
             NumberField(
                 label = "Frequency", value = service.frequencyHz, suffix = "Hz",
-                onValueChange = { v -> updateDesign { it.copy(electricalService = service.copy(frequencyHz = v)) } },
+                onValueChange = { v -> editField { it.copy(frequencyHz = v) } },
                 modifier = Modifier.weight(1f)
+            )
+        }
+        if (service.phase != com.lumix.estimator.domain.commercial.LoadPhaseType.SINGLE_PHASE) {
+            NumberField(
+                label = "Line-to-neutral voltage (optional)",
+                value = service.lineToNeutralVoltage ?: 0.0, suffix = "V",
+                onValueChange = { v -> editField { it.copy(lineToNeutralVoltage = if (v > 0.0) v else null) } }
             )
         }
         NumberField(
             label = "Utility service capacity (optional)",
             value = service.utilityServiceCapacityAmps ?: 0.0, suffix = "A",
-            onValueChange = { v -> updateDesign { it.copy(electricalService = service.copy(utilityServiceCapacityAmps = if (v > 0.0) v else null)) } }
+            onValueChange = { v -> editField { it.copy(utilityServiceCapacityAmps = if (v > 0.0) v else null) } }
         )
+
+        HorizontalDivider()
+        Text(
+            "Design load %.1f kW / %.1f kVA (PF %.2f)".format(design.designLoadKw, design.designApparentPowerKva, design.blendedPowerFactor),
+            style = MaterialTheme.typography.bodyMedium
+        )
+        design.totalServiceCurrentAmps?.let { amps ->
+            Text("Total service current: %.1f A".format(amps), style = MaterialTheme.typography.bodyMedium)
+        }
+        Text(design.electricalServiceGuidance, style = MaterialTheme.typography.labelSmall)
     }
 }
 

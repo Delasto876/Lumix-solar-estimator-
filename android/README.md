@@ -8092,3 +8092,76 @@ Centre's shift presets (Phase 47). `./gradlew` remains blocked by this sandbox's
 plugin-resolution network limitation (re-confirmed this round); verified by balance-checking every
 touched file and hand-tracing the new composable's data flow against the existing
 `StepCommercialIndustrialDesign.kt` update pattern it deliberately mirrors.
+
+## A127 — Phase 43: Electrical Service presets + real three-phase current/kVA math
+
+Second phase of the Commercial/Industrial facility-load-profile update. Turned out the domain layer
+already had more of §16/§17 than expected — `ElectricalService` (phase, nominal voltage, frequency,
+utility capacity) has existed since Phase 27, with a working phase segmented-control and free-form
+voltage/frequency fields in `StepCommercialIndustrialDesign.kt`'s `ElectricalServiceSection` since
+Phase 29. This round adds what was actually missing: the spec's own 7 named presets, a real √3
+three-phase current calculation, a separate line-to-neutral voltage field, and the §19 advisory
+guidance text — without touching the residential engine, `CommercialIndustrialCalculator`'s existing
+phase-mismatch warning, or anything already working.
+
+**Default frequency fixed 60Hz → 50Hz** (spec §15 — "DEFAULT FREQUENCY = 50 Hz. This is the default
+for Lumix"). `ElectricalService.frequencyHz`'s old 60.0 default didn't even match Jamaica's own grid
+frequency, which every other 50Hz-aware corner of this codebase (`EquipmentSpecs.jamaicaFrequencyConfirmed`)
+already assumes — this was a plain latent inconsistency, not a real design tradeoff, so no question
+was needed before fixing it. Still installer-changeable per §15's own instruction.
+
+**New `ElectricalServicePreset` enum** (7 entries, spec §16's own list, ending in `CUSTOM`): each
+named preset carries the phase + nominal (line-to-line, where applicable) voltage + line-to-neutral
+voltage the spec itself specifies (120V single, 220/240V single, 120/240V split, 120/208V three,
+220/380V three, 230/400V three). `CUSTOM` carries no figures of its own and is also the default for
+a fresh `ElectricalService` — per §16's own "Do NOT automatically assume every commercial or
+industrial building uses split phase," picking one is always an explicit installer action, never
+inferred.
+
+**`ElectricalService` gains three fields:** `preset` (which named preset seeded the current values,
+or `CUSTOM` if hand-entered — including every already-saved quote from before this field existed),
+`lineToNeutralVoltage` (spec §17 — "Line-to-neutral voltage where applicable," null for a
+single-phase service with no separate neutral-referenced figure), and the corrected `frequencyHz`
+default above. All additive with safe defaults, so old saved quotes still deserialize unchanged.
+`nominalVoltage` itself is now documented as meaning the line-to-line figure when `phase ==
+THREE_PHASE`.
+
+**Real three-phase current math** (`ElectricalService.totalCurrentAmps`, spec §17's own formulas —
+"kW = √3 x V(line-line) x I x PF / 1000; kVA = √3 x V(line-line) x I / 1000" for three-phase, "kW =
+V x I x PF / 1000" for single phase — inverted to solve for I from the design's own real
+`designApparentPowerKva`, which already folds in PF): three-phase divides by `√3 x V`, single-phase
+and split-phase by `V` alone (a balanced split-phase load is electrically equivalent to single-phase
+at that same voltage for this aggregate calculation — the spec's own formula list only names "single
+phase" and "three-phase"). `CommercialIndustrialDesign.totalServiceCurrentAmps` wires this to the
+design's real load figures; hand-traced against the spec's own formula (120/208V three-phase, 10kVA
+→ 27.76A) since `./gradlew` remains blocked.
+
+**§19 guidance** (`CommercialIndustrialDesign.electricalServiceGuidance` — "Do NOT make this
+decision purely from facility name. Evaluate: Total kW, Total kVA, Largest individual load, Motor
+loads, Starting demand... If uncertain: show: 'Electrical service requires installer verification.'"):
+a plain-text summary of design load/kVA, the largest single connected load, and whether any load
+carries real starting/surge demand exceeding its running power — plus the verification disclaimer
+whenever `preset` is still `CUSTOM` (i.e., not yet explicitly confirmed). Advisory only; it never
+selects a service on its own, exactly as §19 requires.
+
+**UI (`ElectricalServiceSection`):** a new preset `LabeledDropdown` above the existing phase
+segmented control seeds phase/voltage/line-to-neutral from the chosen preset; every field underneath
+stays directly editable, and any direct edit drops the preset back to `CUSTOM` so the dropdown never
+shows a stale label next to hand-changed values (the same "must transform the live design, not a
+stale composition-scope snapshot" bugfix this file already documents elsewhere for `design` itself —
+applied here too, since the first draft of this section's `editField`/`applyPreset` helpers closed
+over the same kind of stale `service` snapshot before being corrected). A new line-to-neutral field
+appears for split/three-phase services, and a divider-separated readout at the bottom shows the
+design's own kW/kVA/PF, total service current, and the §19 guidance text.
+
+**Tests:** new `ElectricalServiceTest.kt` — 50Hz/CUSTOM defaults, exactly 7 presets ending in
+CUSTOM, the three-phase vs. single-phase vs. split-phase current formulas (hand-verified against the
+spec's own equations), null current when voltage is unset, preset seeding values, a full
+`CommercialIndustrialDesign` round-trip from real loads to current, and both guidance-text branches
+(verification-required vs. confirmed) including the largest-load/starting-demand signals.
+
+**Deferred to later phases (unchanged from the Phase 42 report):** the facility-specific default
+load libraries (Phase 44/45), the Transformer model (Phase 46 — §18, not touched this round), and
+facility-driven schedule defaults (Phase 47). `./gradlew` remains blocked by the same standing
+plugin-resolution network limitation; verified by balance-checking every touched file and hand-
+tracing every new formula/test assertion against the spec's own stated equations.
