@@ -216,9 +216,9 @@ private fun IndustrialShiftSection(schedule: IndustrialShiftSchedule, onChange: 
             value = schedule.numberOfShifts,
             onValueChange = { n -> onChange(schedule.copy(numberOfShifts = n.coerceIn(0, 3))) }
         )
-        if (schedule.numberOfShifts >= 1) ShiftRow("Shift 1", schedule.shift1) { s -> onChange(schedule.copy(shift1 = s)) }
-        if (schedule.numberOfShifts >= 2) ShiftRow("Shift 2", schedule.shift2) { s -> onChange(schedule.copy(shift2 = s)) }
-        if (schedule.numberOfShifts >= 3) ShiftRow("Shift 3", schedule.shift3) { s -> onChange(schedule.copy(shift3 = s)) }
+        if (schedule.numberOfShifts >= 1) ShiftRow("Shift 1", schedule.shift1, previousShiftEnd = null) { s -> onChange(schedule.copy(shift1 = s)) }
+        if (schedule.numberOfShifts >= 2) ShiftRow("Shift 2", schedule.shift2, previousShiftEnd = schedule.shift1?.endHour) { s -> onChange(schedule.copy(shift2 = s)) }
+        if (schedule.numberOfShifts >= 3) ShiftRow("Shift 3", schedule.shift3, previousShiftEnd = schedule.shift2?.endHour) { s -> onChange(schedule.copy(shift3 = s)) }
 
         Text("Working days", style = MaterialTheme.typography.bodyMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -247,19 +247,32 @@ private fun IndustrialShiftSection(schedule: IndustrialShiftSchedule, onChange: 
     }
 }
 
+/**
+ * Phase 40 ("i want to enter like shift 1 from 6 am to 3pm and shift 2 starts 3pm to 11 pm"): a
+ * not-yet-configured shift's Start/End default to [previousShiftEnd] (the prior shift's own End —
+ * null for Shift 1, which has no predecessor) instead of a flat midnight, so a real back-to-back
+ * schedule only needs each shift's END typed once — Shift 2 already shows Shift 1's end time as its
+ * own starting point the moment Shift 1 is entered, rather than defaulting to 12:00 AM and forcing
+ * the installer to retype the same clock time as both "Shift 1 End" and "Shift 2 Start." Purely a
+ * DISPLAY default while [shift] is still null — the moment any field is actually edited, [shift]
+ * becomes a real, independent value and this suggestion no longer applies, so it never silently
+ * overwrites a shift the installer deliberately set to something else (e.g. a real gap between
+ * shifts, or later going back and changing an earlier shift's end).
+ */
 @Composable
-private fun ShiftRow(label: String, shift: Shift?, onChange: (Shift) -> Unit) {
+private fun ShiftRow(label: String, shift: Shift?, previousShiftEnd: Double?, onChange: (Shift) -> Unit) {
+    val defaultStart = previousShiftEnd ?: 0.0
     Column {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = LocalLumixPalette.current.textPrimary)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TimeField(
-                label = "Start", hour = shift?.startHour ?: 0.0,
+                label = "Start", hour = shift?.startHour ?: defaultStart,
                 onChange = { v -> onChange(Shift(v, shift?.endHour ?: v)) },
                 modifier = Modifier.weight(1f)
             )
             TimeField(
-                label = "End", hour = shift?.endHour ?: 0.0,
-                onChange = { v -> onChange(Shift(shift?.startHour ?: 0.0, v)) },
+                label = "End", hour = shift?.endHour ?: defaultStart,
+                onChange = { v -> onChange(Shift(shift?.startHour ?: defaultStart, v)) },
                 modifier = Modifier.weight(1f)
             )
         }

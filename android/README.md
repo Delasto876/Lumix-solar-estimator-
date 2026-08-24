@@ -7907,3 +7907,37 @@ the day round-trips exactly through the 12-hour conversion, and the installer's 
 harness (confirmed absent this round; every prior UI-only change carries the same disclosed
 limitation) — verified by code review of the exact keystroke round-trip described above, and
 `./gradlew` remains blocked by this sandbox's standing network limitation regardless.
+
+## A124 — Phase 40: shift Start now chains from the previous shift's End
+
+"fix the shift shedule time settings its not logical i want to enter like shift 1 from 6 am to 3pm
+and shift 2 starts 3pm to 11 pm eg."
+
+**The actual gap.** The domain math for exactly this example was already correct and already tested
+(`Shift.durationHours`/`hoursBetweenWrapping`, Phase 34/36) — a 6am-3pm Shift 1 and a 3pm-11pm Shift
+2 always summed to the right production hours. The illogical part was the UI: Shift 1, Shift 2, and
+Shift 3 were three completely independent `ShiftRow`s, each defaulting its Start AND End to a flat
+12:00 AM until touched. Entering a real back-to-back schedule meant typing "3pm" twice — once as
+Shift 1's End, and again as Shift 2's Start — with nothing connecting them, and a freshly-revealed
+Shift 2 showing a confusing "12:00 AM" starting point that had no relationship to Shift 1 at all.
+
+**Fix: an unconfigured shift's Start/End now default to the previous shift's End.** `ShiftRow` takes
+a new `previousShiftEnd` parameter (`null` for Shift 1, `schedule.shift1?.endHour` for Shift 2,
+`schedule.shift2?.endHour` for Shift 3) — while a shift is still unconfigured (`null`), both its
+Start and End `TimeField`s display that value instead of a flat `0.0`. So the moment Shift 1 is set
+to 6am-3pm, Shift 2 already shows "3:00 PM" as its own starting point — entering the rest of the
+schedule is now just typing each shift's END once (Shift 2 → 11pm, Shift 3 → 6am next day) rather
+than re-typing every boundary twice.
+
+**Purely a display default, never a silent overwrite.** The moment any field of a shift is actually
+edited, that shift becomes a real, independent `Shift` value and the suggestion stops applying —
+going back later and changing Shift 1's end doesn't retroactively drag Shift 2 along with it, and an
+installer who genuinely wants a gap between shifts (or an overlap) can still type whatever they want
+into Shift 2's own Start. This mirrors the same "default only while unconfigured, never fight an
+explicit edit" principle Phase 39.1 just established for `NumberField`.
+
+**Verification:** Compose-layer only (no new pure domain function — the fix is a one-line default
+inside the composable itself, `previousShiftEnd ?: 0.0`) — correct by code review, tracing the exact
+sequence described above (Shift 1 → 6am/3pm, Shift 2 already showing 3pm, edit only its End to 11pm)
+against the unchanged, already-tested `Shift`/`IndustrialShiftSchedule` domain math. `./gradlew`
+remains blocked by this sandbox's standing network limitation, unrelated to this round's code.
