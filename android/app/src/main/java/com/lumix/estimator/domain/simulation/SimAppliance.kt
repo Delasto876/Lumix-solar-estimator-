@@ -40,6 +40,19 @@ enum class DayType(val label: String) {
  * Appliances that don't cycle (lighting, electronics, most short "event" loads) carry
  * `dutyFactor = 1.0` — their scheduled window already *is* their actual running time.
  * [category] groups the appliance picker into sections instead of one 45-row flat list.
+ *
+ * Load-Sheet round (user-supplied "Lumix Load Sheet Defaults" spreadsheet, Modeling Rules sheet:
+ * "Peak/Nameplate W: use for peak/inverter checks"; "Most Likely Operating W: the default average/
+ * typical operating point"): for every entry with a clean 1:1 match to a sheet row, [watts] was
+ * corrected to the sheet's real Peak/Nameplate figure (matching this doc's own `Pnameplate`
+ * semantic exactly) and [dutyFactor] recomputed as the sheet's own Most-Likely/Peak ratio — the
+ * same `Pavg = Pnameplate × duty factor` model this file already used, now fed real sourced
+ * numbers on both sides instead of an earlier hand-estimate. [ApplianceType]
+ * [com.lumix.estimator.domain.ApplianceType]'s own `watts` was updated identically for every
+ * corrected entry (`ApplianceTypeConsistencyTest` requires the two stay in exact agreement). The
+ * per-appliance SCHEDULE SHAPES ([defaultScheduleFor], Phase 28's own evidence-based windows) were
+ * deliberately left untouched — this round only corrects the watts/duty-factor inputs those
+ * schedules already multiply against, not the schedules themselves.
  */
 @Serializable
 enum class SimApplianceType(
@@ -61,20 +74,20 @@ enum class SimApplianceType(
     val startupDurationSeconds: Double = 0.0
 ) {
     // Kitchen
-    REFRIGERATOR("Refrigerator/Freezer", 150, ElectricalTier.LOW, 0.35, "Kitchen", startupSurgeMultiplier = 3.0, startupDurationSeconds = 0.5),
-    CHEST_FREEZER("Chest/Deep Freezer", 180, ElectricalTier.LOW, 0.35, "Kitchen", startupSurgeMultiplier = 3.0, startupDurationSeconds = 0.5),
-    ELECTRIC_KETTLE("Electric Kettle", 1500, ElectricalTier.LOW, 1.0, "Kitchen"),
-    MICROWAVE("Microwave", 1200, ElectricalTier.LOW, 1.0, "Kitchen"),
-    TOASTER("Toaster", 1200, ElectricalTier.LOW, 1.0, "Kitchen"),
-    BLENDER("Blender", 400, ElectricalTier.LOW, 1.0, "Kitchen"),
-    STOVE("Electric Stove/Cooktop", 3000, ElectricalTier.HIGH, 0.55, "Kitchen"),
-    OVEN("Electric Oven", 3000, ElectricalTier.HIGH, 0.50, "Kitchen"),
+    REFRIGERATOR("Refrigerator/Freezer", 300, ElectricalTier.LOW, 0.75, "Kitchen", startupSurgeMultiplier = 3.0, startupDurationSeconds = 0.5),
+    CHEST_FREEZER("Chest/Deep Freezer", 400, ElectricalTier.LOW, 0.69, "Kitchen", startupSurgeMultiplier = 3.0, startupDurationSeconds = 0.5),
+    ELECTRIC_KETTLE("Electric Kettle", 2500, ElectricalTier.LOW, 0.72, "Kitchen"),
+    MICROWAVE("Microwave", 1800, ElectricalTier.LOW, 0.72, "Kitchen"),
+    TOASTER("Toaster", 1500, ElectricalTier.LOW, 0.73, "Kitchen"),
+    BLENDER("Blender", 1000, ElectricalTier.LOW, 0.6, "Kitchen"),
+    STOVE("Electric Stove/Cooktop", 3000, ElectricalTier.HIGH, 0.73, "Kitchen"),
+    OVEN("Electric Oven", 3500, ElectricalTier.HIGH, 0.71, "Kitchen"),
     AIR_FRYER("Air Fryer", 1500, ElectricalTier.LOW, 0.65, "Kitchen"),
     RICE_COOKER("Rice Cooker", 700, ElectricalTier.LOW, 0.55, "Kitchen"),
     PRESSURE_COOKER("Pressure Cooker", 1000, ElectricalTier.LOW, 0.65, "Kitchen"),
 
     // Cooling & comfort
-    CEILING_FAN("Ceiling Fan", 60, ElectricalTier.LOW, 1.0, "Cooling & Comfort"),
+    CEILING_FAN("Ceiling Fan", 100, ElectricalTier.LOW, 0.7, "Cooling & Comfort"),
     STANDING_FAN("Pedestal/Standing Fan", 50, ElectricalTier.LOW, 1.0, "Cooling & Comfort"),
     BEDROOM_FAN("Bedroom Fan", 50, ElectricalTier.LOW, 1.0, "Cooling & Comfort"),
     // dutyFactor 0.60: a thermostat-cycling compressor doesn't hold nameplate watts for its
@@ -105,7 +118,7 @@ enum class SimApplianceType(
     AC_60000("Air Conditioner — 60,000 BTU", 6000, ElectricalTier.HIGH, 0.60, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
 
     // Lighting
-    LED_BEDROOM("LED Lighting — Bedroom", 10, ElectricalTier.LOW, 1.0, "Lighting"),
+    LED_BEDROOM("LED Lighting — Bedroom", 25, ElectricalTier.LOW, 0.8, "Lighting"),
     LED_KITCHEN("LED Lighting — Kitchen", 10, ElectricalTier.LOW, 1.0, "Lighting"),
     LED_LIVING("LED Lighting — Living/Common", 10, ElectricalTier.LOW, 1.0, "Lighting"),
     LED_EXTERIOR("LED Lighting — Exterior/Security", 10, ElectricalTier.LOW, 1.0, "Lighting"),
@@ -113,29 +126,29 @@ enum class SimApplianceType(
     OUTDOOR_FLOODLIGHT("Outdoor Security Floodlight", 30, ElectricalTier.LOW, 1.0, "Lighting"),
 
     // Electronics & networking
-    TELEVISION("Television", 80, ElectricalTier.LOW, 1.0, "Electronics & Networking"),
+    TELEVISION("Television", 200, ElectricalTier.LOW, 0.6, "Electronics & Networking"),
     SET_TOP_BOX("Set-Top/Cable Box", 15, ElectricalTier.LOW, 0.8, "Electronics & Networking"),
     WIFI_ROUTER("Wi-Fi Router", 10, ElectricalTier.LOW, 1.0, "Electronics & Networking"),
     MODEM("Modem/ONT", 12, ElectricalTier.LOW, 1.0, "Electronics & Networking"),
     PHONE_CHARGERS("Phone Chargers", 10, ElectricalTier.LOW, 0.5, "Electronics & Networking"),
-    LAPTOP("Laptop", 65, ElectricalTier.LOW, 0.6, "Electronics & Networking"),
-    DESKTOP_COMPUTER("Desktop Computer + Monitor", 150, ElectricalTier.LOW, 0.6, "Electronics & Networking"),
+    LAPTOP("Laptop", 150, ElectricalTier.LOW, 0.6, "Electronics & Networking"),
+    DESKTOP_COMPUTER("Desktop Computer + Monitor", 400, ElectricalTier.LOW, 0.69, "Electronics & Networking"),
     PRINTER("Computer Printer", 35, ElectricalTier.LOW, 0.3, "Electronics & Networking"),
     GAME_CONSOLE("Game Console", 120, ElectricalTier.LOW, 0.7, "Electronics & Networking"),
     SOUND_SYSTEM("Sound System", 100, ElectricalTier.LOW, 0.5, "Electronics & Networking"),
 
     // Water & heating
-    WATER_HEATER("Electric Water Heater", 3800, ElectricalTier.HIGH, 0.50, "Water & Heating"),
+    WATER_HEATER("Electric Water Heater", 4500, ElectricalTier.HIGH, 0.56, "Water & Heating"),
     INSTANT_SHOWER("Instant Electric Shower", 4500, ElectricalTier.HIGH, 1.0, "Water & Heating"),
-    WATER_PUMP("Water Pump", 750, ElectricalTier.HIGH, 0.50, "Water & Heating", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
+    WATER_PUMP("Water Pump", 1500, ElectricalTier.HIGH, 0.6, "Water & Heating", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
 
     // Personal care
-    HAIR_DRYER("Hair Dryer", 1500, ElectricalTier.LOW, 1.0, "Personal Care"),
+    HAIR_DRYER("Hair Dryer", 2000, ElectricalTier.LOW, 0.75, "Personal Care"),
     CURLING_IRON("Curling/Flat Iron", 60, ElectricalTier.LOW, 0.60, "Personal Care"),
 
     // Laundry
-    IRON("Clothes Iron", 1200, ElectricalTier.LOW, 0.60, "Laundry"),
-    WASHING_MACHINE("Washing Machine", 500, ElectricalTier.LOW, 0.60, "Laundry", startupSurgeMultiplier = 2.0, startupDurationSeconds = 0.5),
+    IRON("Clothes Iron", 1800, ElectricalTier.LOW, 0.78, "Laundry"),
+    WASHING_MACHINE("Washing Machine", 1000, ElectricalTier.LOW, 0.65, "Laundry", startupSurgeMultiplier = 2.0, startupDurationSeconds = 0.5),
     CLOTHES_DRYER("Clothes Dryer", 5000, ElectricalTier.HIGH, 0.75, "Laundry", startupSurgeMultiplier = 2.0, startupDurationSeconds = 0.5),
 
     // Cleaning & misc
@@ -143,7 +156,7 @@ enum class SimApplianceType(
     SEWING_MACHINE("Sewing Machine", 100, ElectricalTier.LOW, 0.50, "Cleaning & Misc"),
 
     // Security & access
-    SECURITY_SYSTEM("Security/CCTV System", 40, ElectricalTier.LOW, 1.0, "Security & Access"),
+    SECURITY_SYSTEM("Security/CCTV System", 150, ElectricalTier.LOW, 0.6, "Security & Access"),
     GATE_OPENER("Electric Gate/Garage Opener", 500, ElectricalTier.LOW, 1.0, "Security & Access", startupSurgeMultiplier = 2.5, startupDurationSeconds = 0.5),
 
     // EV & outdoor

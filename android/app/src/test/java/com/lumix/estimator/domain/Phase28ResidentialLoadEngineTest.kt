@@ -52,13 +52,14 @@ class Phase28ResidentialLoadEngineTest {
         val result = SystemCalculator.loadsKwhAndPeak(
             inputs(appliances = noAppliances + (ApplianceType.BLENDER to ApplianceLoad(qty = 1)))
         )
-        // Blender's default schedule is now Saturday/Sunday only (Phase 28), 6 minutes/day at 400W:
-        // 400W x 0.1h / 1000 = 0.04 kWh each weekend day, zero on a weekday.
+        // Blender's default schedule is now Saturday/Sunday only (Phase 28), 6 minutes/day. Load-Sheet
+        // round: blender is now 1000W nameplate x 0.6 duty factor (a real sourced average/peak split,
+        // was a flat 400W x 1.0): 1000W x 0.6 x 0.1h / 1000 = 0.06 kWh each weekend day, zero on a weekday.
         assertEquals(0.0, result.weekdayDailyKwh, 0.0001)
-        assertEquals(0.04, result.saturdayDailyKwh, 0.0001)
-        assertEquals(0.04, result.sundayDailyKwh, 0.0001)
-        assertEquals(0.08, result.weeklyKwh, 0.0001)
-        assertEquals(0.08 / 7.0, result.averageDailyKwh, 0.0001)
+        assertEquals(0.06, result.saturdayDailyKwh, 0.0001)
+        assertEquals(0.06, result.sundayDailyKwh, 0.0001)
+        assertEquals(0.12, result.weeklyKwh, 0.0001)
+        assertEquals(0.12 / 7.0, result.averageDailyKwh, 0.0001)
     }
 
     @Test
@@ -66,10 +67,11 @@ class Phase28ResidentialLoadEngineTest {
         val result = SystemCalculator.loadsKwhAndPeak(
             inputs(appliances = noAppliances + mapOf(ApplianceType.IRON to ApplianceLoad(qty = 1), ApplianceType.TV to ApplianceLoad(qty = 1)))
         )
-        // Flat nameplate sum would have been 1200W (iron) + 80W (TV) = 1280W. Iron only runs
+        // Load-Sheet round: iron is now 1800W nameplate (was 1200W), TV 200W (was 80W). Flat
+        // nameplate sum would have been 1800W (iron) + 200W (TV) = 2000W. Iron only runs
         // 7:00-7:15am; TV only from 6:30pm (weekday) or 10am (weekend) onward — the two never
-        // coincide, so the real coincident peak is iron's own 1200W alone, not their sum.
-        assertEquals(1200.0, result.peakWatts, 0.01)
+        // coincide, so the real coincident peak is iron's own 1800W alone, not their sum.
+        assertEquals(1800.0, result.peakWatts, 0.01)
     }
 
     @Test
@@ -77,9 +79,10 @@ class Phase28ResidentialLoadEngineTest {
         val result = SystemCalculator.loadsKwhAndPeak(
             inputs(appliances = noAppliances + mapOf(ApplianceType.FRIDGE to ApplianceLoad(qty = 1), ApplianceType.IRON to ApplianceLoad(qty = 1)))
         )
-        // Fridge (150W) is scheduled 24 hours, every day; iron (1200W) is active 7:00-7:15am,
-        // every day — during that window both are genuinely coincident, so the real peak DOES
-        // include their sum (150 + 1200 = 1350W), not a diversity-discounted lower figure.
-        assertEquals(1350.0, result.peakWatts, 0.01)
+        // Load-Sheet round: fridge is now 300W nameplate (was 150W), iron 1800W (was 1200W).
+        // Fridge is scheduled 24 hours, every day; iron is active 7:00-7:15am, every day —
+        // during that window both are genuinely coincident, so the real peak DOES include their
+        // sum (300 + 1800 = 2100W), not a diversity-discounted lower figure.
+        assertEquals(2100.0, result.peakWatts, 0.01)
     }
 }

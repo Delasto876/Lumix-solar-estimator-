@@ -107,63 +107,63 @@ enum class TransferSwitchMode { NONE, MANUAL, AUTOMATIC }
  */
 enum class ApplianceType(val label: String, val watts: Int, val category: String) {
     // Kitchen
-    FRIDGE("Refrigerators", 150, "Kitchen"),
-    FREEZER("Deep Freezers", 180, "Kitchen"),
-    ELECTRIC_KETTLE("Electric Kettle", 1500, "Kitchen"),
-    MICROWAVE("Microwaves", 1200, "Kitchen"),
-    TOASTER("Toaster", 1200, "Kitchen"),
-    BLENDER("Blender", 400, "Kitchen"),
+    FRIDGE("Refrigerators", 300, "Kitchen"),
+    FREEZER("Deep Freezers", 400, "Kitchen"),
+    ELECTRIC_KETTLE("Electric Kettle", 2500, "Kitchen"),
+    MICROWAVE("Microwaves", 1800, "Kitchen"),
+    TOASTER("Toaster", 1500, "Kitchen"),
+    BLENDER("Blender", 1000, "Kitchen"),
     STOVE("Stove", 3000, "Kitchen"),
-    OVEN("Oven", 3000, "Kitchen"),
+    OVEN("Oven", 3500, "Kitchen"),
     AIR_FRYER("Air Fryer", 1500, "Kitchen"),
     RICE_COOKER("Rice Cooker", 700, "Kitchen"),
     PRESSURE_COOKER("Pressure Cooker", 1000, "Kitchen"),
 
     // Cooling & Comfort
-    FAN("Fans", 60, "Cooling & Comfort"),
+    FAN("Fans", 100, "Cooling & Comfort"),
     STANDING_FAN("Pedestal/Standing Fan", 50, "Cooling & Comfort"),
     BEDROOM_FAN("Bedroom Fan", 50, "Cooling & Comfort"),
 
     // Lighting
     LIGHTS("Lights", 10, "Lighting"),
     OUTDOOR_LIGHTS("Outdoor Lights", 10, "Lighting"),
-    LED_BEDROOM("LED Lighting — Bedroom", 10, "Lighting"),
+    LED_BEDROOM("LED Lighting — Bedroom", 25, "Lighting"),
     LED_KITCHEN("LED Lighting — Kitchen", 10, "Lighting"),
     LED_BATHROOM("LED Lighting — Bathroom", 10, "Lighting"),
     OUTDOOR_FLOODLIGHT("Outdoor Security Floodlight", 30, "Lighting"),
 
     // Electronics & Networking
-    TV("TVs", 80, "Electronics & Networking"),
-    COMPUTER("Computer", 150, "Electronics & Networking"),
+    TV("TVs", 200, "Electronics & Networking"),
+    COMPUTER("Computer", 400, "Electronics & Networking"),
     GAMING_CONSOLE("Gaming Console", 120, "Electronics & Networking"),
     SET_TOP_BOX("Set-Top/Cable Box", 15, "Electronics & Networking"),
     WIFI_ROUTER("Wi-Fi Router", 10, "Electronics & Networking"),
     MODEM("Modem/ONT", 12, "Electronics & Networking"),
     PHONE_CHARGERS("Phone Chargers", 10, "Electronics & Networking"),
-    LAPTOP("Laptop", 65, "Electronics & Networking"),
+    LAPTOP("Laptop", 150, "Electronics & Networking"),
     PRINTER("Computer Printer", 35, "Electronics & Networking"),
     SOUND_SYSTEM("Sound System", 100, "Electronics & Networking"),
 
     // Water & Heating
-    WATER_HEATER("Water Heater", 3800, "Water & Heating"),
-    WATER_PUMP("Water Pump", 750, "Water & Heating"),
+    WATER_HEATER("Water Heater", 4500, "Water & Heating"),
+    WATER_PUMP("Water Pump", 1500, "Water & Heating"),
     INSTANT_SHOWER("Instant Electric Shower", 4500, "Water & Heating"),
 
     // Personal Care
-    HAIR_DRYER("Hair Dryer", 1500, "Personal Care"),
+    HAIR_DRYER("Hair Dryer", 2000, "Personal Care"),
     CURLING_IRON("Curling/Flat Iron", 60, "Personal Care"),
 
     // Laundry
-    WASHER("Washers", 500, "Laundry"),
+    WASHER("Washers", 1000, "Laundry"),
     DRYER("Dryers", 5000, "Laundry"),
-    IRON("Irons", 1200, "Laundry"),
+    IRON("Irons", 1800, "Laundry"),
 
     // Cleaning & Misc
     VACUUM_CLEANER("Vacuum Cleaner", 900, "Cleaning & Misc"),
     SEWING_MACHINE("Sewing Machine", 100, "Cleaning & Misc"),
 
     // Security & Access
-    SECURITY_SYSTEM("Security/CCTV System", 40, "Security & Access"),
+    SECURITY_SYSTEM("Security/CCTV System", 150, "Security & Access"),
     GATE_OPENER("Electric Gate/Garage Opener", 500, "Security & Access"),
 
     // EV & Outdoor

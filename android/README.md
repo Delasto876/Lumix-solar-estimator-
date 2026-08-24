@@ -8450,3 +8450,68 @@ flat hours/day multiplier — a materially different, already-more-sophisticated
 sheet's simpler watts×hours approach. Applying the sheet there safely needs reconciling three things
 at once instead of one catalog file, so it's being raised with the user as its own decision rather
 than assumed.
+
+## A133 — Load-Sheet round, part 2: real Residential wattage/duty-factor corrections
+
+User confirmed applying the load sheet to Residential too. Residential's model turned out to be
+architecturally different from Commercial/Industrial's flat `watts × hours/day`: every
+`SimApplianceType` already carries a `Pnameplate`/`dutyFactor` pair (`Pavg = Pnameplate × duty
+factor`, sourced from the original Jamaica Residential Energy Audit Load Profile, A33) rather than a
+single flat wattage — so applying this new sheet correctly meant feeding its own real
+Peak/Nameplate-W and Most-Likely/Peak ratio into that SAME existing two-part model, not overwriting
+it with a flat number.
+
+**19 appliance pairs corrected** across `ApplianceType` (`QuoteInputs.kt`) and `SimApplianceType`
+(`SimAppliance.kt`), kept in exact agreement per `ApplianceTypeConsistencyTest`'s own invariant:
+`watts` set to the sheet's real Peak/Nameplate W, `dutyFactor` recomputed as the sheet's own
+Most-Likely-Operating-W ÷ Peak-Nameplate-W ratio. Some corrections are substantial and safety-
+relevant, not cosmetic: `REFRIGERATOR` was 150W @ duty 0.35 (52.5W real average) — the sheet's real
+figures are 300W @ duty 0.75 (225W average), a **4x** understatement in the old default. `IRON`
+1200W→1800W, `TELEVISION` 80W→200W, `SECURITY_SYSTEM` 40W→150W, `WASHING_MACHINE` 500W→1000W,
+`WATER_HEATER` 3800W→4500W, and others corrected similarly (`OVEN`, `STOVE`, `WATER_PUMP`,
+`LAPTOP`/`DESKTOP_COMPUTER`, `HAIR_DRYER`, `TOASTER`, `MICROWAVE`, `ELECTRIC_KETTLE`, `BLENDER`,
+`CHEST_FREEZER`, `CEILING_FAN`, `LED_BEDROOM`).
+
+**The per-appliance SCHEDULE SHAPES (`defaultScheduleFor`) were deliberately left untouched.** Those
+are Phase 28's own evidence-based windows (e.g. "TV: Default approximately 3-4 hours at night, use
+approximately 6:30-10:00 PM," "IRON: Default only 15 minutes in the morning: 7:00-7:15 AM" — real
+cited defaults, not guesses), already more detailed than the sheet's single flat "Default Hours/Day"
+figure. This round only corrects the watts/duty-factor inputs those schedules multiply against, not
+the schedules themselves — the two are orthogonal (energy = schedule duration × dutyFactor × watts).
+
+**Three categories intentionally NOT corrected, disclosed rather than silently skipped:**
+- **Internet router/ONT** (sheet combines into one 20W/30W row) — my catalog already has two
+  separate low-power entries (`WIFI_ROUTER` 10W + `MODEM` 12W = 22W) close enough to the sheet's
+  combined figure that reallocating one number across two fields would have been a guess, not a fix.
+- **Living-room/Kitchen/Outdoor LED lighting rows** — the sheet's figures (60W, 50W, 50W) read as
+  whole-room aggregates, while these catalog entries are genuinely per-fixture with their own
+  default quantities (`LED_LIVING` qty 4, `LED_KITCHEN` qty 2, `LED_EXTERIOR` qty 4) — applying an
+  aggregate figure per-fixture would have overstated lighting load by roughly the quantity multiple.
+  Only `LED_BEDROOM` (qty 2, and whose 2h/day sheet figure matches its own schedule's total runtime
+  exactly) was judged a clean enough match to correct.
+- **Dishwasher** — the sheet lists it, but this app's Residential catalog has no Dishwasher
+  appliance type at all yet. Adding one is a new-appliance-type change (both enums, the wizard
+  picker, `defaultScheduleFor`, `defaultQuantityFor`, `defaultApplianceStates`, the consistency
+  test) rather than a defaults correction, so it's flagged as a gap, not silently invented.
+- **Inverter AC tiers (9-24k BTU)** were checked and left alone — their existing nameplate watts
+  already exactly equal the sheet's own Peak/Nameplate figures (900/1200/1800/2400W), and the
+  existing 0.60 duty factor (which has its own "matches the exact worked example this app's own AC
+  spec used" justification in code) is within 2-4 percentage points of the sheet's own ratio —
+  already validated, not a gap.
+
+**Existing tests updated for the corrected figures (traced by hand, not guessed):**
+`Phase28ResidentialLoadEngineTest.kt`'s three assertions that depended on now-changed wattages —
+Blender's weekend-only energy (0.04kWh→0.06kWh per day, since 1000W×0.6 duty now replaces 400W×1.0
+duty), and both coincident-peak tests (iron-vs-TV: 1200W→1800W; fridge-plus-iron: 1350W→2100W) — all
+recomputed directly from the corrected `watts`/`dutyFactor` values, not adjusted to make the test
+pass. Swept the rest of the test suite for any other reference to these 19 appliance types; nothing
+else depends on their exact wattage.
+
+**Tests:** new `LoadSheetResidentialDefaultsTest.kt` — the fridge/freezer real-figure correction
+with its recomputed duty factor, the iron/TV peak-watt corrections, an exhaustive sweep confirming
+every one of the 19 corrected pairs still has `ApplianceType.watts == SimApplianceType.watts`
+(the same invariant `ApplianceTypeConsistencyTest` already protects, checked here specifically for
+this round's changes), confirmation the AC tiers were correctly left alone, and confirmation an
+unmatched type (vacuum cleaner) kept its original figures. `./gradlew` remains blocked by the same
+standing plugin-resolution network limitation; verified by balance-checking every touched file and
+hand-tracing every updated test assertion against the corrected source values.
