@@ -533,6 +533,16 @@ object EquipmentSelectionEngine {
         batterySpecForTier(tierKwh)?.let { it.maxDischargeA * it.voltageV / 1000.0 } ?: (tierKwh * 0.5)
 
     /**
+     * Phase 38 ("do not parallel more than 2 5kwh battery and do not parallel more than 2 10kwh
+     * battery... if the backup required is over 20kwh instead of paralleling 3 10kwh battery use 2
+     * 15kwh"): real-world parallel limits per catalog tier — installers/manufacturers commonly cap
+     * how many smaller modules can share one battery bus. Keyed by nominal kWh (matches
+     * [BatteryOption.kwh]); a tier absent from this map (only the 15 kWh tier today) has no imposed
+     * cap — the user's own examples only ever escalate INTO the 15 kWh tier, never past it.
+     */
+    private val MAX_PARALLEL_MODULES_PER_TIER: Map<Double, Int> = mapOf(5.0 to 2, 10.0 to 2)
+
+    /**
      * [requiredUsableKwh] is the actual energy the backup load needs to draw — not a nominal
      * capacity — so tiers are compared on real usable energy (spec §14), not nominal kWh alone.
      * [requiredDischargeKw] is checked too (spec §23 — energy alone isn't enough): a battery whose
@@ -543,7 +553,7 @@ object EquipmentSelectionEngine {
     fun selectBestHybridBattery(requiredUsableKwh: Double, requiredDischargeKw: Double, inverterCeilingKw: Double): BatteryChoice {
         if (requiredUsableKwh <= 0.0) return BatteryChoice(null, 0, 0.0, 0.0, 0.0, "No battery backup required.")
 
-        data class Candidate(val tier: BatteryOption, val modules: Int, val usableTotal: Double, val dischargeTotal: Double)
+        data class Candidate(val tier: BatteryOption, val modules: Int, val usableTotal: Double, val dischargeTotal: Double, val exceedsParallelCap: Boolean)
 
         val candidates = Catalog.hybridBatteries.map { tier ->
             val usablePerModule = tier.kwh * usableFractionFor(tier.kwh)
@@ -552,10 +562,20 @@ object EquipmentSelectionEngine {
             val modulesForPower = max(1, ceil(requiredDischargeKw / dischargePerModule).toInt())
             val modules = max(modulesForEnergy, modulesForPower)
             val dischargeTotal = (modules * dischargePerModule).coerceAtMost(inverterCeilingKw.coerceAtLeast(0.1))
-            Candidate(tier, modules, modules * usablePerModule, dischargeTotal)
+            val cap = MAX_PARALLEL_MODULES_PER_TIER[tier.kwh]
+            Candidate(tier, modules, modules * usablePerModule, dischargeTotal, cap != null && modules > cap)
         }
 
-        val best = candidates.minWith(compareBy({ it.usableTotal }, { it.modules }))
+        // Phase 38: a tier needing more parallel modules than its real-world limit allows is
+        // excluded in favor of a larger tier — e.g. 13 kWh usable required no longer proposes 3x
+        // 5 kWh in parallel when a single 15 kWh module already covers it alone, and 22 kWh usable
+        // no longer proposes 3x 10 kWh when 2x 15 kWh covers it instead. Falls back to the
+        // unfiltered pool only if every tier is capped out (not possible with today's catalog —
+        // the largest tier, 15 kWh, carries no cap — kept as a defensive floor only).
+        val withinCap = candidates.filterNot { it.exceedsParallelCap }
+        val pool = withinCap.ifEmpty { candidates }
+
+        val best = pool.minWith(compareBy({ it.usableTotal }, { it.modules }))
         val powerOk = best.dischargeTotal >= requiredDischargeKw - 0.05
 
         val reason = "%.1f kWh usable / %.1f kW discharge required — %d × %s (%.1f kWh usable, %.1f kW discharge each) covers it.%s"

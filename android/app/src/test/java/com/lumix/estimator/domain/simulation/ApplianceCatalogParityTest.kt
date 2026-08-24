@@ -20,13 +20,25 @@ import org.junit.Test
  * [ApplianceType] now mirrors every non-AC [SimApplianceType] entry, and every one of them is
  * wired through [defaultApplianceStates] and [SystemCalculator]'s sizing — not just added to the
  * enum and left disconnected.
+ *
+ * Phase 38 ("show separate in appliances... so i can schedule them"): [SimApplianceType] gained
+ * eight per-BTU-tier AC entries (`AC_9000`...`AC_60000`) alongside the original [SimApplianceType
+ * .AIR_CONDITIONER] — all nine are the AC family, none has (or should have) a generic
+ * [ApplianceType] counterpart, since AC's own dedicated wizard flow is [com.lumix.estimator.domain
+ * .AcLoad], not [ApplianceType]. [AC_FAMILY] is the exclusion set used everywhere this test
+ * previously excluded [SimApplianceType.AIR_CONDITIONER] alone.
  */
 class ApplianceCatalogParityTest {
 
+    private val AC_FAMILY = setOf(
+        SimApplianceType.AIR_CONDITIONER,
+        SimApplianceType.AC_9000, SimApplianceType.AC_12000, SimApplianceType.AC_18000, SimApplianceType.AC_24000,
+        SimApplianceType.AC_30000, SimApplianceType.AC_36000, SimApplianceType.AC_48000, SimApplianceType.AC_60000
+    )
+
     @Test
     fun `every non-AC SimApplianceType has exactly one ApplianceType counterpart`() {
-        // 46 SimApplianceType entries total, minus AIR_CONDITIONER (its own dedicated wizard step/AcLoad).
-        val simTypesExcludingAc = SimApplianceType.entries.filter { it != SimApplianceType.AIR_CONDITIONER }
+        val simTypesExcludingAc = SimApplianceType.entries.filterNot { it in AC_FAMILY }
         assertEquals(simTypesExcludingAc.size, ApplianceType.entries.size)
     }
 

@@ -7768,3 +7768,85 @@ window derivation; a run restricted to Saturday contributes nothing on a Weekday
 schedule; overlapping multi-run quantities sum correctly at a shared hour. Compose-layer UI is correct
 by code review only — `./gradlew` remains blocked by this sandbox's network limitation (plugin
 resolution), the same standing caveat as every prior UI round.
+
+## A122 — Phase 38: battery real-world parallel-module cap + separately schedulable AC units
+
+"do not parallel more than 2 5kwh battery and do not parallel more than 2 10kwh battery, so if the
+backup required is 13kwh use a 16kwh battery instead and if the backup is over 20kwh instead of
+paralleling 3 10kwh battery use 2 15kwh or 2 16kwh but if the backup the required is 8kwh you can
+use 2 5kwh battery... when multiple ac unit is selected in load show separate in appliances on the
+simulation page, so i can schedule them." Two independent fixes this round.
+
+**1. Battery auto-sizing now respects a real parallel-module limit per tier.**
+`EquipmentSelectionEngine.selectBestHybridBattery` (the GUIDED/LOAD-BASED automatic battery-bank
+picker, A64's own "simulate-and-escalate" loop) previously chose whichever catalog tier gave the
+smallest usable-kWh total for the requirement, with no ceiling on how many modules of one tier it
+would propose in parallel — a 13 kWh requirement could legitimately come back as 3× the 5 kWh tier
+if that total happened to undercut the alternatives. A new `MAX_PARALLEL_MODULES_PER_TIER` map (5
+kWh → 2, 10 kWh → 2; the 15 kWh tier carries no cap, matching the user's own examples, which only
+ever escalate *into* it, never past it) now excludes any tier candidate that would need more
+parallel modules than its real limit before the cheapest-total comparison runs. A tier that's
+excluded everywhere just falls back to the unfiltered pool — a defensive floor that can't actually
+trigger against today's catalog, since the largest tier is always uncapped.
+
+**No new battery model was invented.** The catalog's own "15 kWh" tier (`Catalog.hybridBatteries`,
+"15 kWh LiFePO4 (SRNE SR-EOS15B)") is backed by a verified datasheet (`EquipmentSpecs.batteries`)
+whose own rating label is **"16kWh class"** — 16.07 kWh rated, 15.42 kWh usable. So "use a 16kwh
+battery" and "2 15kwh or 2 16kwh" both resolve to this exact already-verified tier; the user's own
+language for it and this catalog's own datasheet label agree independently.
+
+Worked against the real spec numbers: 13 kWh usable required now returns **1× the 15 kWh (16 kWh
+class) tier** instead of 3× 5 kWh in parallel. 22 kWh usable required now returns **2× the 15 kWh
+tier** instead of 3× 10 kWh in parallel. 8 kWh usable required still allows 2× 5 kWh (within the new
+cap) but the cheaper-total comparison actually favors a single 10 kWh module here — both are
+compliant with the cap, and the user's own phrasing ("you *can* use 2 5kwh battery") was permissive,
+not a mandate to prefer it over an equally-valid, more efficient single-module answer.
+
+**2. Multiple selected AC units are now separately schedulable in the simulation.** Every selected
+BTU tier (`AcLoad.counts`, the wizard's own 9,000–60,000 BTU picker) used to collapse into one
+shared `SimApplianceType.AIR_CONDITIONER` entry in `defaultApplianceStates()` — a household with a
+bedroom 12,000 BTU unit and a living-room 18,000 BTU unit got a single "Air Conditioner" card in the
+simulation's Appliances sheet, with one blended-average wattage and one shared schedule window; there
+was no way to run the bedroom unit only at night and the living-room unit only in the evening.
+
+`SimApplianceType` gained eight new per-tier entries (`AC_9000` … `AC_60000`, one per `AcLoad.counts`
+key), each carrying its own **exact** (not blended) real per-unit wattage via `ApplianceState
+.wattsOverride` — `SystemCalculator.acBtuPerWatt`, the same source of truth the wizard's own sizing
+already used. `defaultApplianceStates()` now emits one map entry per populated tier instead of one
+averaged entry; each shows up as its own independently toggleable, independently schedulable card in
+`AppliancesSheetContent`'s existing "Cooling & Comfort" section — no new UI code was needed, since
+that screen already iterates `SimApplianceType.entries` generically by category.
+
+**`AIR_CONDITIONER` itself stays in the enum, unchanged, but is no longer a populated map key.** It
+remains the tier-independent schedule-shape/duty-factor(0.60)/surge-multiplier(3.0) reference
+`SystemCalculator`'s own wizard sizing math already read via `defaultEffectiveDailyHours`/
+`defaultWeeklyOperatingHours`/`.startupSurgeMultiplier` — all three calls are independent of the
+appliances map (they read `AcLoad.counts` directly for the real per-tier wattage), so none of them
+needed to change. The Appliances sheet's own type list now explicitly filters `AIR_CONDITIONER` out,
+since showing it would render a phantom, permanently-off "Air Conditioner" card whose Switch would
+silently create a bogus flat-1500W entry alongside the real per-tier cards if ever toggled.
+
+**Every default AC schedule starts identical** (the same 7pm+8h window `AIR_CONDITIONER` itself
+always used) — splitting the entries doesn't change a single existing quote's numbers until someone
+actually customizes one tier's schedule differently from another. `SystemCalculator`'s own inverter-
+sizing coincident-peak sweep (`coincidentPeakKw` → `defaultApplianceStates` → `worstCaseCoincidentPeakKw`)
+reads the SAME map this round changed, so once two AC units genuinely don't overlap (a real, installer-
+entered schedule difference) the sizing calculation now correctly stops assuming they peak
+simultaneously — a sizing improvement, not just a display one, consistent with this file's own
+"realistic simultaneous usage based on overlapping schedules" principle (Phase 28 §6).
+
+Adding 8 enum entries (an even count) preserves every existing LOW-tier appliance's `ordinal % 2`
+parity, so `applianceLoadKwByLegAt`'s L1/L2 split — which alternates by ordinal — is unaffected for
+every appliance declared after this insertion point.
+
+**Verification:** `Phase38BatteryParallelCapTest` — the user's own three worked numbers (13→1×15kWh,
+22→2×15kWh, 8→compliant either way) plus a full 0.5–60 kWh sweep asserting no capped tier is *ever*
+proposed beyond 2 parallel modules, and an unaffected-small-requirement regression check.
+`ApplianceWattsOverrideTest` was rewritten for the per-tier model — each tier's own exact wattage
+(no more averaging math to verify), independent enable/disable, and the summed simulation/surge
+totals unchanged from the old blended figures for the exact same input.
+`ApplianceCatalogParityTest`'s AC exclusion was widened from `AIR_CONDITIONER` alone to the full
+9-entry AC family. Compose-layer UI (the new cards actually rendering, actually independently
+schedulable in the running app) is correct by code review and the generic-iteration argument above,
+not by an interactive run — `./gradlew` remains blocked by this sandbox's standing network
+limitation, unrelated to this round's code.

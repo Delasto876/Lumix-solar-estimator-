@@ -230,7 +230,13 @@ fun AppliancesSheetContent(
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
-        SimApplianceType.entries.groupBy { it.category }.forEach { (category, types) ->
+        // Phase 38: AIR_CONDITIONER itself is excluded here — it's no longer a real
+        // defaultApplianceStates() map key (superseded by the per-BTU-tier AC_* entries below it),
+        // kept in the enum purely as SystemCalculator's own tier-independent schedule-shape
+        // reference. Showing it here would render a phantom, always-off "Air Conditioner" card
+        // whose Switch would silently create a bogus flat-1500W entry alongside the real per-tier
+        // cards if ever toggled.
+        SimApplianceType.entries.filter { it != SimApplianceType.AIR_CONDITIONER }.groupBy { it.category }.forEach { (category, types) ->
             Text(
                 category.uppercase(),
                 style = MaterialTheme.typography.labelSmall,

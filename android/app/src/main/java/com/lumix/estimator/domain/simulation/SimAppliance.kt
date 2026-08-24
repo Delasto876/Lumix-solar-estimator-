@@ -83,6 +83,27 @@ enum class SimApplianceType(
     // becomes 1500W x 0.60 = 900W, matching the exact worked example this app's own AC spec used.
     AIR_CONDITIONER("Air Conditioner", 1500, ElectricalTier.HIGH, 0.60, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
 
+    // Phase 38 ("when multiple ac unit is selected in load show separate in appliances on the
+    // simulation page, so i can schedule them"): one entry per [AcLoad.counts] BTU tier, so a
+    // household with e.g. a bedroom 12,000 BTU unit and a living-room 18,000 BTU unit gets two
+    // independently schedulable cards instead of one blended "Air Conditioner" row that forces
+    // both onto the same shared window. [AIR_CONDITIONER] itself stays in this enum unchanged —
+    // it's still the schedule-shape/duty-factor/surge-multiplier reference SystemCalculator's own
+    // wizard sizing reads (tier-independent by design) — but is no longer populated as a map entry
+    // in [defaultApplianceStates] now that every real selection has its own tier-specific entry
+    // below. Nominal `watts` here is the same non-inverter BTU/10 placeholder [AIR_CONDITIONER]
+    // itself already used for shape purposes only — the real per-unit wattage (inverter or non-
+    // inverter, whichever the installer actually chose) always arrives via [ApplianceState
+    // .wattsOverride] at state-build time, exactly like [AIR_CONDITIONER] did before this split.
+    AC_9000("Air Conditioner — 9,000 BTU", 900, ElectricalTier.HIGH, 0.60, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
+    AC_12000("Air Conditioner — 12,000 BTU", 1200, ElectricalTier.HIGH, 0.60, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
+    AC_18000("Air Conditioner — 18,000 BTU", 1800, ElectricalTier.HIGH, 0.60, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
+    AC_24000("Air Conditioner — 24,000 BTU", 2400, ElectricalTier.HIGH, 0.60, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
+    AC_30000("Air Conditioner — 30,000 BTU", 3000, ElectricalTier.HIGH, 0.60, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
+    AC_36000("Air Conditioner — 36,000 BTU", 3600, ElectricalTier.HIGH, 0.60, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
+    AC_48000("Air Conditioner — 48,000 BTU", 4800, ElectricalTier.HIGH, 0.60, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
+    AC_60000("Air Conditioner — 60,000 BTU", 6000, ElectricalTier.HIGH, 0.60, "Cooling & Comfort", startupSurgeMultiplier = 3.0, startupDurationSeconds = 1.0),
+
     // Lighting
     LED_BEDROOM("LED Lighting — Bedroom", 10, ElectricalTier.LOW, 1.0, "Lighting"),
     LED_KITCHEN("LED Lighting — Kitchen", 10, ElectricalTier.LOW, 1.0, "Lighting"),
@@ -250,7 +271,13 @@ fun defaultScheduleFor(type: SimApplianceType): List<ApplianceRun> = when (type)
     )
     // Overnight, wraps past midnight — isActiveAt handles the wraparound.
     SimApplianceType.BEDROOM_FAN -> listOf(ApplianceRun(startHour = 20.0, durationHours = 10.5))
-    SimApplianceType.AIR_CONDITIONER -> listOf(ApplianceRun(startHour = 19.0, durationHours = 8.0))
+    // Phase 38: every per-tier AC entry starts from the exact same default window AIR_CONDITIONER
+    // itself already used - each is independently editable afterward (that's the whole point of
+    // separating them), this is only the shared starting shape before any customization.
+    SimApplianceType.AIR_CONDITIONER,
+    SimApplianceType.AC_9000, SimApplianceType.AC_12000, SimApplianceType.AC_18000, SimApplianceType.AC_24000,
+    SimApplianceType.AC_30000, SimApplianceType.AC_36000, SimApplianceType.AC_48000, SimApplianceType.AC_60000
+        -> listOf(ApplianceRun(startHour = 19.0, durationHours = 8.0))
 
     // Phase 28 ("BEDROOM LIGHT: 7:00–8:00 PM, 9:00–10:00 PM. Allow multiple time blocks."):
     // matches that exact two-block example — was a single continuous 6-10pm block plus a morning
@@ -423,32 +450,33 @@ fun defaultApplianceStates(inputs: QuoteInputs): Map<SimApplianceType, Appliance
         SimApplianceType.CEILING_FAN to stateFromWizard(SimApplianceType.CEILING_FAN, ApplianceType.FAN),
         SimApplianceType.STANDING_FAN to stateFromWizard(SimApplianceType.STANDING_FAN, ApplianceType.STANDING_FAN),
         SimApplianceType.BEDROOM_FAN to stateFromWizard(SimApplianceType.BEDROOM_FAN, ApplianceType.BEDROOM_FAN),
-        // A68/Phase 28: AIR_CONDITIONER's own catalog watts (1500) only exists to give AC a duty-
-        // cycle/schedule shape — the installer's real AC sizing is per-BTU-tier (inputs.ac.counts)
-        // at the real per-tier BTU/W ratio for the selected inverter/non-inverter type
-        // (SystemCalculator.acBtuPerWatt — one source of truth, see that function's own doc).
-        // Blending it into one real average watts-per-unit (rather than the flat placeholder)
-        // keeps the TOTAL AC load correct even across a mixed BTU selection, since the total is a
-        // linear sum either way — see ApplianceState.wattsOverride's own doc for the bug this fixes.
-        // Phase 28: deliberately the full rated (peak) per-unit watts, NOT reduced by
-        // SystemCalculator's own INVERTER_PART_LOAD_AVERAGE_FACTOR — wattsOverride also feeds
-        // worstCaseStartupSurgeKw's surge-current estimate, which needs the real rated draw, not a
-        // modulated average. This means an inverter-type AC's live simulation dial runs its energy
-        // total slightly warm (closer to rated than its true average) versus the sizing
-        // calculation's own reduced daily-kWh figure — a known, disclosed scope boundary (the
-        // conservative direction, not an understatement) rather than a second wattsOverride-shaped
-        // field threading the part-load factor through the dial's separate energy integration.
-        SimApplianceType.AIR_CONDITIONER to run {
-            val totalAcUnits = inputs.ac.counts.values.sum()
+        // Phase 38 ("when multiple ac unit is selected in load show separate in appliances on the
+        // simulation page, so i can schedule them"): one entry per populated BTU tier instead of
+        // one blended-average "Air Conditioner" entry — a household with, say, a bedroom 12,000
+        // BTU unit and a living-room 18,000 BTU unit now gets two independently schedulable cards,
+        // each carrying its own EXACT per-unit wattage (SystemCalculator.acBtuPerWatt — the same
+        // real per-tier BTU/W ratio the wizard's own sizing already uses, no more blending needed
+        // now that each tier has its own entry — see AC_9000's own doc for why AIR_CONDITIONER
+        // itself is deliberately NOT populated here anymore). Phase 28's own reasoning for using
+        // the full rated (peak) per-unit watts here, not INVERTER_PART_LOAD_AVERAGE_FACTOR-reduced,
+        // still applies unchanged per tier.
+        *run {
             val btuPerWatt = SystemCalculator.acBtuPerWatt(inputs.ac.acType)
-            val totalAcWatts = inputs.ac.counts.entries.sumOf { (btu, count) -> (btu / btuPerWatt) * count }
-            val avgAcWattsPerUnit = if (totalAcUnits > 0) totalAcWatts / totalAcUnits else null
-            stateFor(
-                SimApplianceType.AIR_CONDITIONER,
-                quantity = totalAcUnits.coerceAtLeast(1),
-                enabled = inputs.ac.hasAc,
-                wattsOverride = avgAcWattsPerUnit
+            val tierTypes = mapOf(
+                9000 to SimApplianceType.AC_9000, 12000 to SimApplianceType.AC_12000,
+                18000 to SimApplianceType.AC_18000, 24000 to SimApplianceType.AC_24000,
+                30000 to SimApplianceType.AC_30000, 36000 to SimApplianceType.AC_36000,
+                48000 to SimApplianceType.AC_48000, 60000 to SimApplianceType.AC_60000
             )
+            tierTypes.map { (btu, type) ->
+                val count = inputs.ac.counts[btu] ?: 0
+                type to stateFor(
+                    type,
+                    quantity = count.coerceAtLeast(1),
+                    enabled = inputs.ac.hasAc && count > 0,
+                    wattsOverride = btu / btuPerWatt
+                )
+            }.toTypedArray()
         },
 
         // Lighting — the wizard's generic "Lights"/"Outdoor Lights" map onto one representative
