@@ -32,6 +32,7 @@ import com.lumix.estimator.domain.SystemType
 import com.lumix.estimator.domain.commercial.BatteryPerInverterAllocation
 import com.lumix.estimator.domain.commercial.BatteryPerInverterDesign
 import com.lumix.estimator.domain.commercial.BusinessHours
+import com.lumix.estimator.domain.commercial.CommercialFacilityType
 import com.lumix.estimator.domain.commercial.CommercialIndustrialDesign
 import com.lumix.estimator.domain.commercial.CommercialIndustrialLoadCatalog
 import com.lumix.estimator.domain.commercial.DiversityFactor
@@ -39,6 +40,7 @@ import com.lumix.estimator.domain.commercial.DiversityFactorPreset
 import com.lumix.estimator.domain.commercial.ElectricalService
 import com.lumix.estimator.domain.commercial.ElectricalServicePreset
 import com.lumix.estimator.domain.commercial.FacilityLoadLibrary
+import com.lumix.estimator.domain.commercial.FacilityScheduleLibrary
 import com.lumix.estimator.domain.commercial.IndustrialShiftSchedule
 import com.lumix.estimator.domain.commercial.InverterUnitPvDesign
 import com.lumix.estimator.domain.commercial.LoadInstance
@@ -103,7 +105,7 @@ fun StepCommercialIndustrialDesign(inputs: QuoteInputs, onUpdate: ((QuoteInputs)
         ElectricalServiceSection(design, ::updateDesign)
 
         if (inputs.systemCategory == SystemType.COMMERCIAL) {
-            BusinessHoursSection(design.businessHours) { hours -> updateDesign { it.copy(businessHours = hours) } }
+            BusinessHoursSection(design.businessHours, design.facility.commercialType) { hours -> updateDesign { it.copy(businessHours = hours) } }
         } else {
             IndustrialShiftSection(design.industrialShiftSchedule) { schedule -> updateDesign { it.copy(industrialShiftSchedule = schedule) } }
         }
@@ -312,9 +314,29 @@ private fun TransformerSection(design: CommercialIndustrialDesign, updateDesign:
     }
 }
 
+/**
+ * Phase 47 (spec §5/§6/§21 — facility-driven schedule suggestions): [facilityType] is only used to
+ * look up an optional [FacilityScheduleLibrary] suggestion — everything else about this section is
+ * unchanged from Phase 28. Applying the suggestion is always an explicit installer action (the
+ * "Apply" button below), never automatic, matching the same contract [FacilityLoadLibrary]'s own doc
+ * establishes for loads.
+ */
 @Composable
-private fun BusinessHoursSection(hours: BusinessHours, onChange: (BusinessHours) -> Unit) {
+private fun BusinessHoursSection(hours: BusinessHours, facilityType: CommercialFacilityType?, onChange: (BusinessHours) -> Unit) {
+    val palette = LocalLumixPalette.current
+    val suggested = facilityType?.let { FacilityScheduleLibrary.suggestedBusinessHoursFor(it) }
     SectionCard(title = "Business hours") {
+        if (suggested != null && suggested != hours) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Suggested schedule for ${facilityType?.label} — review and apply if it fits.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { onChange(suggested) }) { Text("Apply") }
+            }
+        }
         DayHoursRow("Weekday (Mon-Fri)", hours.weekdayOpenHour, hours.weekdayCloseHour) { open, close ->
             onChange(hours.copy(weekdayOpenHour = open, weekdayCloseHour = close))
         }

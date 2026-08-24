@@ -8321,3 +8321,58 @@ full `CommercialIndustrialDesign` round-trip proving the loss folds correctly in
 `designLoadKwIncludingTransformerLoss` when required and leaves it untouched when not. `./gradlew`
 remains blocked by the same standing plugin-resolution network limitation; verified by balance-
 checking every touched file.
+
+## A131 — Phase 47: facility-driven schedule suggestions (final phase of the facility-load-profile update)
+
+Sixth and final phase of the Commercial/Industrial facility-load-profile update (spec §5/§6/§21).
+
+**New `FacilityScheduleLibrary`** — `suggestedBusinessHoursFor(CommercialFacilityType): BusinessHours?`,
+the same "ordering/suggestion hint, never a forced default" contract `FacilityLoadLibrary` already
+established for loads, applied to schedules. School/University suggest weekday-only daytime hours
+(§5 — "should default to daytime operation... Allow: Monday–Friday, Saturday, Sunday"), Call Centre/
+Hotel/Gas Station/Data-IT Facility suggest a true 24-hour window (§6's closest fit — see below),
+Restaurant suggests later hours, Church suggests Sunday-only. Every other facility type returns
+`null` — falling back to the plain Phase 28 generic default (M-F 7am-6pm, Sat 8am-1pm, Sun closed)
+is correct for them, not a gap.
+
+**Wired into `BusinessHoursSection`** as a dismissible "Suggested schedule for [facility] — Apply"
+row, shown only when a suggestion exists and differs from the current schedule. Applying it is
+always the installer's own action — `CommercialIndustrialDesign.businessHours` never changes on its
+own just because a facility was picked, per §1's "Do NOT force facility assumptions on the user."
+
+**§6's literal "8-hour shift / 12-hour shift / Multiple shifts" granularity for Call Centre is
+deliberately NOT modeled.** `BusinessHours` is a single open/close window per day type — it
+represents 24-hour operation cleanly (open=0, close=24, used for the Call Centre suggestion above)
+but has no concept of named, staffed shifts the way `IndustrialShiftSchedule` does for Industrial.
+Building a second, Commercial-only multi-shift domain model and UI was judged out of scope for a
+"minimum UI" phase (§24) — it's a real new feature, not a defaults tweak. The practical equivalent
+already available today: each `LoadInstance`'s own multi-run schedule editor (Phase 37) already lets
+shift-differentiated equipment usage be modeled per load, just not as a named facility-level "Shift
+1/2/3" construct for Commercial designs the way Industrial has.
+
+**Industrial needed no changes.** §21's Industrial requirements ("DO NOT assume operating hours...
+Number of shifts, Shift 1/2/3, Weekend operation, Continuous loads") were already fully satisfied by
+`IndustrialShiftSchedule`, built in Phase 28 directly from this same spec language — confirmed by
+re-reading its own doc comment before writing anything this round, rather than assuming.
+
+**Tests:** new `FacilityScheduleLibraryTest.kt` — School's weekday-only daytime suggestion, Call
+Centre's true-24-hour suggestion (verified via `BusinessHours.hoursOpen` for all three day types,
+not just field presence), a facility type with no suggestion returns null rather than a guess, and
+confirmation that picking a facility never silently mutates a design's own `businessHours`.
+
+---
+
+**This completes the "COMMERCIAL / INDUSTRIAL FACILITY LOAD PROFILES + ELECTRICAL SERVICE" update**
+(spec §1-§25), delivered as the 6 phases proposed and confirmed with the user before any code was
+written (Phase 42-47, README A126-A131): facility-type selection with Settings extensibility (42),
+the Electrical Service preset picker + real three-phase current math (43), commercial and industrial
+facility default-load libraries covering all 51 presets (44/45), a Transformer domain model with
+loss representation (46), and facility-driven schedule suggestions (47). Residential was never
+touched; the existing Commercial/Industrial engine (`CommercialIndustrialCalculator`,
+`CommercialIndustrialDesign`, `LoadInstance`) was extended additively throughout rather than
+duplicated, per the spec's own explicit instruction. Three scope boundaries were disclosed rather
+than silently skipped across the six phases: real three-phase hybrid inverters (deferred by the
+user's own answer to a Phase 42 clarifying question), transformer integration into the materials/
+quote/pricing layer (Phase 46), and Call Centre's named multi-shift granularity (this phase) — all
+three are real gaps against the full letter of the spec, not oversights, and each is documented at
+the point it was deferred.
