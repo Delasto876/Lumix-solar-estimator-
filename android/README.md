@@ -8225,3 +8225,46 @@ presets), the Transformer model (Phase 46), and facility-driven schedule default
 balance-checking every touched file, cross-checking every `FacilityLoadLibrary` id against the real
 catalog with a script (zero unresolved references), and confirming the `when` over
 `CommercialFacilityType` is exhaustive (26/26 branches).
+
+## A129 — Phase 45: Industrial facility default load libraries
+
+Fourth phase of the Commercial/Industrial facility-load-profile update — the industrial half of
+Phase 44's work, same pattern, now covering all 25 `IndustrialFacilityType` presets (spec §11-§13,
+§20).
+
+**25 new `LoadDefinition` entries** added to `CommercialIndustrialLoadCatalog.industrialLoads` (44
+total now, up from 19): freezers, cold rooms, industrial mixers/ovens, packaging/filling/sealing
+machines, computers, emergency lighting, fabrication/hydraulic equipment, dust extraction, condenser/
+evaporator fans, refrigeration controls, defrost heaters, CCTV, a concrete/batching mixer, an
+aerator (water/wastewater treatment), a forklift charger, a printing press, a crusher (quarry/
+aggregate), industrial laundry equipment, an industrial water heater, and a UPS — covering every
+item §11 (Food Processing), §12 (Manufacturing), and §13 (Refrigeration/Cold Storage) name that
+nothing in the existing 19-entry catalog matched. Same illustrative-wattage, fully-editable
+convention as every prior catalog round; all pre-existing ids untouched.
+
+**`FacilityLoadLibrary` gains a second exhaustive `when`**, over all 25 `IndustrialFacilityType`
+values. The three facility types the spec gives an explicit worked-out list for (Food Processing
+§11, Manufacturing Plant §12, Cold Storage/Refrigeration Facility §13) follow that list closely; the
+other 22 (Beverage/Meat Processing, Bakery, Plastic Manufacturing, Metal Fabrication, Welding,
+Furniture Manufacturing, Block/Concrete Plant, Water/Wastewater Treatment, Pumping Station,
+Warehouse/Distribution, Agricultural Processing/Pumping, Packaging, Printing, Quarry/Aggregate,
+Workshop/Heavy Equipment, Commercial Laundry, Industrial HVAC, Data Centre/Server Facility) get a
+reasonable, fully-editable starting list built from the same catalog, disclosed the same way as
+Phase 44's commercial list. `CUSTOM` has no list.
+
+**`LoadsSection`'s facility-aware grouping now covers Industrial too** — one small extension to the
+Phase 44 logic (`design.facility.industrialType` checked alongside `commercialType`) rather than a
+parallel code path, since `allStandardDefs`/`typicalDefs`/`otherDefs` were already systemType-scoped
+and facility-type-agnostic in shape.
+
+**Tests:** extended `FacilityLoadLibraryTest.kt` — every one of the 25 industrial facility types
+resolves to a list whose every id is real, no duplicates, every non-Custom type has at least one
+default load, Custom has none, Cold Storage's list covers the spec's own compressor/condenser/
+evaporator/defrost emphasis, and Food Processing's covers production/conveyor/packaging/controls.
+
+**This completes the facility-type default-load-library work (Phase 44+45) for all 51 presets.**
+Remaining: the Transformer model (Phase 46 — §18) and facility-driven schedule defaults (Phase 47 —
+School's daytime default, Call Centre's shift presets, the Medical "verify spec" placeholder pattern
+already applied to load wattages but not yet to schedules). `./gradlew` remains blocked by the same
+standing plugin-resolution network limitation; verified by balance-checking every touched file and
+the same id-cross-check-script + exhaustiveness-count discipline as Phase 44.

@@ -179,4 +179,142 @@ object FacilityLoadLibrary {
         )
         CommercialFacilityType.CUSTOM -> emptyList()
     }
+
+    /**
+     * Phase 45 (spec §11-§13 — Food Processing/Manufacturing/Refrigeration's own worked-out load
+     * lists, plus reasonable coverage for the other 22 [IndustrialFacilityType] presets that don't
+     * have their own spec section): same "ordering/grouping hint, not a forced default" contract as
+     * [defaultLoadIdsFor] above — see that function's own doc for the full rationale, which applies
+     * identically here.
+     */
+    fun defaultLoadIdsFor(type: IndustrialFacilityType): List<String> = when (type) {
+        IndustrialFacilityType.FOOD_PROCESSING_FACILITY -> listOf(
+            "industrial_production_machinery", "industrial_conveyor", "industrial_pump", "industrial_compressor",
+            "industrial_refrigeration", "industrial_freezer", "industrial_cold_room", "industrial_mixer",
+            "industrial_oven", "industrial_packaging_machine", "industrial_filling_machine",
+            "industrial_sealing_machine", "industrial_fan", "industrial_dust_extraction", "industrial_large_hvac",
+            "industrial_large_lighting", "industrial_plc_controls", "industrial_computer",
+            "industrial_servers_network", "industrial_security_system", "industrial_emergency_lighting"
+        )
+        IndustrialFacilityType.BEVERAGE_PROCESSING_FACILITY -> listOf(
+            "industrial_production_machinery", "industrial_conveyor", "industrial_pump", "industrial_compressor",
+            "industrial_refrigeration", "industrial_filling_machine", "industrial_sealing_machine",
+            "industrial_packaging_machine", "industrial_fan", "industrial_large_hvac", "industrial_large_lighting",
+            "industrial_plc_controls", "industrial_servers_network", "industrial_security_system"
+        )
+        IndustrialFacilityType.MEAT_PROCESSING_FACILITY -> listOf(
+            "industrial_refrigeration", "industrial_freezer", "industrial_cold_room", "industrial_conveyor",
+            "industrial_compressor", "industrial_mixer", "industrial_packaging_machine",
+            "industrial_sealing_machine", "industrial_pump", "industrial_large_hvac", "industrial_fan",
+            "industrial_large_lighting", "industrial_plc_controls", "industrial_security_system"
+        )
+        IndustrialFacilityType.BAKERY_INDUSTRIAL_BAKERY -> listOf(
+            "industrial_oven", "industrial_mixer", "industrial_conveyor", "industrial_packaging_machine",
+            "industrial_refrigeration", "industrial_freezer", "industrial_fan", "industrial_large_lighting",
+            "industrial_plc_controls", "industrial_pump"
+        )
+        IndustrialFacilityType.MANUFACTURING_PLANT -> listOf(
+            "industrial_motor", "industrial_cnc_machine", "industrial_compressor", "industrial_pump",
+            "industrial_welder", "industrial_fabrication_equipment", "industrial_conveyor",
+            "industrial_hydraulic_equipment", "industrial_fan", "industrial_large_hvac",
+            "industrial_production_machinery", "industrial_dust_extraction", "industrial_large_lighting",
+            "industrial_plc_controls", "industrial_computer", "industrial_servers_network",
+            "industrial_security_system", "industrial_emergency_lighting"
+        )
+        IndustrialFacilityType.PLASTIC_MANUFACTURING -> listOf(
+            "industrial_production_machinery", "industrial_motor", "industrial_compressor",
+            "industrial_cnc_machine", "industrial_conveyor", "industrial_dust_extraction", "industrial_fan",
+            "industrial_large_hvac", "industrial_large_lighting", "industrial_plc_controls",
+            "industrial_security_system"
+        )
+        IndustrialFacilityType.METAL_FABRICATION -> listOf(
+            "industrial_welder", "industrial_fabrication_equipment", "industrial_cnc_machine",
+            "industrial_compressor", "industrial_motor", "industrial_dust_extraction", "industrial_fan",
+            "industrial_large_lighting", "industrial_plc_controls", "industrial_security_system"
+        )
+        IndustrialFacilityType.WELDING_FABRICATION_FACILITY -> listOf(
+            "industrial_welder", "industrial_fabrication_equipment", "industrial_compressor",
+            "industrial_dust_extraction", "industrial_fan", "industrial_large_lighting",
+            "industrial_plc_controls", "industrial_security_system"
+        )
+        IndustrialFacilityType.FURNITURE_MANUFACTURING -> listOf(
+            "industrial_workshop_equipment", "industrial_cnc_machine", "industrial_dust_extraction",
+            "industrial_compressor", "industrial_fan", "industrial_large_lighting", "industrial_plc_controls",
+            "industrial_security_system"
+        )
+        IndustrialFacilityType.BLOCK_CONCRETE_PLANT -> listOf(
+            "industrial_concrete_mixer", "industrial_conveyor", "industrial_compressor", "industrial_pump",
+            "industrial_motor", "industrial_large_lighting", "industrial_plc_controls",
+            "industrial_security_system"
+        )
+        IndustrialFacilityType.WATER_TREATMENT_FACILITY -> listOf(
+            "industrial_pump", "industrial_motor", "industrial_aerator", "industrial_compressor",
+            "industrial_plc_controls", "industrial_computer", "industrial_servers_network",
+            "industrial_security_system", "industrial_large_lighting", "industrial_emergency_lighting"
+        )
+        IndustrialFacilityType.WASTEWATER_TREATMENT_FACILITY -> listOf(
+            "industrial_pump", "industrial_motor", "industrial_aerator", "industrial_compressor",
+            "industrial_plc_controls", "industrial_computer", "industrial_servers_network",
+            "industrial_security_system", "industrial_large_lighting", "industrial_emergency_lighting"
+        )
+        IndustrialFacilityType.PUMPING_STATION -> listOf(
+            "industrial_pump", "industrial_motor", "industrial_plc_controls", "industrial_security_system",
+            "industrial_emergency_lighting", "industrial_large_lighting"
+        )
+        IndustrialFacilityType.COLD_STORAGE_REFRIGERATION_FACILITY -> listOf(
+            "industrial_compressor", "industrial_condenser_fan", "industrial_evaporator_fan",
+            "industrial_refrigeration_controls", "industrial_pump", "industrial_defrost_heater",
+            "industrial_large_lighting", "industrial_plc_controls", "industrial_cctv",
+            "industrial_servers_network"
+        )
+        IndustrialFacilityType.WAREHOUSE_DISTRIBUTION_CENTRE -> listOf(
+            "industrial_conveyor", "industrial_forklift_charger", "industrial_large_lighting",
+            "industrial_fan", "industrial_security_system", "industrial_cctv", "industrial_servers_network",
+            "industrial_computer"
+        )
+        IndustrialFacilityType.AGRICULTURAL_PROCESSING_FACILITY -> listOf(
+            "industrial_production_machinery", "industrial_conveyor", "industrial_mixer", "industrial_pump",
+            "industrial_compressor", "industrial_fan", "industrial_large_lighting", "industrial_plc_controls",
+            "industrial_security_system"
+        )
+        IndustrialFacilityType.AGRICULTURAL_PUMPING_FACILITY -> listOf(
+            "industrial_pump", "industrial_motor", "industrial_plc_controls", "industrial_security_system",
+            "industrial_large_lighting"
+        )
+        IndustrialFacilityType.PACKAGING_FACILITY -> listOf(
+            "industrial_packaging_machine", "industrial_filling_machine", "industrial_sealing_machine",
+            "industrial_conveyor", "industrial_compressor", "industrial_large_lighting",
+            "industrial_plc_controls", "industrial_security_system", "industrial_servers_network"
+        )
+        IndustrialFacilityType.PRINTING_FACILITY -> listOf(
+            "industrial_printing_press", "industrial_dust_extraction", "industrial_fan", "industrial_compressor",
+            "industrial_large_lighting", "industrial_plc_controls", "industrial_computer",
+            "industrial_security_system"
+        )
+        IndustrialFacilityType.QUARRY_AGGREGATE_FACILITY -> listOf(
+            "industrial_crusher", "industrial_conveyor", "industrial_compressor", "industrial_pump",
+            "industrial_motor", "industrial_large_lighting", "industrial_plc_controls",
+            "industrial_security_system"
+        )
+        IndustrialFacilityType.WORKSHOP_HEAVY_EQUIPMENT_FACILITY -> listOf(
+            "industrial_workshop_equipment", "industrial_welder", "industrial_compressor",
+            "industrial_cnc_machine", "industrial_hydraulic_equipment", "industrial_fan",
+            "industrial_large_lighting", "industrial_security_system"
+        )
+        IndustrialFacilityType.COMMERCIAL_LAUNDRY -> listOf(
+            "industrial_laundry_equipment", "industrial_water_heater", "industrial_pump", "industrial_motor",
+            "industrial_fan", "industrial_large_lighting", "industrial_plc_controls",
+            "industrial_security_system"
+        )
+        IndustrialFacilityType.INDUSTRIAL_HVAC_FACILITY -> listOf(
+            "industrial_large_hvac", "industrial_fan", "industrial_motor", "industrial_plc_controls",
+            "industrial_large_lighting", "industrial_security_system"
+        )
+        IndustrialFacilityType.DATA_CENTRE_SERVER_FACILITY -> listOf(
+            "industrial_servers_network", "industrial_ups", "industrial_large_hvac",
+            "industrial_security_system", "industrial_cctv", "industrial_large_lighting",
+            "industrial_emergency_lighting"
+        )
+        IndustrialFacilityType.CUSTOM -> emptyList()
+    }
 }

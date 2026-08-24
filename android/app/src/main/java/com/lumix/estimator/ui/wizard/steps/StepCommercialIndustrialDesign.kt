@@ -630,15 +630,18 @@ private fun LoadsSection(
     val allStandardDefs = catalog.filter { !it.isCustom }
     val customDef = catalog.firstOrNull { it.isCustom }
 
-    // Phase 44 (spec §20 — "The selected facility type must control the default appliance list in
-    // BOTH ESTIMATE and SIMULATION"): reorders (never hides) the same full catalog so the loads
+    // Phase 44/45 (spec §20 — "The selected facility type must control the default appliance list
+    // in BOTH ESTIMATE and SIMULATION"): reorders (never hides) the same full catalog so the loads
     // typical for the chosen facility appear first, under their own header — everything still
     // starts at quantity 0 per §1's "Do NOT force facility assumptions on the user," this only
     // changes which rows the installer sees first. No facility chosen (or a Custom facility name)
-    // falls back to the plain full-catalog order, unchanged from before this phase.
+    // falls back to the plain full-catalog order, unchanged from before Phase 44.
     val facilityLoadIds = design.facility.commercialType
         ?.takeIf { it != com.lumix.estimator.domain.commercial.CommercialFacilityType.CUSTOM }
         ?.let { FacilityLoadLibrary.defaultLoadIdsFor(it) }
+        ?: design.facility.industrialType
+            ?.takeIf { it != com.lumix.estimator.domain.commercial.IndustrialFacilityType.CUSTOM }
+            ?.let { FacilityLoadLibrary.defaultLoadIdsFor(it) }
         ?: emptyList()
     val typicalDefs = facilityLoadIds.mapNotNull { id -> allStandardDefs.firstOrNull { it.id == id } }
     val otherDefs = allStandardDefs.filter { it.id !in facilityLoadIds }

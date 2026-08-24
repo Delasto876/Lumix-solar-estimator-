@@ -62,4 +62,46 @@ class FacilityLoadLibraryTest {
             assertTrue("$id's label should carry the verification disclaimer", def.label.contains("verify equipment specification", ignoreCase = true))
         }
     }
+
+    // ---- Phase 45: the industrial half of this same catalog-driven design ----
+
+    private val industrialCatalogIds = CommercialIndustrialLoadCatalog.industrialLoads.map { it.id }.toSet()
+
+    @Test
+    fun `every industrial facility type resolves to a list, and every id in it is a real catalog entry`() {
+        IndustrialFacilityType.entries.forEach { type ->
+            val ids = FacilityLoadLibrary.defaultLoadIdsFor(type)
+            ids.forEach { id ->
+                assertTrue("$type references unknown catalog id '$id'", id in industrialCatalogIds)
+            }
+        }
+    }
+
+    @Test
+    fun `industrial Custom has no facility-specific list, every other industrial type has at least one load`() {
+        assertTrue(FacilityLoadLibrary.defaultLoadIdsFor(IndustrialFacilityType.CUSTOM).isEmpty())
+        IndustrialFacilityType.entries.filter { !it.isCustom }.forEach { type ->
+            assertTrue("$type has no default loads", FacilityLoadLibrary.defaultLoadIdsFor(type).isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `no industrial facility type lists the same id twice`() {
+        IndustrialFacilityType.entries.forEach { type ->
+            val ids = FacilityLoadLibrary.defaultLoadIdsFor(type)
+            assertEquals("$type has a duplicate id", ids.size, ids.toSet().size)
+        }
+    }
+
+    @Test
+    fun `cold storage's list matches the spec's own compressor-condenser-evaporator-defrost emphasis`() {
+        val ids = FacilityLoadLibrary.defaultLoadIdsFor(IndustrialFacilityType.COLD_STORAGE_REFRIGERATION_FACILITY)
+        assertTrue(ids.containsAll(listOf("industrial_compressor", "industrial_condenser_fan", "industrial_evaporator_fan", "industrial_refrigeration_controls", "industrial_defrost_heater")))
+    }
+
+    @Test
+    fun `food processing's list matches the spec's own production-conveyor-packaging emphasis`() {
+        val ids = FacilityLoadLibrary.defaultLoadIdsFor(IndustrialFacilityType.FOOD_PROCESSING_FACILITY)
+        assertTrue(ids.containsAll(listOf("industrial_production_machinery", "industrial_conveyor", "industrial_packaging_machine", "industrial_plc_controls")))
+    }
 }
