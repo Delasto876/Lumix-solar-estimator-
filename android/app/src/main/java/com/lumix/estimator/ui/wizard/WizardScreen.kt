@@ -206,7 +206,7 @@ fun WizardScreen(
             ) {
                 when (currentStep) {
                     1 -> StepCustomer(inputs, viewModel::update)
-                    2 -> StepQuoteMode(inputs, viewModel::update)
+                    2 -> StepQuoteMode(inputs, viewModel::update, settingsRepository)
                     3 -> StepLocation(inputs, viewModel::update)
                     4 -> StepRoofType(inputs, viewModel::update)
                     5 -> if (inputs.quoteMode == QuoteMode.GUIDED) Step4Usage(inputs, viewModel::update)

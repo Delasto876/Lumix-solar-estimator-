@@ -50,6 +50,14 @@ class SettingsRepository(private val context: Context) {
     private val googleSignedInEmailKey = stringPreferencesKey("google_signed_in_email")
     private val googleSignedInPhotoUrlKey = stringPreferencesKey("google_signed_in_photo_url")
 
+    // Phase 42 (spec §2/§3 — "The list must be extensible through Settings"): installer-added
+    // facility-type names, offered by the wizard's facility picker alongside the 51 built-in
+    // com.lumix.estimator.domain.commercial.CommercialFacilityType/IndustrialFacilityType presets.
+    // Stored newline-joined rather than as real JSON since these are the only two list-valued
+    // settings in this repository so far and a facility name can't itself contain a newline.
+    private val customCommercialFacilityNamesKey = stringPreferencesKey("custom_commercial_facility_names")
+    private val customIndustrialFacilityNamesKey = stringPreferencesKey("custom_industrial_facility_names")
+
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
         prefs[themeModeKey]?.let { raw -> runCatching { ThemeMode.valueOf(raw) }.getOrNull() } ?: ThemeMode.SYSTEM
     }
@@ -82,6 +90,9 @@ class SettingsRepository(private val context: Context) {
     val googleSignedInName: Flow<String> = context.settingsDataStore.data.map { it[googleSignedInNameKey] ?: "" }
     val googleSignedInEmail: Flow<String> = context.settingsDataStore.data.map { it[googleSignedInEmailKey] ?: "" }
     val googleSignedInPhotoUrl: Flow<String> = context.settingsDataStore.data.map { it[googleSignedInPhotoUrlKey] ?: "" }
+
+    val customCommercialFacilityNames: Flow<List<String>> = context.settingsDataStore.data.map { decodeNameList(it[customCommercialFacilityNamesKey]) }
+    val customIndustrialFacilityNames: Flow<List<String>> = context.settingsDataStore.data.map { decodeNameList(it[customIndustrialFacilityNamesKey]) }
 
     suspend fun setThemeMode(mode: ThemeMode) {
         context.settingsDataStore.edit { it[themeModeKey] = mode.name }
@@ -126,4 +137,37 @@ class SettingsRepository(private val context: Context) {
             it.remove(googleSignedInPhotoUrlKey)
         }
     }
+
+    suspend fun addCustomCommercialFacilityName(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        context.settingsDataStore.edit { prefs ->
+            val current = decodeNameList(prefs[customCommercialFacilityNamesKey])
+            if (trimmed !in current) prefs[customCommercialFacilityNamesKey] = encodeNameList(current + trimmed)
+        }
+    }
+
+    suspend fun removeCustomCommercialFacilityName(name: String) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[customCommercialFacilityNamesKey] = encodeNameList(decodeNameList(prefs[customCommercialFacilityNamesKey]) - name)
+        }
+    }
+
+    suspend fun addCustomIndustrialFacilityName(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        context.settingsDataStore.edit { prefs ->
+            val current = decodeNameList(prefs[customIndustrialFacilityNamesKey])
+            if (trimmed !in current) prefs[customIndustrialFacilityNamesKey] = encodeNameList(current + trimmed)
+        }
+    }
+
+    suspend fun removeCustomIndustrialFacilityName(name: String) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[customIndustrialFacilityNamesKey] = encodeNameList(decodeNameList(prefs[customIndustrialFacilityNamesKey]) - name)
+        }
+    }
+
+    private fun decodeNameList(raw: String?): List<String> = raw?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
+    private fun encodeNameList(names: List<String>): String = names.joinToString("\n")
 }

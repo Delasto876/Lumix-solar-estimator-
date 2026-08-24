@@ -70,6 +70,13 @@ data class DiversityFactor(
 @Serializable
 data class CommercialIndustrialDesign(
     val electricalService: ElectricalService = ElectricalService(),
+    /**
+     * Phase 42 (spec §1 — "immediately ask: What type of facility is this?"): defaults to
+     * "not yet chosen" ([FacilitySelection.isChosen] false) rather than any specific preset — see
+     * [FacilitySelection]'s own doc. Drives the default load library added in a later phase of this
+     * same update; never overrides an installer's own edits to [loads] once loaded.
+     */
+    val facility: FacilitySelection = FacilitySelection(),
     val loads: List<LoadInstance> = emptyList(),
     val diversityFactor: DiversityFactor = DiversityFactor(),
     /** Phase 27 §7-§10: null until the installer has picked an inverter model and PV configuration in the manual design flow — see [ParallelInverterDesign]'s own doc. */

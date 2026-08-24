@@ -8027,3 +8027,68 @@ silently adds, drops, or renumbers one of these now fails a test instead of goin
 described above. `./gradlew` remains blocked by this sandbox's standing network limitation —
 verified by hand-tracing every changed assertion against the corrected source data, the same
 discipline this file's own PV-electrical-model tests already document using.
+
+## A126 — Phase 42: Facility Type foundation (first phase of the Commercial/Industrial facility-load-profile update)
+
+The user submitted a large spec ("PHASE UPDATE — COMMERCIAL / INDUSTRIAL FACILITY LOAD PROFILES +
+ELECTRICAL SERVICE") asking for facility-type-driven default load libraries (26 commercial + 25
+industrial types), a real Electrical Service/three-phase model, and a Transformer domain concept —
+explicitly asking it be broken into phases and clarifying questions raised wherever it conflicted
+with existing logic. Three questions were asked and answered before any code was written:
+illustrative (not fabricated) wattages for the ~500 facility-specific default loads this update will
+eventually add (confirmed — same convention `CommercialIndustrialLoadCatalog` already uses); the
+three-phase work stays utility/load-side math only for now, bridged by a transformer where needed,
+since the equipment catalog has zero real three-phase hybrid inverters today (real 3-phase inverters
+are a future round, per the user); and all 51 facility types get built in this update rather than a
+prioritized subset. The resulting 7-phase breakdown (Phase 42 facility-type foundation → 43
+electrical service/three-phase math → 44/45 facility default-load libraries → 46 transformer model →
+47 schedule polish → 48 tests/README) was shared with the user before starting.
+
+This round is Phase 42 only — the facility-type *selection*, nothing else. It deliberately does not
+touch `loads`, `businessHours`, `industrialShiftSchedule`, or any calculation — those are later
+phases, and per the spec's own §1 "Do NOT force facility assumptions on the user," a chosen facility
+type must never silently populate or lock the load list.
+
+**New `com.lumix.estimator.domain.commercial.FacilityType.kt`:** `CommercialFacilityType` (26
+entries, verbatim labels from spec §2, ending in `CUSTOM` = "Custom Commercial Facility") and
+`IndustrialFacilityType` (25 entries, spec §3, ending in `CUSTOM` = "Custom Industrial Facility").
+`FacilitySelection(commercialType, industrialType, customFacilityName)` holds the answer to "What
+type of facility is this?" — both null is the honest "not yet chosen" state, never defaulted to a
+specific preset. `displayLabel` resolves to the custom name when `CUSTOM` is chosen (falling back to
+a generic "Custom Facility" only if the name is still blank), or the enum's own label otherwise.
+
+**`CommercialIndustrialDesign` gains `val facility: FacilitySelection = FacilitySelection()`** —
+additive, defaults to "not chosen," so every already-saved commercial/industrial quote still
+deserializes correctly with no facility set.
+
+**Settings extensibility (spec §2/§3 — "The list must be extensible through Settings"):**
+`SettingsRepository` gains `customCommercialFacilityNames`/`customIndustrialFacilityNames` (DataStore
+`Flow<List<String>>`, newline-joined under the hood — the only two list-valued settings in this
+repository so far, and a facility name can't itself contain a newline) plus
+add/remove functions. These installer-added names are offered by the wizard's facility dropdown
+alongside the 51 built-in presets, without needing a separate Settings-screen list-management UI
+this round — the wizard itself is where a name gets added (see below), and Settings-screen CRUD for
+this list is easy to add later without any data-model change.
+
+**Wizard UI (`StepQuoteMode.kt`, spec §24 "minimum UI required"):** choosing Commercial or Industrial
+on the existing System Type step now reveals a new "What type of facility is this?" section — a
+`LabeledDropdown` (the same reusable dropdown component the inverter/panel/battery pickers already
+use) listing the installer's own saved custom names, then the built-in presets, then the "Custom ..."
+escape hatch. Picking "Custom" reveals a free-text name field and a "Save to my facility list"
+button that persists the name via `SettingsRepository` for future quotes. No other step changed —
+`StepCommercialIndustrialDesign.kt`'s load list, schedule sections, parallel-inverter/battery UI are
+completely untouched.
+
+**Tests:** new `FacilityTypeTest.kt` — exact counts (26/25) and exact terminal `CUSTOM` entry per
+list (locks the enum against a future silent add/remove going unnoticed), no blank/duplicate labels,
+`FacilitySelection.isChosen`/`displayLabel` resolution for the unchosen/preset/custom-named/
+custom-blank cases, and `CommercialIndustrialDesign()`'s facility defaults to unchosen.
+
+**Deferred to later phases of this same update (by design, not an oversight):** the actual
+facility-specific default load libraries (Phase 44/45 — this phase only lets the installer *name*
+the facility), the Electrical Service/three-phase calculation engine (Phase 43), the Transformer
+model (Phase 46), and facility-driven schedule defaults like School's daytime default or Call
+Centre's shift presets (Phase 47). `./gradlew` remains blocked by this sandbox's standing
+plugin-resolution network limitation (re-confirmed this round); verified by balance-checking every
+touched file and hand-tracing the new composable's data flow against the existing
+`StepCommercialIndustrialDesign.kt` update pattern it deliberately mirrors.
