@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumix.estimator.domain.SystemType
 import com.lumix.estimator.domain.commercial.CommercialIndustrialLoadCatalog
+import com.lumix.estimator.domain.commercial.LoadDefinition
 import com.lumix.estimator.domain.commercial.LoadInstance
 import com.lumix.estimator.domain.commercial.commercialLoadKwAt
 import com.lumix.estimator.domain.simulation.ApplianceRun
@@ -44,7 +45,7 @@ import com.lumix.estimator.domain.simulation.SimApplianceType
 import com.lumix.estimator.domain.simulation.defaultScheduleFor
 import com.lumix.estimator.domain.simulation.totalApplianceLoadKwAt
 import com.lumix.estimator.ui.components.AnimatedCounterText
-import com.lumix.estimator.ui.components.CatalogLoadRow
+import com.lumix.estimator.ui.components.newInstanceFrom
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixColors
 import com.lumix.estimator.ui.theme.LumixRadius
@@ -97,9 +98,15 @@ fun formatRunDuration(hours: Double): String {
  * → 10:00 PM · 4h 30m/day"); several short runs read as events ("3 daily events · 8min avg"),
  * matching how a kettle or microwave is actually used, not a continuous draw.
  */
-fun formatScheduleSummary(state: ApplianceState): String {
-    if (!state.enabled || state.runs.isEmpty()) return "Off"
-    val runs = state.runs
+fun formatScheduleSummary(state: ApplianceState): String = formatScheduleSummary(state.enabled, state.runs)
+
+/**
+ * Phase 37: the [ApplianceRun]-list-and-enabled-flag core of the summary above, split out so a
+ * Commercial/Industrial [LoadInstance] (whose [LoadInstance.enabled]/[LoadInstance.effectiveRuns]
+ * carry the exact same shape without needing a throwaway [ApplianceState] wrapper) can share it.
+ */
+fun formatScheduleSummary(enabled: Boolean, runs: List<ApplianceRun>): String {
+    if (!enabled || runs.isEmpty()) return "Off"
     if (runs.size == 1) {
         val run = runs[0]
         if (run.durationHours >= 23.9) return "Always on"
@@ -123,6 +130,29 @@ fun applianceDailyEnergyKwh(type: SimApplianceType, state: ApplianceState, dayTy
         .sumOf { it.quantity * watts * type.dutyFactor * it.durationHours / 1000.0 }
 }
 
+/** Phase 37: the Commercial/Industrial equivalent of [applianceDailyEnergyKwh] — real daily energy from a [LoadInstance]'s own [LoadInstance.effectiveRuns], scaled by its own [LoadInstance.dutyCycleFraction] instead of a catalog [SimApplianceType.dutyFactor]. */
+fun commercialLoadDailyEnergyKwh(instance: LoadInstance, dayType: DayType): Double {
+    if (!instance.enabled) return 0.0
+    val dutyFactor = instance.dutyCycleFraction.coerceIn(0.0, 1.0)
+    return instance.effectiveRuns.filter { dayType in it.dayTypes }
+        .sumOf { it.quantity * instance.ratedWatts * dutyFactor * it.durationHours / 1000.0 }
+}
+
+/**
+ * Phase 37: the starting point for a catalog load type this simulation session hasn't touched yet
+ * — [enabled] false (matching every fresh [ApplianceState]'s own off-by-default start), but with a
+ * ready-to-flip "Always On" full-day run seeded in ([ApplianceState]'s own default shape, `listOf
+ * (ApplianceRun())`, is the same all-day placeholder) rather than an empty/zero-duration window —
+ * so switching this load on immediately does something meaningful instead of silently contributing
+ * nothing. Deliberately NOT a fabricated "typical hours" guess — "Always On" is the one schedule
+ * that asserts no assumption about when this load actually runs, matching the standing "never
+ * invent an assumed operating window, especially for Industrial" rule.
+ */
+private fun defaultCommercialInstance(def: LoadDefinition): LoadInstance = newInstanceFrom(def).copy(
+    enabled = false,
+    runs = listOf(ApplianceRun(quantity = 1, startHour = 0.0, durationHours = 24.0))
+)
+
 @Composable
 fun AppliancesSheetContent(
     appliances: Map<SimApplianceType, ApplianceState>,
@@ -145,6 +175,7 @@ fun AppliancesSheetContent(
             systemCategory = systemCategory,
             loads = commercialLoads,
             currentHour = currentHour,
+            dayType = dayType,
             onSetLoads = onSetCommercialLoads,
             modifier = modifier
         )
@@ -223,27 +254,53 @@ fun AppliancesSheetContent(
 }
 
 /**
- * Phase 32: the Commercial/Industrial counterpart of the RESIDENTIAL body above — same "CURRENT
- * LOAD" readout and always-visible catalog list shape, but sourced from
+ * Phase 32, rebuilt Phase 37 ("this is how I want it exactly" — the residential Appliances sheet's
+ * own multi-run, day-type-aware schedule editor, applied identically here): the Commercial/
+ * Industrial counterpart of the RESIDENTIAL body above — same "CURRENT LOAD" readout, always-
+ * visible catalog list, Switch/mini-bar/summary/SCHEDULE-link row shape, and full Back/title/
+ * FullTimelineBar/QUICK SCHEDULE/Quantity-stepper/RUNS-list/+Add-run editor — sourced from
  * [CommercialIndustrialLoadCatalog.loadsFor] / [LoadInstance] (the exact loads configured on the
- * quote's Commercial/Industrial design step, via [CatalogLoadRow] — the same row this sheet's
- * wizard counterpart, [com.lumix.estimator.ui.wizard.steps.StepCommercialIndustrialDesign], uses)
- * instead of the residential [SimApplianceType] catalog. Deliberately scoped to the catalog's
- * standard load types only — the wizard's own "Custom Load" repeatable-add flow isn't duplicated
- * here; this sheet reviews/adjusts what's already configured rather than re-designing the load
- * list from scratch.
+ * quote's Commercial/Industrial design step) instead of the residential [SimApplianceType] catalog.
+ * The wizard's own single-window "Starts"/"Ends" editing (`CatalogLoadRow`, watts/PF/duty-cycle
+ * included) is untouched and stays the design-step surface; this sheet is purely the simulation's
+ * own richer schedule view, exactly like [AppliancesSheetContent] never lets the residential sim
+ * edit an appliance's wattage either. Deliberately scoped to the catalog's standard load types only
+ * — the wizard's own "Custom Load" repeatable-add flow isn't duplicated here.
  */
 @Composable
 private fun CommercialAppliancesSheetContent(
     systemCategory: SystemType,
     loads: List<LoadInstance>,
     currentHour: Double,
+    dayType: DayType,
     onSetLoads: (List<LoadInstance>) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalLumixPalette.current
-    val currentLoadKw = commercialLoadKwAt(loads, currentHour)
+    val currentLoadKw = commercialLoadKwAt(loads, currentHour, dayType)
     val catalog = CommercialIndustrialLoadCatalog.loadsFor(systemCategory).filter { !it.isCustom }
+    var editingDefId by remember { mutableStateOf<String?>(null) }
+
+    fun upsert(def: LoadDefinition, updated: LoadInstance) {
+        val list = loads.toMutableList()
+        val existingIndex = list.indexOfFirst { it.definitionId == def.id }
+        if (existingIndex >= 0) list[existingIndex] = updated else list.add(updated)
+        onSetLoads(list)
+    }
+
+    val editingDef = catalog.firstOrNull { it.id == editingDefId }
+    if (editingDef != null) {
+        val instance = loads.firstOrNull { it.definitionId == editingDef.id } ?: defaultCommercialInstance(editingDef)
+        CommercialLoadScheduleEditorContent(
+            def = editingDef,
+            instance = instance,
+            dayType = dayType,
+            onChange = { updated -> upsert(editingDef, updated) },
+            onBack = { editingDefId = null },
+            modifier = modifier
+        )
+        return
+    }
 
     Column(
         modifier = modifier
@@ -266,7 +323,7 @@ private fun CommercialAppliancesSheetContent(
             color = palette.solarYellowText
         )
         Text(
-            "Every load below runs on its own real window — set how many you have, how many hours/day they typically run, and roughly when. Only loads with a quantity above 0 draw any power.",
+            "Every load below runs on its own real schedule — one or more windows, each with its own days. Tap SCHEDULE to see or edit exactly when.",
             style = MaterialTheme.typography.labelSmall,
             color = palette.textSecondary,
             modifier = Modifier.padding(top = 6.dp)
@@ -275,19 +332,194 @@ private fun CommercialAppliancesSheetContent(
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
         catalog.forEachIndexed { index, def ->
-            val existing = loads.firstOrNull { it.definitionId == def.id }
-            CatalogLoadRow(def, existing) { updated ->
-                val list = loads.toMutableList()
-                val existingIndex = list.indexOfFirst { it.definitionId == def.id }
-                when {
-                    updated == null && existingIndex >= 0 -> list.removeAt(existingIndex)
-                    updated != null && existingIndex >= 0 -> list[existingIndex] = updated
-                    updated != null -> list.add(updated)
-                }
-                onSetLoads(list)
-            }
+            val instance = loads.firstOrNull { it.definitionId == def.id } ?: defaultCommercialInstance(def)
+            CommercialLoadSmartCard(
+                def = def,
+                instance = instance,
+                dayType = dayType,
+                onToggleEnabled = { checked ->
+                    val toggled = if (checked && instance.effectiveRuns.isEmpty()) {
+                        instance.copy(enabled = true, runs = listOf(ApplianceRun(quantity = instance.quantity.coerceAtLeast(1), startHour = 0.0, durationHours = 24.0)))
+                    } else {
+                        instance.copy(enabled = checked)
+                    }
+                    upsert(def, toggled)
+                },
+                onOpenSchedule = { editingDefId = def.id }
+            )
             if (index < catalog.size - 1) HorizontalDivider()
         }
+    }
+}
+
+/** A compact card: name, quantity × watts, the load's real schedule summary, and daily energy — matching [ApplianceSmartCard]'s shape exactly. */
+@Composable
+private fun CommercialLoadSmartCard(
+    def: LoadDefinition,
+    instance: LoadInstance,
+    dayType: DayType,
+    onToggleEnabled: (Boolean) -> Unit,
+    onOpenSchedule: () -> Unit
+) {
+    val palette = LocalLumixPalette.current
+    val runs = instance.effectiveRuns
+    val quantity = instance.quantity.coerceAtLeast(1)
+    val dailyKwh = commercialLoadDailyEnergyKwh(instance, dayType)
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(def.label, style = MaterialTheme.typography.bodyLarge, color = palette.textPrimary)
+                Text(
+                    "${instance.ratedWatts.roundToInt()} W each · $quantity unit${if (quantity == 1) "" else "s"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary
+                )
+            }
+            Switch(
+                checked = instance.enabled,
+                onCheckedChange = onToggleEnabled,
+                colors = SwitchDefaults.colors(checkedTrackColor = palette.solarYellow)
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).clickable { onOpenSchedule() },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    formatScheduleSummary(instance.enabled, runs),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (instance.enabled) palette.textPrimary else palette.textSecondary
+                )
+                if (instance.enabled) {
+                    Text(
+                        "%.2f kWh/day".format(dailyKwh),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textSecondary
+                    )
+                }
+            }
+            Text(
+                "SCHEDULE  ›",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = palette.solarYellowText
+            )
+        }
+
+        if (instance.enabled) {
+            MiniTimelineBar(runs = runs, dayType = dayType, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        }
+    }
+}
+
+/** Full schedule editor for one Commercial/Industrial load: a labeled 24h timeline, each run's own controls, and quick presets — matching [ApplianceScheduleEditorContent]'s shape exactly, minus a fabricated "Smart Default" (no assumed operating hours for a load whose real schedule this app was never told). */
+@Composable
+private fun CommercialLoadScheduleEditorContent(
+    def: LoadDefinition,
+    instance: LoadInstance,
+    dayType: DayType,
+    onChange: (LoadInstance) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val palette = LocalLumixPalette.current
+    val runs = instance.effectiveRuns
+    val quantity = instance.quantity.coerceAtLeast(1)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+            Text(
+                "‹ Back",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = palette.solarYellowText,
+                modifier = Modifier.clickable { onBack() }
+            )
+        }
+        Text(def.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+        Text(
+            "${instance.ratedWatts.roundToInt()} W each · %.2f kWh/day".format(commercialLoadDailyEnergyKwh(instance, dayType)),
+            style = MaterialTheme.typography.labelMedium,
+            color = palette.textSecondary,
+            modifier = Modifier.padding(top = 2.dp, bottom = 16.dp)
+        )
+
+        FullTimelineBar(runs = runs, dayType = dayType, modifier = Modifier.fillMaxWidth())
+
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            listOf("12 AM", "6 AM", "12 PM", "6 PM", "12 AM").forEach {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            }
+        }
+
+        Text(
+            "QUICK SCHEDULE",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = palette.textSecondary,
+            modifier = Modifier.padding(top = 20.dp, bottom = 8.dp)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            QuickPresetChip("Always On") {
+                onChange(instance.copy(enabled = true, runs = listOf(ApplianceRun(quantity = quantity, startHour = 0.0, durationHours = 24.0))))
+            }
+            QuickPresetChip("Off") {
+                onChange(instance.copy(enabled = false))
+            }
+        }
+
+        StepperRow(
+            label = "Quantity (applies to every run)",
+            value = quantity.toString(),
+            onDecrement = {
+                val newQty = (quantity - 1).coerceAtLeast(1)
+                onChange(instance.copy(enabled = true, quantity = newQty, runs = runs.map { it.copy(quantity = newQty) }))
+            },
+            onIncrement = {
+                val newQty = (quantity + 1).coerceAtMost(50)
+                onChange(instance.copy(enabled = true, quantity = newQty, runs = runs.map { it.copy(quantity = newQty) }))
+            },
+            modifier = Modifier.padding(top = 20.dp)
+        )
+
+        Text(
+            "RUNS",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = palette.textSecondary,
+            modifier = Modifier.padding(top = 20.dp, bottom = 8.dp)
+        )
+        runs.forEachIndexed { index, run ->
+            RunEditorRow(
+                run = run,
+                canRemove = runs.size > 1,
+                onChange = { updated -> onChange(instance.copy(enabled = true, runs = runs.toMutableList().apply { this[index] = updated })) },
+                onRemove = { onChange(instance.copy(runs = runs.toMutableList().apply { removeAt(index) })) },
+                modifier = Modifier.padding(bottom = 14.dp)
+            )
+        }
+        Text(
+            "+ Add run",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = palette.solarYellowText,
+            modifier = Modifier
+                .clickable {
+                    val newRun = ApplianceRun(quantity = quantity, startHour = 18.0, durationHours = 0.5)
+                    onChange(instance.copy(enabled = true, runs = runs + newRun))
+                }
+                .padding(vertical = 8.dp)
+        )
     }
 }
 

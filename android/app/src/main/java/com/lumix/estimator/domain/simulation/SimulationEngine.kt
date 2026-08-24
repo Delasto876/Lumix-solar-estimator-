@@ -324,7 +324,7 @@ object SimulationEngine {
             val pv = (irradianceFraction * config.pvCapacityKw * temperatureDerate * SystemLosses.fixedSystemEfficiency)
                 .coerceIn(0.0, config.maxPvInputKw)
 
-            val load = ((loadFactor(hour, dayType) * backgroundPerHourKw + applianceLoadKw + totalApplianceLoadKwAt(applianceStates, hour, dayType) + commercialLoadKwAt(commercialLoads, hour)) * loadMultiplier)
+            val load = ((loadFactor(hour, dayType) * backgroundPerHourKw + applianceLoadKw + totalApplianceLoadKwAt(applianceStates, hour, dayType) + commercialLoadKwAt(commercialLoads, hour, dayType)) * loadMultiplier)
                 .coerceAtLeast(0.0)
             // A87 (spec Phase 24 §3 — "INVERTER SELF-CONSUMPTION... Required PV: 400 + 100 + 1500
             // = 2000W"): the inverter's own housekeeping draw is a genuinely separate demand from

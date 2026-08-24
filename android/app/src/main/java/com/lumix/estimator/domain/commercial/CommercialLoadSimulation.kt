@@ -1,5 +1,7 @@
 package com.lumix.estimator.domain.commercial
 
+import com.lumix.estimator.domain.simulation.DayType
+
 /**
  * Phase 32 ("for the appliance section... if commercial or industrial choose those in appliances
  * picker"): the Commercial/Industrial analogue of
@@ -37,14 +39,23 @@ fun hoursBetweenWrapping(startHour: Double, endHour: Double): Double {
     return if (raw >= 0.0) raw else raw + 24.0
 }
 
-fun commercialLoadKwAt(loads: List<LoadInstance>, hour: Double): Double {
+/**
+ * Phase 37 ("this is how I want it exactly" — matching the residential Appliances sheet's own
+ * multi-run, day-type-aware schedule editor): reads [LoadInstance.effectiveRuns] instead of
+ * [LoadInstance.typicalStartHour]/[LoadInstance.operatingHoursPerDay] directly, so a load with a
+ * custom multi-run schedule (several distinct windows, each possibly restricted to a subset of
+ * [DayType]s — e.g. a shift-only load that doesn't run weekends) is simulated exactly as
+ * configured, the same way [com.lumix.estimator.domain.simulation.totalApplianceLoadKwAt] already
+ * does for residential appliances. A load with [LoadInstance.enabled] = false (the simulation's
+ * own session Switch — distinct from removing it from the design entirely) never contributes,
+ * regardless of its configured runs.
+ */
+fun commercialLoadKwAt(loads: List<LoadInstance>, hour: Double, dayType: DayType = DayType.WEEKDAY): Double {
     val h = hour.mod(24.0)
     return loads.sumOf { load ->
-        val duration = load.operatingHoursPerDay.coerceIn(0.0, 24.0)
-        if (duration <= 0.0) return@sumOf 0.0
-        val start = (load.typicalStartHour ?: 0.0).mod(24.0)
-        val end = start + duration
-        val active = if (end <= 24.0) h >= start && h < end else h >= start || h < (end - 24.0)
-        if (active) load.quantity * load.ratedWatts * load.dutyCycleFraction.coerceIn(0.0, 1.0) / 1000.0 else 0.0
+        if (!load.enabled) return@sumOf 0.0
+        val activeQty = load.effectiveRuns.filter { it.isActiveAt(h, dayType) }.sumOf { it.quantity }
+        if (activeQty <= 0) return@sumOf 0.0
+        activeQty * load.ratedWatts * load.dutyCycleFraction.coerceIn(0.0, 1.0) / 1000.0
     }
 }

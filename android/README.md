@@ -7694,3 +7694,77 @@ correctly, identical start/end is 0.0 (not a silent full day), and `Shift.durati
 confirmed to still match the shared formula after the refactor. The Starts/Ends UI itself is
 Compose-layer — correct by code review only, same caveat as every UI round (no test harness in this
 project, `./gradlew` still blocked by the sandbox's network limitation).
+
+## A121 — Phase 37: multi-run, day-type-aware schedule editor for Commercial/Industrial loads (matches the residential Appliances sheet exactly)
+
+Two residential Appliances-sheet screenshots (the full schedule editor — Back/title/watts-kWh/
+timeline/QUICK SCHEDULE/Quantity stepper/RUNS list/+Add run — and the main list's Switch/mini-bar/
+summary/SCHEDULE-link row), followed by: **"this is how I want it exactly."** This round builds the
+identical experience for Commercial/Industrial loads in the simulation, reusing the residential
+sheet's own already-generic pieces rather than building a second, parallel scheduling system.
+
+**The actual gap.** A commercial/industrial load could only ever have ONE daily window
+(`typicalStartHour` + `operatingHoursPerDay`) — no multiple runs, no per-run day-of-week
+restriction, no session on/off Switch independent of the wizard's own quantity field. Residential
+appliances have had all three (`ApplianceRun`, `ApplianceState.enabled`, the full `RunEditorRow`/
+`FullTimelineBar`/quick-preset editor) since A39/A84. This round brings Commercial/Industrial to
+parity.
+
+**`LoadInstance` gains `enabled` and `runs` (both `@Transient`).** `enabled: Boolean = true` is the
+simulation's own session Switch — distinct from the wizard's own on/off mechanism (quantity 0 =
+removed from the design step's list entirely, untouched by this round). `runs: List<ApplianceRun>?
+= null` is an optional richer schedule — the exact residential `ApplianceRun` type, not a parallel
+one. A new `effectiveRuns` computed property is the one place the "which representation is active"
+decision is made: `runs` when set, otherwise a single run derived from `typicalStartHour`/
+`operatingHoursPerDay` (so every load configured before this round, and the wizard's own single-
+window "Starts"/"Ends" editing — A120, unchanged — keep working exactly as before). Both new fields
+are `@Transient`: `ApplianceRun` isn't itself `@Serializable`, and — matching the residential
+`ApplianceState`'s own precedent, already session-only and re-derived fresh on every quote load
+(A45's "quote isolation") — a load's rich multi-run schedule is a simulation-session customization,
+not a saved-quote field. It resets on reload, exactly like a residential appliance's custom runs
+already do.
+
+**`commercialLoadKwAt` becomes day-type- and multi-run-aware.** It now reads `load.effectiveRuns`
+(filtered by `enabled`, then by `isActiveAt(hour, dayType)` per run) instead of hand-rolling a
+single-window check — the same shape `totalApplianceLoadKwAt` already uses for residential. A load
+with several runs, each restricted to its own subset of Weekday/Saturday/Sunday (e.g. a shift-only
+compressor that doesn't run weekends), is now simulated exactly as configured. `SimulationEngine`'s
+one call site and `SimulationViewModel.commercialLoadKw` both now pass the simulation's real
+`dayType` through (previously defaulted to `WEEKDAY` regardless of the selected day).
+
+**The new sheet, built entirely inside `AppliancesSheet.kt`.** `CommercialAppliancesSheetContent`
+was rewritten around `CommercialLoadSmartCard` (name, watts × quantity, Switch, mini timeline bar,
+schedule summary + kWh/day, "SCHEDULE ›" tap-through) and `CommercialLoadScheduleEditorContent`
+(Back, title, full timeline, QUICK SCHEDULE, Quantity stepper, RUNS list, "+ Add run") — the exact
+shape of `ApplianceSmartCard`/`ApplianceScheduleEditorContent`. Every generic piece
+(`MiniTimelineBar`, `FullTimelineBar`, `RunEditorRow`, `StepperRow`, `MiniStepper`,
+`QuickPresetChip`, `formatRunDuration`, `stepHours`, `stepStartHour`) was already written
+`ApplianceRun`-generic, never actually `SimApplianceType`-specific, so none of it needed to change —
+only the two outer composables got new counterparts. `formatScheduleSummary` was split into an
+`(enabled, runs)` core with the old `(ApplianceState)` signature kept as a one-line wrapper, so both
+catalogs share the exact same summary text logic instead of two copies.
+
+**One deliberate difference from residential: no "Smart Default."** Residential's QUICK SCHEDULE row
+offers Smart Default / Always On / Off — Smart Default fabricates a plausible schedule
+(`defaultScheduleFor(type)`) for a known household appliance. This app's standing rule is to never
+invent an assumed operating window, especially for Industrial. Commercial/Industrial's QUICK
+SCHEDULE row is Always On / Off only. A load this sheet has never touched starts `enabled = false`
+with an "Always On" (full 24h) placeholder run seeded in — matching how a fresh residential
+`ApplianceState()` already defaults (`listOf(ApplianceRun())`, itself a full-day run) — so switching
+one on for the first time does something immediately meaningful rather than silently contributing
+zero, without asserting any actual hours-of-operation claim.
+
+**Not touched, by design.** The wizard's own `CatalogLoadRow` (`StepCommercialIndustrialDesign`'s
+Loads step) keeps its single-window "Starts"/"Ends" editing — watts/BTU, power factor, duty cycle —
+completely unchanged; it's the design-step surface, not the simulation's. This mirrors how the
+residential Appliances sheet has never let the simulation edit an appliance's wattage either — the
+simulation edits *when* something runs, not *what* it draws.
+
+**Verification:** new `Phase37MultiRunScheduleTest` — a load with no explicit `runs` still derives
+exactly the old single-window behavior (no regression against every A32/A35 test still using the two-
+arg `commercialLoadKwAt(loads, hour)` call); an explicit multi-run schedule fully replaces the single-
+window derivation; a run restricted to Saturday contributes nothing on a Weekday and vice versa;
+`enabled = false` zeroes a load regardless of its configured runs, and re-enabling restores that exact
+schedule; overlapping multi-run quantities sum correctly at a shared hour. Compose-layer UI is correct
+by code review only — `./gradlew` remains blocked by this sandbox's network limitation (plugin
+resolution), the same standing caveat as every prior UI round.

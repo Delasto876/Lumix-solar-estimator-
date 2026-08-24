@@ -1,6 +1,8 @@
 package com.lumix.estimator.domain.commercial
 
+import com.lumix.estimator.domain.simulation.ApplianceRun
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlin.math.sqrt
 
 /**
@@ -104,8 +106,49 @@ data class LoadInstance(
      * residential [com.lumix.estimator.domain.simulation.SimAppliance] treatment) remains
      * deferred — see the Phase 28/29 completion notes.
      */
-    val typicalStartHour: Double? = null
+    val typicalStartHour: Double? = null,
+    /**
+     * Phase 37 ("this is how I want it exactly" — matching the residential Appliances sheet's own
+     * multi-run, day-type-aware schedule editor): whether this load currently contributes any
+     * power — the simulation's own Switch, distinct from list-presence (removing a load from
+     * [CommercialIndustrialDesign.loads] entirely is still how the wizard's own catalog picker
+     * turns a load off; this field lets the SIMULATION toggle a load off/on for a session without
+     * losing its configured [runs]/wattage/duty-cycle, exactly like [com.lumix.estimator.domain
+     * .simulation.ApplianceState.enabled] already does for residential). Defaults `true` so every
+     * load configured before this field existed keeps contributing exactly as before.
+     */
+    @Transient
+    val enabled: Boolean = true,
+    /**
+     * Phase 37: an optional richer schedule — a real list of [ApplianceRun]s (own start/duration/
+     * day-types each, reusing the exact residential type rather than a parallel one), matching what
+     * the residential Appliances sheet's own schedule editor already offers ("start time end time...
+     * add another run... select days"). Null (the default, and what the wizard's own [typicalStartHour]/
+     * [operatingHoursPerDay] editing in `CatalogLoadRow` always produces) means "derive one run from
+     * those two fields" — see [effectiveRuns]. Non-null replaces that single-window model entirely;
+     * [typicalStartHour]/[operatingHoursPerDay] are then just the last single-window snapshot before
+     * multi-run editing began, kept for round-tripping back to single-window display, not read by
+     * [effectiveRuns] once [runs] is set.
+     *
+     * `@Transient` (not persisted): [ApplianceRun] is not itself `@Serializable`, and — matching the
+     * residential Appliances sheet's own precedent, where [com.lumix.estimator.domain.simulation
+     * .ApplianceState]/its `runs` are already session-only and re-derived fresh on every quote load —
+     * a commercial/industrial load's rich multi-run schedule is a simulation-session customization,
+     * not a saved-quote field. It resets to `null` (single-window mode) whenever a quote is reloaded.
+     */
+    @Transient
+    val runs: List<ApplianceRun>? = null
 ) {
+    /**
+     * Phase 37: the actual schedule to simulate/display against, regardless of which of the two
+     * representations above is active — every caller (the timeline bar, [commercialLoadKwAt], the
+     * schedule editor) reads this instead of choosing between [runs] and [typicalStartHour]/
+     * [operatingHoursPerDay] itself, so there's exactly one place that decision is made.
+     */
+    val effectiveRuns: List<ApplianceRun> get() = runs ?: listOfNotNull(
+        if (operatingHoursPerDay > 0.0) ApplianceRun(quantity = quantity, startHour = typicalStartHour ?: 0.0, durationHours = operatingHoursPerDay) else null
+    )
+
     val totalConnectedWatts: Double get() = ratedWatts * quantity
 
     /** This load's real-power contribution to Connected Load — quantity x rating, with no duty-cycle/simultaneity reduction (Connected Load is the raw nameplate sum, per §5's own "Connected Load" definition). */

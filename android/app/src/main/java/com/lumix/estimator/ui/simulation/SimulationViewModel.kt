@@ -72,7 +72,7 @@ data class SimulationUiState(
     val applianceLoadKw: Double get() = totalApplianceLoadKwAt(appliances, currentHour, dayType)
 
     /** Phase 32: the Commercial/Industrial equivalent of [applianceLoadKw]. */
-    val commercialLoadKw: Double get() = commercialLoadKwAt(commercialLoads, currentHour)
+    val commercialLoadKw: Double get() = commercialLoadKwAt(commercialLoads, currentHour, dayType)
 }
 
 class SimulationViewModel(
