@@ -298,7 +298,10 @@ class EquipmentSelectionEngineTest {
         val result = EquipmentSelectionEngine.checkPanelInverterCompatibility(
             panelWatts = 615, panelCount = 6, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US"
         )
-        assertTrue("3.69 kW array should be well under Deye 6K's real 7.8 kW max PV input", result.powerOk)
+        // Phase 41 (inverter datasheet compendium): Deye 6K's real max PV input power was corrected
+        // 7.8kW -> 9.0kW against a real SUN-6K-SG02LP2-US-AM2 datasheet — 3.69kW is comfortably
+        // under either figure, so this scenario's own outcome is unaffected, only the message text.
+        assertTrue("3.69 kW array should be well under Deye 6K's real 9.0 kW max PV input", result.powerOk)
         assertTrue("expected the full configuration to be valid: ${result.notes}", result.valid)
         assertEquals(3.69, result.arrayKw, 0.01)
         // Series topology: voltage adds (3 panels/string x 2 MPPT), current does NOT multiply by
@@ -309,12 +312,15 @@ class EquipmentSelectionEngineTest {
     }
 
     @Test
-    fun `scenario 11 - 14 x 615W on Deye SUN-6K-SG02LP2-US exceeds real max PV input power`() {
+    fun `scenario 11 - 16 x 615W on Deye SUN-6K-SG02LP2-US exceeds real max PV input power`() {
+        // Phase 41: bumped from 14 to 16 panels — Deye 6K's real max PV input power was corrected
+        // 7.8kW -> 9.0kW (a real SUN-6K-SG02LP2-US-AM2 datasheet states 9,000W, not the prior
+        // estimate), so 14 x 615W (8.61kW) no longer exceeds it; 16 x 615W (9.84kW) still does.
         val result = EquipmentSelectionEngine.checkPanelInverterCompatibility(
-            panelWatts = 615, panelCount = 14, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US"
+            panelWatts = 615, panelCount = 16, inverterKw = 6.0, inverterNameHint = "Deye SUN-6K-SG02LP2-US"
         )
-        assertEquals(8.61, result.arrayKw, 0.01)
-        assertFalse("8.61 kW array should exceed Deye 6K's real 7.8 kW max PV input", result.powerOk)
+        assertEquals(9.84, result.arrayKw, 0.01)
+        assertFalse("9.84 kW array should exceed Deye 6K's real 9.0 kW max PV input", result.powerOk)
         assertFalse(result.valid)
     }
 

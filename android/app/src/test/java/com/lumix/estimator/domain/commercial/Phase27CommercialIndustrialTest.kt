@@ -152,10 +152,25 @@ class Phase27CommercialIndustrialTest {
     }
 
     @Test
-    fun `no catalog inverter today has confirmed parallel support, so a real-catalog multi-unit request is unconfirmed`() {
+    fun `GEN-LB-US 8K now has real, sourced parallel support confirmed (Phase 41), so a 2-unit request validates cleanly`() {
+        // Phase 41 (inverter datasheet compendium): every inverter in the catalog now has an
+        // explicit, sourced answer for parallel operation — GEN-LB-US 8K's own real datasheet
+        // confirms "yes, up to 10 units," so a 2-unit request is no longer flagged unconfirmed.
         val realInverter = EquipmentSpecs.inverters.first { it.model == "GEN-LB-US 8K" }
         val design = ParallelInverterDesign(
             inverterModelId = realInverter.model, ratedKwPerUnit = 8.0, panelWattage = 595, inverterCount = 2
+        )
+        val result = ParallelInverterValidator.validate(design) // real production catalog
+        assertTrue("expected confirmed parallel support: ${result.warnings}", result.parallelCapabilityOk)
+    }
+
+    @Test
+    fun `an inverter the compendium could not confirm parallel support for still reports unconfirmed`() {
+        // HES48100U200-H's own real datasheet (Phase 41) explicitly doesn't state a parallel
+        // capacity — this app's standing rule keeps that "not confirmed," never "assume yes."
+        val realInverter = EquipmentSpecs.inverters.first { it.model == "HES48100U200-H" }
+        val design = ParallelInverterDesign(
+            inverterModelId = realInverter.model, ratedKwPerUnit = 10.0, panelWattage = 595, inverterCount = 2
         )
         val result = ParallelInverterValidator.validate(design) // real production catalog
         assertFalse(result.parallelCapabilityOk)

@@ -7941,3 +7941,89 @@ inside the composable itself, `previousShiftEnd ?: 0.0`) — correct by code rev
 sequence described above (Shift 1 → 6am/3pm, Shift 2 already showing 3pm, edit only its End to 11pm)
 against the unchanged, already-tested `Shift`/`IndustrialShiftSchedule` domain math. `./gradlew`
 remains blocked by this sandbox's standing network limitation, unrelated to this round's code.
+
+## A125 — Phase 41: inverter datasheet compendium — parallel support confirmed for every catalog inverter, plus real-data corrections
+
+The user uploaded a "Lumix Hybrid Inverter Technical Datasheet Compendium" (.docx) — real
+manufacturer-sourced data for every one of the 13 `InverterSpec` entries in `EquipmentSpecs.kt`,
+answering the previous round's own question ("what information do you need to update those").
+Extracted via the docx skill's raw-XML fallback (`pandoc`/`soffice` both unavailable in this
+sandbox) into a table-preserving text dump, then applied entry-by-entry against the standing "never
+invent a manufacturer spec" rule — a real source citation for every changed field, and an honest
+"still not confirmed" note wherever the compendium itself couldn't confirm something.
+
+**Parallel support: every inverter now has an explicit, sourced answer.** 10 of the 13 are now
+confirmed parallel-capable with a real max-unit count (`supportsParallel = true`,
+`maxParallelUnits`) — LuxPower's whole GEN-LB-US family (6K/8K/10K/13K) at up to 10 units, LuxPower
+SNA-US 12K at up to 16, Deye's SG02LP2/SG01LP1 6K/8K at up to 16, SRNE HESP48120U200-H (the 12K tier)
+at up to 6, and both Growatt SPH-HU units at up to 6. The other 3 stay `false` — but now **confirmed**
+false, not just default-unconfirmed: SRNE ASF4880S180-H's own manufacturer manual explicitly states
+"parallel capacity is '/' — does not support parallel connection," and SRNE HES48100U200-H's and
+ASF4860U80-H's own sources simply never state a parallel capacity at all, so there's nothing to mark
+true from.
+
+**Two model-name findings, deliberately NOT silently fixed by renaming the catalog.** (1) The
+compendium's own recommendation: "the manufacturer documentation identifies the 13K as GEN-LB-US
+13K," not this catalog's own "LXP-LB-US 12K/13K" string. (2) A targeted search for "ASF4860U80-H"
+(this catalog's 6kW SRNE entry) found no matching SRNE product at all — the closest real name,
+HF4850U80-H, is a 5,000W-rated unit, a rated-power mismatch that means its data can't safely stand
+in for this catalog's 6kW tier. Neither was renamed: `InverterSpec.model` is the durable identifier
+`ParallelInverterDesign.inverterModelId` and every manual-mode picker match against, and any already-
+saved quote that selected one of these inverters stores it by this exact string — renaming would
+silently break that match for an existing quote. Both findings are recorded in `dataQualityNote`
+instead, and the (1) case's data was independently re-confirmed and upgraded to VERIFIED anyway,
+since the real GEN-LB-US 13K datasheet matches this entry's own stored figures exactly.
+
+**One entry got its numeric data corrected outright: "SNA-US 12K."** This catalog entry previously
+carried LXP-LB-US 12K's own borrowed data under the SNA-US 12K name (an earlier round's own honest
+disclosure of the gap) — the compendium found a real, dedicated SNA-US 12-15K manual, confirming it
+really is a different-architecture product exactly as that disclosure warned: 2 MPPT (not the
+borrowed 3), different voltage/current figures throughout, and `efficiencyPercent` reset to `null`
+(the old 97.5% was also a borrowed LXP-LB-US figure — no SNA-US-specific efficiency is published in
+the real source, so "not published" is now the honest state, not a carried-over guess).
+
+**One entry has an unresolved topology conflict, flagged rather than silently applied or ignored.**
+SRNE ASF4880S180-H's real datasheet describes a 230/220 Vac SINGLE-phase output — not the 120/240V
+split-phase topology this entry (and this app's whole Jamaica residential model) assumes. The DC/PV/
+battery-side fields (which don't depend on AC topology) were updated from the real datasheet; the
+AC-side fields were deliberately left untouched pending confirmation of which literal regional
+variant is actually being quoted — recorded prominently in `dataQualityNote` for the installer to
+resolve with their supplier, not guessed at.
+
+**`stringsPerMppt` corrections (1→2, several Deye/SRNE entries) turned out to have zero calculation
+impact** — a grep across the whole codebase confirms this field is never actually read by any
+sizing/validation logic, only stored (display-only). Corrected for accuracy anyway since it's real,
+sourced data, but this meant zero regression-test risk from that specific change.
+
+**`maxPvW` corrections did have real downstream effects — traced and fixed.** This field IS the
+binding ceiling `EquipmentSelectionEngine.checkPanelInverterCompatibility` checks a proposed panel
+array against, so raising a model's own real figure (Deye 6K: 7.8kW → 9.0kW; GEN-LB-US 8K: 16kW →
+18kW, corrected to the manufacturer's own "max PV input power," distinct from the larger "max PV
+array power" the same source separately publishes) could silently flip an existing regression test's
+pass/fail boundary. It did, for Deye 6K specifically: two tests (`EquipmentSelectionEngineTest`
+scenario 11, `SystemDiagnosticsTest`'s oversized-array check) asserted that 14×615W (8.61kW) exceeds
+the old 7.8kW ceiling — under the corrected 9.0kW ceiling it no longer does. Both were updated to
+16×615W (9.84kW), which still genuinely exceeds the real, corrected ceiling. A third test
+(`Phase27CommercialIndustrialTest`) asserted "no catalog inverter today has confirmed parallel
+support" using GEN-LB-US 8K as its example — now literally false, since that's exactly what this
+round confirmed — rewritten into two tests: one proving GEN-LB-US 8K's own now-confirmed support
+validates a 2-unit request cleanly, another using HES48100U200-H (still genuinely unconfirmed) to
+keep covering the "not confirmed" code path.
+
+**Everything else was traced and found safe.** `efficiencyPercent`/`surgePowerRatio`/
+`surgeDurationSeconds` are display-only (`InspectPanel.kt`'s inspect sheet) — confirmed via grep,
+never read by any sizing/validation/diagnostics logic, so adding real values to many more entries
+this round couldn't have broken anything. `PvElectricalModelTest.kt`'s 14 Deye-6K scenarios test
+voltage/MPPT-tracker-count physics (`mpptCount`, `mpptVoltageMinV`, panel Vmp/Isc) — none of which
+this round changed for that model — so all 14 are unaffected. `SystemCalculatorBatteryPowerCeilingTest`
+and `PvOutputLimitTest` reference inverters this round touched only in comments/citations, using
+either unchanged fields or literal test parameters — unaffected.
+
+**Verification:** `EquipmentSpecsTest` rewritten to lock in exactly which models now carry a real
+sourced surge figure (8, up from 2) and exactly which are parallel-capable with which real max-unit
+count (10, each checked against the compendium's own stated number) — a future catalog edit that
+silently adds, drops, or renumbers one of these now fails a test instead of going unnoticed.
+`EquipmentSelectionEngineTest`/`SystemDiagnosticsTest`/`Phase27CommercialIndustrialTest` updated as
+described above. `./gradlew` remains blocked by this sandbox's standing network limitation —
+verified by hand-tracing every changed assertion against the corrected source data, the same
+discipline this file's own PV-electrical-model tests already document using.

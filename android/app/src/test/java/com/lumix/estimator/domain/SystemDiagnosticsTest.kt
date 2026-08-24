@@ -66,8 +66,11 @@ class SystemDiagnosticsTest {
     }
 
     @Test
-    fun `an oversized 14x615W array on the same 6K inverter fails the PV power check`() {
-        val checks = SystemDiagnostics.checksFor(minimalResult(panelCount = 14), targetBackupHours = 12.0)
+    fun `an oversized 16x615W array on the same 6K inverter fails the PV power check`() {
+        // Phase 41 (inverter datasheet compendium): Deye 6K's real max PV input power was corrected
+        // 7.8kW -> 9.0kW against a real datasheet, so 14 x 615W (8.61kW, this test's old panel
+        // count) no longer exceeds it — bumped to 16 panels (9.84kW), which still does.
+        val checks = SystemDiagnostics.checksFor(minimalResult(panelCount = 16), targetBackupHours = 12.0)
         val pvCheck = checks.first { it.label.startsWith("PV") }
         assertFalse(pvCheck.pass)
         assertTrue(pvCheck.detail!!.contains("exceeds"))

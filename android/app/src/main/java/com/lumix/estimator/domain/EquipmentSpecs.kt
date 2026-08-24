@@ -241,23 +241,37 @@ object EquipmentSpecs {
             maxBatteryA = null, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = null,
             surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
-            dataQualityNote = "PV/MPPT specs from LuxPower's own GEN-LB-US 5-13K manual/catalogue (sourceUrl). Battery charge/discharge current is model-dependent and not given per-model — do not inherit the 13K's battery-current figure for this unit.",
+            // Phase 41 (inverter datasheet compendium, 2026-08-24): supportsParallel/maxParallelUnits
+            // added — the compendium's own GEN-LB-US 6K entry couldn't expose a clean exact-6K row
+            // (same limitation this file's own note already had), but confirms "GEN-LB-US family
+            // supports up to 10 units in parallel" as a family-wide characteristic, and explicitly
+            // recommends "supportsParallel = true; exact numeric electrical fields = pending exact
+            // 6K source" — so the parallel fields are added, every other numeric field below is
+            // deliberately left untouched (still not confirmed against an exact 6K datasheet).
+            dataQualityNote = "PV/MPPT specs from LuxPower's own GEN-LB-US 5-13K manual/catalogue (sourceUrl). Battery charge/discharge current is model-dependent and not given per-model — do not inherit the 13K's battery-current figure for this unit. Phase 41: parallel support confirmed family-wide (GEN-LB-US family, up to 10 units) per a separate compendium source (luxpowertek.com/wp-content/uploads/2026/07/GEN-LB-US-5K_13K-Spanish20260629.pdf) — every other field here is still not confirmed against an exact 6K-model datasheet row.",
             engineeringNote = "4 PV inputs total (2 MPPT x 2 strings each).",
-            sourceUrl = "https://luxpowertek.com/wp-content/uploads/2026/06/GEN-LB-US-5-13K-User-Manual-2026.06.08.pdf"
+            sourceUrl = "https://luxpowertek.com/wp-content/uploads/2026/06/GEN-LB-US-5-13K-User-Manual-2026.06.08.pdf",
+            supportsParallel = true, maxParallelUnits = 10
         ),
         InverterSpec(
             brand = "LuxPower", model = "GEN-LB-US 8K", series = "GEN-LB-US", region = "US",
             ratingLabel = "8kW split-phase", ratedOutputW = 8000, acVoltage = "120/240 V split-phase",
             frequencyHzRaw = "50/60", splitPhase = true,
-            maxPvW = 16000, maxPvV = 550, mpptVoltageMinV = 120, mpptVoltageMaxV = 440, startupVoltageV = 140,
+            // Phase 41: maxPvW corrected 16000 -> 18000 — the SAME source catalogue re-read gives
+            // "PV max array power 21,000W" (the STC-nameplate figure, before clipping — NOT what
+            // maxPvW represents in this app; see EquipmentSelectionEngine's own "exceeds inverter
+            // max PV input" wording) vs "PV max input power 18,000W" (the real DC/MPPT-stage
+            // binding ceiling, matching the GEN-LB-US 13K entry's own established precedent below).
+            maxPvW = 18000, maxPvV = 550, mpptVoltageMinV = 120, mpptVoltageMaxV = 440, startupVoltageV = 140,
             mpptCount = 2, stringsPerMppt = 2, maxInputCurrentPerMpptA = 26.0, maxShortCircuitCurrentPerMpptA = 31.0,
             batteryVoltageRange = "40-60 V", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
-            maxBatteryA = 167, maxChargePowerKw = 8.0, maxDischargePowerKw = 8.0, acOutputA = null, efficiencyPercent = null,
-            surgePowerRatio = null, surgeDurationSeconds = null,
+            maxBatteryA = 167, maxChargePowerKw = 8.0, maxDischargePowerKw = 8.0, acOutputA = 33, efficiencyPercent = 97.5,
+            surgePowerRatio = 2.0, surgeDurationSeconds = 0.5,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
-            dataQualityNote = "PV/MPPT/battery specs from LuxPower's own US-series inverter catalogue (sourceUrl).",
+            dataQualityNote = "PV/MPPT/battery specs from LuxPower's own US-series inverter catalogue (sourceUrl). Phase 41 (inverter datasheet compendium): the same catalogue re-read confirms max PV input power 18,000W (corrected from an earlier 16,000W transcription — max PV ARRAY power is 21,000W, a different, non-binding figure), rated AC output current 33.3A@240V, max inverter efficiency 97.5%, and UPS surge 2x rated power for 0.5s. Parallel operation confirmed: yes, up to 10 units.",
             engineeringNote = "",
-            sourceUrl = "https://luxpowertek.com/wp-content/uploads/2026/04/LuxpowerTek-US-Series-Inverter-Catalogue-2026.04.10.pdf"
+            sourceUrl = "https://luxpowertek.com/wp-content/uploads/2026/04/LuxpowerTek-US-Series-Inverter-Catalogue-2026.04.10.pdf",
+            supportsParallel = true, maxParallelUnits = 10
         ),
         InverterSpec(
             brand = "LuxPower", model = "GEN-LB-US 10K", series = "GEN-LB-US", region = "US",
@@ -269,9 +283,17 @@ object EquipmentSpecs {
             maxBatteryA = 208, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = null,
             surgePowerRatio = null, surgeDurationSeconds = null,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
-            dataQualityNote = "PV/MPPT specs from LuxPower's own GEN-LB-US 5-13K manual (sourceUrl). Battery current is an approximate family-configuration figure — use the exact 10K model datasheet for final battery current/power limits.",
+            // Phase 41: supportsParallel/maxParallelUnits added (GEN-LB-US family, confirmed
+            // family-wide up to 10 units — same finding as the 6K/8K/13K siblings). A separate
+            // compendium source's own "family catalogue" 10K row (PV max input power 12,000W) was
+            // deliberately NOT applied here — it's lower than this SAME family's own 8K figure
+            // (18,000W), which isn't physically plausible for a bigger-rated unit, and the source
+            // itself flags "should be matched to the exact revision/model label before production
+            // database use." The existing maxPvW=18000 stays as the better-sourced figure.
+            dataQualityNote = "PV/MPPT specs from LuxPower's own GEN-LB-US 5-13K manual (sourceUrl). Battery current is an approximate family-configuration figure — use the exact 10K model datasheet for final battery current/power limits. Phase 41: parallel support confirmed family-wide (GEN-LB-US family, up to 10 units); a separate source's own family-catalogue PV figure for this tier (12,000W) was NOT applied — inconsistent with this same family's own confirmed 8K figure (18,000W) and the source itself flags it as needing exact-model confirmation.",
             engineeringNote = "",
-            sourceUrl = "https://luxpowertek.com/wp-content/uploads/2026/06/GEN-LB-US-5-13K-User-Manual-2026.06.08.pdf"
+            sourceUrl = "https://luxpowertek.com/wp-content/uploads/2026/06/GEN-LB-US-5-13K-User-Manual-2026.06.08.pdf",
+            supportsParallel = true, maxParallelUnits = 10
         ),
         InverterSpec(
             // A89 (spec Phase 20/21 — "QUOTATION PRICING ENGINE": "USE THE LATEST ONE WITH THE
@@ -291,32 +313,47 @@ object EquipmentSpecs {
             // A77 (spec Phase 14): the only two entries in this catalog whose source datasheet
             // excerpt actually stated a surge figure — see this class's own surgePowerRatio doc.
             surgePowerRatio = 2.0, surgeDurationSeconds = 0.5,
-            type = "Hybrid", verificationStatus = VerificationStatus.NEEDS_VERIFICATION,
-            dataQualityNote = "A89: renamed from GEN-LB-US 13K to LXP-LB-US 12K/13K (this app's price list's own model string for its 13kW LuxPower entry) — price updated to the price list's JMD 340,000. Electrical specs below are still GEN-LB-US 13K's own verified datasheet figures, carried over under the new name; not independently re-confirmed against a datasheet for the exact string \"LXP-LB-US 12K/13K.\" Re-verify before treating those figures as authoritative for this exact model.",
+            type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
+            // Phase 41 (inverter datasheet compendium): a fresh, independent read of LuxPower's own
+            // GEN-LB-US 13K datasheet re-confirms every electrical figure already stored here
+            // exactly (PV/MPPT/battery/AC/surge all match) — upgraded NEEDS_VERIFICATION -> VERIFIED
+            // on that basis. The compendium's own recommendation is explicit: "the manufacturer
+            // documentation identifies the 13K as GEN-LB-US 13K" — i.e. this catalog entry's own
+            // model string ("LXP-LB-US 12K/13K") is this app's PRICE LIST's naming, not the
+            // manufacturer's. Deliberately NOT renamed here: this string is the durable identifier
+            // [ParallelInverterDesign.inverterModelId]/[Catalog]'s manual-mode picker match against,
+            // and any already-saved quote that selected this inverter stores it by this exact name —
+            // renaming it would silently break that match. Parallel support now confirmed too.
+            dataQualityNote = "A89: renamed from GEN-LB-US 13K to LXP-LB-US 12K/13K (this app's price list's own model string for its 13kW LuxPower entry) — price updated to the price list's JMD 340,000. Phase 41: a fresh, independent compendium read of the manufacturer's real GEN-LB-US 13K datasheet re-confirms every figure below exactly, plus adds parallel support (yes, up to 10 units). The manufacturer's own name for this unit is \"GEN-LB-US 13K\" — kept as \"LXP-LB-US 12K/13K\" here since that's the price list's own durable model string, matched against by saved quotes; a display-label distinction, not a data-quality gap anymore.",
             engineeringNote = "13kW at 240V AC / 11.2kW at 208V AC — max PV array power (21kW) exceeds max PV input power (18kW); 18kW is the binding limit used for compatibility checks. UPS (backup) output is only 10kW even though AC output is 13kW — backup-coverage sizing should use 10kW, not 13kW. Max continuous AC passthrough 90A; surge 2x rated power for 0.5s; 20ms switching; 99.9% MPPT efficiency, 94% battery efficiency; IP66/NEMA 4X.",
-            sourceUrl = "https://luxpowertek.com/wp-content/uploads/2025/08/GEN-LB-US-13K-Datasheet-1.pdf"
+            sourceUrl = "https://luxpowertek.com/wp-content/uploads/2025/08/GEN-LB-US-13K-Datasheet-1.pdf",
+            supportsParallel = true, maxParallelUnits = 10
         ),
         InverterSpec(
             // A89: this app's price list's 12kW LuxPower entry is "SNA-US 12K" (JMD 300,000) — a
-            // different product family name from LXP-LB-US. Renamed/repriced per the installer's
-            // explicit "use the latest one with the latest price" instruction; electrical specs
-            // below remain LXP-LB-US 12K's own verified datasheet data (no SNA-US 12K datasheet was
-            // supplied) — see dataQualityNote. Flagged as the larger of the two family-name jumps
-            // made this round (Deye's SG01->SG02 reads as a minor revision; SNA-US vs LXP-LB-US may
-            // be a genuinely different architecture) — re-verify before trusting these figures for
-            // an actual SNA-US 12K install.
+            // different product family name from LXP-LB-US. Originally renamed/repriced with
+            // LXP-LB-US 12K's own borrowed data (no SNA-US 12K datasheet was on file at the time).
+            //
+            // Phase 41 (inverter datasheet compendium): a real, dedicated SNA-US 12K manufacturer
+            // manual was located — the borrowed LXP-LB-US figures below are now REPLACED with this
+            // model's own genuine data (they were a real, different-architecture product all along,
+            // exactly as the prior note's own caution flagged: 2 MPPT here, not 3; different
+            // voltages/currents throughout). efficiencyPercent is set back to null (it was also a
+            // borrowed LXP-LB-US figure — no SNA-US-specific inverter efficiency is published in
+            // the new source, so "not published" is the honest state now, not a carried-over guess).
             brand = "LuxPower", model = "SNA-US 12K", series = "SNA-US", region = "US",
             ratingLabel = "12kW split-phase", ratedOutputW = 12000, acVoltage = "120/240 V split-phase",
             frequencyHzRaw = "50/60", splitPhase = true,
-            maxPvW = 18000, maxPvV = 600, mpptVoltageMinV = 120, mpptVoltageMaxV = 500, startupVoltageV = 140,
-            mpptCount = 3, stringsPerMppt = 2, maxInputCurrentPerMpptA = 25.0, maxShortCircuitCurrentPerMpptA = 31.0,
-            batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
-            maxBatteryA = 250, maxChargePowerKw = 12.0, maxDischargePowerKw = 12.0, acOutputA = null, efficiencyPercent = 97.5,
-            surgePowerRatio = null, surgeDurationSeconds = null,
-            type = "Hybrid", verificationStatus = VerificationStatus.NEEDS_VERIFICATION,
-            dataQualityNote = "A89: renamed from LXP-LB-US 12K to SNA-US 12K (this app's price list's own model string) — price updated to the price list's JMD 300,000. Electrical specs below are still LXP-LB-US 12K's own verified datasheet figures, carried over under the new name; not independently re-confirmed against a real SNA-US 12K datasheet. Re-verify before treating these as authoritative.",
-            engineeringNote = "3 independent MPPT inputs, 2:1:1 configuration (corrected from an earlier 2:2:1 transcription error); per-MPPT max current 25/15/15A, max short-circuit 31/19/19A; full-power MPPT range 230-500V (120-500V overall); 20ms switching; 99.9% MPPT efficiency, 94% battery charge/discharge efficiency; IP65/NEMA 4X.",
-            sourceUrl = "https://luxpowertek.com/wp-content/uploads/2025/09/LXP-LB-US-12K-Datasheet.pdf"
+            maxPvW = 24000, maxPvV = 480, mpptVoltageMinV = 120, mpptVoltageMaxV = 440, startupVoltageV = 100,
+            mpptCount = 2, stringsPerMppt = 2, maxInputCurrentPerMpptA = 35.0, maxShortCircuitCurrentPerMpptA = 44.0,
+            batteryVoltageRange = "38.4-60 V (46.4-60 V Li-ion / 38.4-60 V lead-acid)", batteryVoltageMinV = 38.4, batteryVoltageMaxV = 60.0,
+            maxBatteryA = 250, maxChargePowerKw = 12.0, maxDischargePowerKw = 12.0, acOutputA = 50, efficiencyPercent = null,
+            surgePowerRatio = 2.0, surgeDurationSeconds = 5.0,
+            type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
+            dataQualityNote = "A89: renamed from LXP-LB-US 12K to SNA-US 12K (this app's price list's own model string) — price updated to the price list's JMD 300,000. Phase 41: replaced with this model's own genuine datasheet data (SNA-US 12-15K manual) — maxPvW is the manufacturer's own stated \"max PV array power\" (24,000W = 12,000+12,000; this source doesn't separately publish a lower \"max input power\" figure the way the GEN-LB-US family does, unlike other entries in this file where maxPvW means the lower input-power ceiling). efficiencyPercent reset to null — no SNA-US-specific inverter efficiency figure is published in this source.",
+            engineeringNote = "2 independent MPPT, 2 inputs per MPPT (corrected from an earlier borrowed 3-MPPT/2:1:1 LXP-LB-US figure). Recommended battery capacity >400Ah per inverter. Overload: 5s at >=150%, 10s at 110-150% (L-N/L-L). Smart load output 6,000W L-N / 12,000W L-L. Pure sine wave.",
+            sourceUrl = "https://luxpowertek.com/wp-content/uploads/2026/04/SNA-US-12-15K-User-Manual-2025.3.10.pdf",
+            supportsParallel = true, maxParallelUnits = 16
         ),
         // Deye SUN-*-SG01LP1-US family
         InverterSpec(
@@ -329,29 +366,43 @@ object EquipmentSpecs {
             brand = "Deye", model = "SUN-6K-SG02LP2-US", series = "SG02LP2-US", region = "US",
             ratingLabel = "6kW split-phase", ratedOutputW = 6000, acVoltage = "120/240 V split-phase",
             frequencyHzRaw = "50/60", splitPhase = true,
-            maxPvW = 7800, maxPvV = 500, mpptVoltageMinV = 150, mpptVoltageMaxV = 425, startupVoltageV = 125,
-            mpptCount = 2, stringsPerMppt = 1, maxInputCurrentPerMpptA = 26.0, maxShortCircuitCurrentPerMpptA = 44.0,
+            maxPvW = 9000, maxPvV = 500, mpptVoltageMinV = 150, mpptVoltageMaxV = 425, startupVoltageV = 125,
+            mpptCount = 2, stringsPerMppt = 2, maxInputCurrentPerMpptA = 26.0, maxShortCircuitCurrentPerMpptA = 44.0,
             batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
-            maxBatteryA = 135, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = 25, efficiencyPercent = null,
-            surgePowerRatio = null, surgeDurationSeconds = null,
-            type = "Hybrid", verificationStatus = VerificationStatus.NEEDS_VERIFICATION,
-            dataQualityNote = "A89: renamed from SUN-6K-SG01LP1-US to SUN-6K-SG02LP2-US (this app's price list's own model string) — price updated to the price list's JMD 230,000. Electrical specs below are still SG01LP1-US's own verified datasheet figures, carried over under the new name; not independently re-confirmed against a real SG02LP2-US datasheet. Re-verify before treating these as authoritative for this exact model.",
-            engineeringNote = "MPPT1/MPPT2 current ratings differ (26A + 13A operating, 44A + 22A short-circuit) — the second MPPT is a smaller tracker on this model. Max apparent power 6.6kVA; max AC current approx 27.5A.",
-            sourceUrl = "https://deyeinverters.net/datasheets/en/qa/sun-5-8k-sg01lp1-us.html"
+            maxBatteryA = 135, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = 25, efficiencyPercent = 97.6,
+            surgePowerRatio = 2.0, surgeDurationSeconds = 10.0,
+            type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
+            // Phase 41: a real "SUN-6K-SG02LP2-US-AM2" datasheet was located — an "-AM2" hardware-
+            // revision suffix beyond this catalog's own "SUN-6K-SG02LP2-US" string, close enough to
+            // treat as this model (same base part number, AM2 typically denotes a minor regional/
+            // certification revision, not a different electrical architecture) — noted honestly
+            // rather than silently assumed. Corrects: maxPvW 7800->9000 ("max PV input power 9,000W"
+            // vs the prior estimate), stringsPerMppt 1->2 ("2 MPPT / 2+2 strings" — was wrongly 1),
+            // adds efficiency (97.6% max) and surge (2x rated for 10s, matching this model's own
+            // "peak off-grid power" figure) that were previously unconfirmed.
+            dataQualityNote = "A89: renamed from SUN-6K-SG01LP1-US to SUN-6K-SG02LP2-US (this app's price list's own model string) — price updated to the price list's JMD 230,000. Phase 41: replaced with a real SUN-6K-SG02LP2-US-AM2 datasheet's own figures (the '-AM2' suffix is a hardware revision beyond this catalog's model string — treated as the same base model, flagged rather than silently assumed identical).",
+            engineeringNote = "2 MPPT, 2 strings each (corrected from an earlier asymmetric 26A+13A/1-string transcription). Max continuous passthrough 40A. Euro efficiency 96.5%; MPPT efficiency >99%. Parallel support confirmed: yes, up to 16 units.",
+            sourceUrl = "https://www.deyeinverter.com/product/split-phase-hybrid-inverter-1/sun5-6-7-6-8-10-12ksg02lp2usam2-am3-512kw-2-mppt-hybrid-inverter-lv-battery-supported.html",
+            supportsParallel = true, maxParallelUnits = 16
         ),
         InverterSpec(
             brand = "Deye", model = "SUN-8K-SG01LP1-US", series = "SG01LP1-US", region = "US",
             ratingLabel = "8kW split-phase", ratedOutputW = 8000, acVoltage = "120/240 V split-phase",
             frequencyHzRaw = "50/60", splitPhase = true,
             maxPvW = 10400, maxPvV = 500, mpptVoltageMinV = 150, mpptVoltageMaxV = 425, startupVoltageV = 125,
-            mpptCount = 2, stringsPerMppt = 1, maxInputCurrentPerMpptA = 26.0, maxShortCircuitCurrentPerMpptA = 44.0,
+            mpptCount = 2, stringsPerMppt = 2, maxInputCurrentPerMpptA = 26.0, maxShortCircuitCurrentPerMpptA = 44.0,
             batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
-            maxBatteryA = 190, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = 33, efficiencyPercent = null,
-            surgePowerRatio = null, surgeDurationSeconds = null,
+            maxBatteryA = 190, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = 33, efficiencyPercent = 97.6,
+            surgePowerRatio = 2.0, surgeDurationSeconds = 10.0,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
-            dataQualityNote = USER_PROVIDED,
-            engineeringNote = "Both MPPTs equal on this model: 26A + 26A operating, 44A + 44A short-circuit. Max apparent power 8.8kVA; max AC current 36.7A.",
-            sourceUrl = "https://deyeinverters.net/datasheets/en/qa/sun-5-8k-sg01lp1-us.html"
+            // Phase 41 (inverter datasheet compendium): exact model match, independently re-confirms
+            // every existing figure. Corrects stringsPerMppt 1->2 ("2 MPPT / 2+2 strings" — was
+            // wrongly 1) and adds efficiency (97.6% max) and surge (2x rated for 10s, "peak off-grid
+            // power") that were previously unconfirmed, plus parallel support.
+            dataQualityNote = "$USER_PROVIDED Phase 41: independently re-confirmed against a real SUN-8K-SG01LP1-US manufacturer product page/datasheet.",
+            engineeringNote = "Both MPPTs equal on this model: 26A + 26A operating, 44A + 44A short-circuit, 2 strings each. Max apparent power 8.8kVA; max AC current 36.7A (40A max). Euro efficiency 97.0%; MPPT efficiency >99%. Self-adapting BMS communication for Li-ion.",
+            sourceUrl = "https://www.deyeinverter.com/product/split-phase-hybrid-inverter-1/sun5-6-7-6-8ksg01lp1us-58kw-single-phase-2-mppt-hybrid-inverter-lv-battery-supported-63.html",
+            supportsParallel = true, maxParallelUnits = 16
         ),
         // Deye 10K/12K deliberately absent — the source message explicitly forbids inserting a
         // generic "Deye 10K"/"Deye 12K" until the exact regional model number is confirmed.
@@ -379,7 +430,16 @@ object EquipmentSpecs {
             // excerpt actually stated a surge figure — see this class's own surgePowerRatio doc.
             surgePowerRatio = 2.0, surgeDurationSeconds = 10.0,
             type = "Hybrid", verificationStatus = VerificationStatus.NEEDS_VERIFICATION,
-            dataQualityNote = "A89: renamed from HESP4860U140-HUS to ASF4860U80-H (this app's price list's own model string, a different SRNE family — ASF, not HESP) — price updated to the price list's JMD 190,000; mpptCount updated to 1 to match this price list's own \"ASF4860U80-H\" naming (\"80\" reading as a single 80A-class MPPT, not confirmed). Every other electrical figure below is still HESP4860U140-HUS's own carried-over data — not independently confirmed against a real ASF4860U80-H datasheet. Re-verify before treating these as authoritative.",
+            // Phase 41 (inverter datasheet compendium): a targeted search for "ASF4860U80-H" in
+            // SRNE's own manufacturer sources found NO matching model — the closest real SRNE
+            // product under a similar name is "HF4850U80-H," which is a 5,000W-rated unit (not
+            // 6,000W). Because that rated-power mismatch means HF4850U80-H can't safely stand in
+            // for this catalog's own 6kW price tier, its numeric fields were deliberately NOT
+            // copied here — doing so would misrepresent a genuinely 5kW-rated product as this
+            // catalog's 6kW entry. supportsParallel stays false: the HF4850U80-H datasheet doesn't
+            // state a parallel capacity either, so there's nothing to confirm true from even if the
+            // name match were closer.
+            dataQualityNote = "A89: renamed from HESP4860U140-HUS to ASF4860U80-H (this app's price list's own model string, a different SRNE family — ASF, not HESP) — price updated to the price list's JMD 190,000; mpptCount updated to 1 to match this price list's own \"ASF4860U80-H\" naming (\"80\" reading as a single 80A-class MPPT, not confirmed). Every other electrical figure below is still HESP4860U140-HUS's own carried-over data — not independently confirmed against a real ASF4860U80-H datasheet. Re-verify before treating these as authoritative. Phase 41: no SRNE manufacturer source for the exact string \"ASF4860U80-H\" was found — the closest real match, HF4850U80-H, is a 5,000W-rated unit, so its data was NOT substituted here (rated-power mismatch vs. this catalog's 6kW tier). Confirm the exact model/rating with the installer's own supplier before quoting this line.",
             engineeringNote = "Max grid/hybrid charge current 140A. Peak power 2x rated for 10s; 150% single-phase unbalanced-load support.",
             sourceUrl = "https://www.srnesolar.com/productdetail/Hybrid-Inverter-HESP-4-6.5kW-US.html"
         ),
@@ -390,15 +450,28 @@ object EquipmentSpecs {
             brand = "SRNE", model = "ASF4880S180-H", series = "ASF-H", region = "US",
             ratingLabel = "8kW split-phase", ratedOutputW = 8000, acVoltage = "120/240 V split-phase",
             frequencyHzRaw = "50/60", splitPhase = true,
-            maxPvW = null, maxPvV = 600, mpptVoltageMinV = 80, mpptVoltageMaxV = 500, startupVoltageV = null,
-            mpptCount = 2, stringsPerMppt = null, maxInputCurrentPerMpptA = null, maxShortCircuitCurrentPerMpptA = null,
-            batteryVoltageRange = "48 V class", batteryVoltageMinV = null, batteryVoltageMaxV = null,
-            maxBatteryA = null, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = null,
+            maxPvW = 11000, maxPvV = 500, mpptVoltageMinV = 125, mpptVoltageMaxV = 425, startupVoltageV = null,
+            mpptCount = 2, stringsPerMppt = null, maxInputCurrentPerMpptA = 22.0, maxShortCircuitCurrentPerMpptA = null,
+            batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
+            maxBatteryA = 180, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = 92.0,
             surgePowerRatio = null, surgeDurationSeconds = null,
-            type = "Hybrid", verificationStatus = VerificationStatus.NEEDS_VERIFICATION,
-            dataQualityNote = "A89: renamed from HESP 8K-US to ASF4880S180-H (this app's price list's own model string) — price updated to the price list's JMD 275,000. Electrical specs below are still HESP 8K-US's own (already only PARTIALLY_VERIFIED) carried-over data — not independently confirmed against a real ASF4880S180-H datasheet. Re-verify before treating these as authoritative.",
-            engineeringNote = "High-current PV inputs; generator input; AC coupling support (family-level features).",
-            sourceUrl = "https://www.srnesolar.com/download/22/Download.html"
+            type = "Hybrid", verificationStatus = VerificationStatus.PARTIALLY_VERIFIED,
+            // Phase 41 (inverter datasheet compendium): an EXACT model match was found — and the
+            // manufacturer manual is explicit and definitive: "parallel capacity is '/' — the model
+            // does NOT support parallel connection." supportsParallel stays false, now confirmed
+            // rather than default-unconfirmed. DC/PV/battery-side fields above were updated from
+            // this real datasheet (maxPvW, maxPvV, MPPT voltage range, per-MPPT current, battery
+            // range/current, efficiency) since those don't depend on AC topology.
+            //
+            // IMPORTANT UNRESOLVED FINDING: the real ASF4880S180-H datasheet describes a 230 Vac
+            // (or 220 Vac on an older revision) SINGLE-PHASE output, not the 120/240V split-phase
+            // topology this catalog entry (and this app's whole Jamaica residential model) assumes.
+            // The AC-side fields (acVoltage/splitPhase/acOutputA) were deliberately left unchanged
+            // pending confirmation of which literal regional variant is actually being quoted —
+            // verify with the supplier before relying on this entry for a split-phase installation.
+            dataQualityNote = "A89: renamed from HESP 8K-US to ASF4880S180-H (this app's price list's own model string) — price updated to the price list's JMD 275,000. Phase 41: an exact-model SRNE datasheet was located, confirming parallel is NOT supported and correcting the PV/battery-side figures above. UNRESOLVED: the real datasheet describes a 230/220 Vac single-phase output, conflicting with this entry's own 120/240V split-phase assumption — verify the actual regional variant with the supplier before relying on the AC-side fields (acVoltage/splitPhase/acOutputA), which were deliberately left unchanged pending that confirmation.",
+            engineeringNote = "MPPT efficiency 99.9%; max battery inverter efficiency 92%. Motor start capacity 5 HP. Max mains/generator charging current 100A; max hybrid charging current 180A. Grid/generator input 90-275 Vac.",
+            sourceUrl = "https://www.srnesolar.com/wp-content/uploads/2022/11/SRNE_ASF-series_48V_8-10kW_S_solar-charge-inverter_datasheet_1.1.pdf"
         ),
         InverterSpec(
             // A89: price list's 10kW SRNE entry is "HES48100U200-H" (JMD 300,000) — see the 6kW
@@ -406,29 +479,45 @@ object EquipmentSpecs {
             brand = "SRNE", model = "HES48100U200-H", series = "HES-H", region = "US",
             ratingLabel = "10kW split-phase", ratedOutputW = 10000, acVoltage = "120/240 V split-phase",
             frequencyHzRaw = "50/60", splitPhase = true,
-            maxPvW = null, maxPvV = 600, mpptVoltageMinV = 80, mpptVoltageMaxV = 500, startupVoltageV = null,
-            mpptCount = 2, stringsPerMppt = null, maxInputCurrentPerMpptA = null, maxShortCircuitCurrentPerMpptA = null,
-            batteryVoltageRange = "48 V class", batteryVoltageMinV = null, batteryVoltageMaxV = null,
-            maxBatteryA = null, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = null,
+            maxPvW = 11000, maxPvV = 500, mpptVoltageMinV = 125, mpptVoltageMaxV = 425, startupVoltageV = null,
+            mpptCount = 2, stringsPerMppt = null, maxInputCurrentPerMpptA = 22.0, maxShortCircuitCurrentPerMpptA = null,
+            batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
+            maxBatteryA = 200, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = 97.5,
             surgePowerRatio = null, surgeDurationSeconds = null,
-            type = "Hybrid", verificationStatus = VerificationStatus.NEEDS_VERIFICATION,
-            dataQualityNote = "A89: renamed from HESP 10K-US to HES48100U200-H (this app's price list's own model string for its 10kW SRNE entry) — price updated to the price list's JMD 300,000. Electrical specs below are still HESP 10K-US's own A52-confirmed family-level figures, carried over under the new name; not independently re-confirmed against a datasheet for the exact string \"HES48100U200-H.\" Per-model max PV input power/current still not published for this rating. Re-verify before treating these figures as authoritative for this exact model.",
-            engineeringNote = "High-current PV inputs; generator input; AC coupling support (family-level features).",
-            sourceUrl = "https://www.srnesolar.com/download/22/Download.html"
+            type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
+            // Phase 41 (inverter datasheet compendium): an exact-model SRNE HES family datasheet
+            // confirms the 240Vac split-phase L1+L2+N+PE topology (matches this entry's own
+            // assumption — no conflict here, unlike the ASF4880S180-H sibling), battery range/
+            // current, and MPPT voltage/current. maxPvW (11,000W = 5,500+5,500) is the family
+            // table's own merged-cell row — the datasheet itself notes the 12K row differs
+            // (6,500+6,500W), so this figure is family-level, not independently confirmed for the
+            // exact 10K SKU; kept with that caveat rather than left null, matching how this file's
+            // Growatt entries already treat a family-level PV figure. supportsParallel stays false —
+            // the compendium's own finding is explicit: "the cited HES datasheet does not state a
+            // parallel capacity; do not mark true from this document alone."
+            dataQualityNote = "A89: renamed from HESP 10K-US to HES48100U200-H (this app's price list's own model string for its 10kW SRNE entry) — price updated to the price list's JMD 300,000. Phase 41: replaced with the exact-model HES family datasheet's own figures — battery/MPPT-voltage/current now confirmed; maxPvW is the family table's merged-cell row (5,500+5,500W) — the source itself notes the 12K row differs (6,500+6,500W), so treat as family-level, not exact-10K-confirmed. Parallel capacity not stated in this datasheet — do not mark true.",
+            engineeringNote = "European efficiency 97%; MPPT efficiency 99.9%. Max mains/generator charging current 120A; max hybrid charging current 200A. IP65; -25 to 60C operating range.",
+            sourceUrl = "https://www.srnesolar.com/userfiles/files/2023/07/18/SRNE_HES%20series_US_48V_8-12kW_240V_split%20phase_hybrid%20solar%20charge%20inverter_datasheet_1.3.pdf"
         ),
         InverterSpec(
             brand = "SRNE", model = "HESP 12K-US", series = "HESP 8-12K-US", region = "US",
             ratingLabel = "12kW split-phase", ratedOutputW = 12000, acVoltage = "120/240 V split-phase",
             frequencyHzRaw = "50/60", splitPhase = true,
-            maxPvW = null, maxPvV = 600, mpptVoltageMinV = 80, mpptVoltageMaxV = 500, startupVoltageV = null,
-            mpptCount = 2, stringsPerMppt = null, maxInputCurrentPerMpptA = null, maxShortCircuitCurrentPerMpptA = null,
-            batteryVoltageRange = "48 V class", batteryVoltageMinV = null, batteryVoltageMaxV = null,
-            maxBatteryA = null, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = null, efficiencyPercent = null,
+            maxPvW = 13200, maxPvV = 550, mpptVoltageMinV = 125, mpptVoltageMaxV = 450, startupVoltageV = null,
+            mpptCount = 2, stringsPerMppt = null, maxInputCurrentPerMpptA = 25.0, maxShortCircuitCurrentPerMpptA = null,
+            batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
+            maxBatteryA = 200, maxChargePowerKw = null, maxDischargePowerKw = null, acOutputA = 50, efficiencyPercent = 97.5,
             surgePowerRatio = null, surgeDurationSeconds = null,
-            type = "Hybrid", verificationStatus = VerificationStatus.PARTIALLY_VERIFIED,
-            dataQualityNote = "A52 upgrade: max PV voltage/MPPT range now confirmed for the whole 8-12K-US family. Per-model max PV input power/current for 12K specifically still not published — still excluded from automatic Load-Based selection until confirmed.",
-            engineeringNote = "High-current PV inputs; generator input; AC coupling support (family-level features); parallel-capable architecture depending on configuration.",
-            sourceUrl = "https://www.srnesolar.com/download/22/Download.html"
+            type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
+            // Phase 41 (inverter datasheet compendium): a real, comprehensive manufacturer brochure
+            // for the exact model was located — "SRNE HESP48120U200-H" (12,000W @ 240V / 10,400W @
+            // 208V — matches this entry's own 12kW rating and price-list tier). Upgraded
+            // PARTIALLY_VERIFIED -> VERIFIED with a full PV/battery/AC data set, plus confirmed
+            // parallel support: "1-6 units."
+            dataQualityNote = "A52 upgrade: max PV voltage/MPPT range confirmed for the whole 8-12K-US family. Phase 41: replaced with the exact-model SRNE HESP48120U200-H brochure's own confirmed data (the manufacturer's real model string for this 12kW SRNE unit) — kept as \"HESP 12K-US\" here since that's this catalog's own durable identifier, matched against by saved quotes.",
+            engineeringNote = "CEC efficiency 96.5%; MPPT efficiency 99.9%. Max grid charging current 120A; max generator charging current 60A; max hybrid charging current 200A. Dimensions 750x440x240mm, 42kg. Supports Li-ion BMS communication.",
+            sourceUrl = "https://www.srnesolar.com/userfiles/files/2026/01/20/SRNE_Solar%20Storage%20Inverter_US_%20for%20Residential_Brochure_V5.1_compressed.pdf",
+            supportsParallel = true, maxParallelUnits = 6
         ),
         // SRNE 13K deliberately absent — source message: "Do NOT invent a 13K SRNE split-phase
         // model... 13K = NOT AVAILABLE."
@@ -442,11 +531,16 @@ object EquipmentSpecs {
             mpptCount = 3, stringsPerMppt = 2, maxInputCurrentPerMpptA = 22.0, maxShortCircuitCurrentPerMpptA = 27.0,
             batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
             maxBatteryA = 190, maxChargePowerKw = 8.0, maxDischargePowerKw = 8.0, acOutputA = 40, efficiencyPercent = 97.5,
-            surgePowerRatio = null, surgeDurationSeconds = null,
+            // Phase 41 (inverter datasheet compendium): every existing field independently
+            // re-confirmed exactly; adds overload/surge (13,000W for 5s = 1.625x rated) and
+            // confirmed parallel support ("max stackable/parallel units 6") that weren't captured
+            // before.
+            surgePowerRatio = 1.625, surgeDurationSeconds = 5.0,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
-            dataQualityNote = "A52 upgrade: Growatt's own US product/datasheet page now confirms full PV/MPPT/battery specs for this exact model (previously excluded pending confirmation). Not added to Catalog's auto-selectable Load-Based pool, though — that stays on the single already-established Deye SUN-8K entry for the 8kW tier rather than introducing a multiple-verified-brands-per-tier selection feature this round; still available in MANUAL mode's own picker.",
-            engineeringNote = "Max recommended PV is a family-level datasheet figure (15kW), not certified per-serial-number. Max grid passthrough 62.5A; generator input supported; ~10ms UPS switching.",
-            sourceUrl = "https://us.growatt.com/products/sph-8000-10000tl-hu-us"
+            dataQualityNote = "A52 upgrade: Growatt's own US product/datasheet page now confirms full PV/MPPT/battery specs for this exact model (previously excluded pending confirmation). Not added to Catalog's auto-selectable Load-Based pool, though — that stays on the single already-established Deye SUN-8K entry for the 8kW tier rather than introducing a multiple-verified-brands-per-tier selection feature this round; still available in MANUAL mode's own picker. Phase 41: independently re-confirmed, plus overload/surge and parallel support added.",
+            engineeringNote = "Max recommended PV is a family-level datasheet figure (15kW), not certified per-serial-number. Max grid passthrough 62.5A; generator input supported; <10ms UPS switching. CEC efficiency 97%; MPPT efficiency >=99.5%. Noise <=30dB(A); self-consumption <60W.",
+            sourceUrl = "https://us.growatt.com/products/sph-8000-10000tl-hu-us",
+            supportsParallel = true, maxParallelUnits = 6
         ),
         InverterSpec(
             brand = "Growatt", model = "SPH 10000TL-HU-US", series = "SPH-HU", region = "US",
@@ -455,12 +549,17 @@ object EquipmentSpecs {
             maxPvW = 15000, maxPvV = 525, mpptVoltageMinV = 150, mpptVoltageMaxV = 450, startupVoltageV = 150,
             mpptCount = 3, stringsPerMppt = 2, maxInputCurrentPerMpptA = 22.0, maxShortCircuitCurrentPerMpptA = 27.0,
             batteryVoltageRange = "40-60 V (48 V class)", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
-            maxBatteryA = 200, maxChargePowerKw = 10.0, maxDischargePowerKw = 10.0, acOutputA = 50, efficiencyPercent = null,
-            surgePowerRatio = null, surgeDurationSeconds = null,
+            maxBatteryA = 200, maxChargePowerKw = 10.0, maxDischargePowerKw = 10.0, acOutputA = 50, efficiencyPercent = 97.5,
+            // Phase 41 (inverter datasheet compendium): every existing field independently
+            // re-confirmed exactly against a real, now-cited datasheet — adds efficiency, overload/
+            // surge (13,000W for 5s = 1.3x rated), and confirmed parallel support (up to 6 units)
+            // that weren't captured before, when this entry had no sourceUrl at all.
+            surgePowerRatio = 1.3, surgeDurationSeconds = 5.0,
             type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
-            dataQualityNote = USER_PROVIDED,
-            engineeringNote = "3 MPPT trackers, 2 PV strings per MPPT.",
-            sourceUrl = ""
+            dataQualityNote = "Phase 41: replaced a generic user-provided note with a real, cited Growatt SPH 10000TL-HU-US datasheet — every existing field independently re-confirmed exactly, plus efficiency/surge/parallel-support fields added.",
+            engineeringNote = "3 MPPT trackers, 2 PV strings per MPPT. CEC efficiency 97%; MPPT efficiency >=99.5%. Max grid passthrough 62.5A. Noise <=30dB(A); self-consumption <60W. Dimensions 440x855x256mm, 48.84kg.",
+            sourceUrl = "https://us.growatt.com/upload/file/SPH_10000TL-HU-US_Datasheet_EN_202406.pdf",
+            supportsParallel = true, maxParallelUnits = 6
         )
         // Growatt 12K/13K deliberately absent — source message: do not invent these if an exact
         // US split-phase model cannot be verified.
