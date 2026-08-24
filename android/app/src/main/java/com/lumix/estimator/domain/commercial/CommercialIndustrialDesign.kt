@@ -73,6 +73,44 @@ data class ElectricalService(
     }
 }
 
+/** Phase 46 (spec §18 — "Step-Up / Step-Down"). */
+@Serializable
+enum class TransformerDirection { STEP_UP, STEP_DOWN }
+
+/**
+ * Phase 46 (spec §18 — "If the selected inverter/system voltage does not match the facility
+ * electrical service, allow a transformer to be added... Add 'Transformer Required? YES / NO' — if
+ * YES: Primary Voltage, Secondary Voltage, Phase, kVA Rating, Frequency, Step-Up / Step-Down. Do NOT
+ * automatically select a transformer unless the voltage/phase mismatch requires one."):
+ * [required] defaults `false` — this is never auto-enabled by any other field, only by the
+ * installer's own explicit choice, exactly as §18 demands. There is no verified transformer
+ * equipment catalog in this app (unlike inverters/batteries/panels), so every field here is the
+ * installer's own entered value, not a picked-from-catalog model — the same "self-declared, not
+ * fabricated" treatment this codebase already gives residential Manual-mode custom equipment.
+ */
+@Serializable
+data class Transformer(
+    val required: Boolean = false,
+    val primaryVoltage: Double = 0.0,
+    val secondaryVoltage: Double = 0.0,
+    val phase: LoadPhaseType = LoadPhaseType.THREE_PHASE,
+    val kvaRating: Double = 0.0,
+    val frequencyHz: Double = 50.0,
+    val direction: TransformerDirection = TransformerDirection.STEP_DOWN,
+    /**
+     * Phase 46 (spec §18 — "Transformer losses must be represented in the engineering model"):
+     * 97% is a typical dry-type/oil-filled distribution-transformer efficiency figure (a generic
+     * engineering rule of thumb, the same "illustrative starting point, not a measured figure"
+     * category as every other un-datasheeted default in this codebase) — editable with the real
+     * nameplate efficiency once the installer has picked an actual unit.
+     */
+    val efficiencyPercent: Double = 97.0
+) {
+    /** §18's loss representation: how much of [throughputKw] the transformer itself consumes, given [efficiencyPercent]. Zero whenever [required] is false — a transformer that isn't in the design contributes no loss. */
+    fun lossKw(throughputKw: Double): Double =
+        if (!required) 0.0 else throughputKw * (100.0 - efficiencyPercent).coerceIn(0.0, 100.0) / 100.0
+}
+
 /**
  * Phase 27 §5 ("configurable Diversity/Simultaneous-Use Factor... Do not silently apply a
  * residential assumption"): the spec's own preset list plus a custom fraction. [fraction] is what
@@ -153,7 +191,9 @@ data class CommercialIndustrialDesign(
      * [businessHours], ships with no default times at all. Only meaningful for INDUSTRIAL;
      * COMMERCIAL uses [businessHours] instead.
      */
-    val industrialShiftSchedule: IndustrialShiftSchedule = IndustrialShiftSchedule()
+    val industrialShiftSchedule: IndustrialShiftSchedule = IndustrialShiftSchedule(),
+    /** Phase 46 (spec §18): absent (not required) by default — see [Transformer]'s own doc for why this is never auto-enabled. */
+    val transformer: Transformer = Transformer()
 ) {
     /** §5 "Connected Load" — raw nameplate sum, no duty-cycle/simultaneity/diversity reduction. */
     val connectedLoadKw: Double get() = loads.sumOf { it.connectedRealPowerKw }
@@ -182,6 +222,12 @@ data class CommercialIndustrialDesign(
 
     /** Phase 43 (spec §17): the electrical service's own total current, from this design's real [designApparentPowerKva] — see [ElectricalService.totalCurrentAmps] for the formula. Null until [electricalService.nominalVoltage] is set to something usable. */
     val totalServiceCurrentAmps: Double? get() = electricalService.totalCurrentAmps(designApparentPowerKva)
+
+    /** Phase 46 (spec §18 — "Transformer losses must be represented in the engineering model"): how much [designLoadKw] the transformer itself consumes, zero when [transformer] isn't required. */
+    val transformerLossKw: Double get() = transformer.lossKw(designLoadKw)
+
+    /** Phase 46: the real load the PV/inverter/battery system must actually supply once the transformer's own losses are added on top of [designLoadKw] — the figure sizing should read once a transformer is in the design, in place of [designLoadKw] alone. Equal to [designLoadKw] whenever no transformer is required. */
+    val designLoadKwIncludingTransformerLoss: Double get() = designLoadKw + transformerLossKw
 
     /**
      * Phase 43 (spec §19 — "Do NOT make this decision purely from facility name. Evaluate: Total

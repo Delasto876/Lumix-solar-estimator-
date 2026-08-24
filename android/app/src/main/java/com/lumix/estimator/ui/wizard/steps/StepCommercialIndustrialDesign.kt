@@ -112,6 +112,7 @@ fun StepCommercialIndustrialDesign(inputs: QuoteInputs, onUpdate: ((QuoteInputs)
 
         ParallelInverterSection(design, ::updateDesign)
         BatteryPerInverterSection(design, ::updateDesign)
+        TransformerSection(design, ::updateDesign)
 
         LoadsSection(inputs.systemCategory, design, ::updateDesign)
 
@@ -211,6 +212,103 @@ private fun ElectricalServiceSection(design: CommercialIndustrialDesign, updateD
             Text("Total service current: %.1f A".format(amps), style = MaterialTheme.typography.bodyMedium)
         }
         Text(design.electricalServiceGuidance, style = MaterialTheme.typography.labelSmall)
+        Text(
+            "If your inverter's AC output voltage or phase doesn't match this electrical service, add a transformer in the Transformer section below to bridge the gap.",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary
+        )
+    }
+}
+
+/**
+ * Phase 46 (spec §18 — "Transformer Required? YES / NO... Do NOT automatically select a transformer
+ * unless the voltage/phase mismatch requires one"): [Transformer.required] starts `false` and stays
+ * that way until the installer flips it on themselves — nothing here inspects the chosen inverter or
+ * electrical service to guess a mismatch (see [ElectricalServiceSection]'s own plain-text reminder
+ * above instead, which nudges without deciding). Every field below only appears once `required` is
+ * on, matching the spec's own "if YES:" structure.
+ */
+@Composable
+private fun TransformerSection(design: CommercialIndustrialDesign, updateDesign: ((CommercialIndustrialDesign) -> CommercialIndustrialDesign) -> Unit) {
+    val palette = LocalLumixPalette.current
+    val transformer = design.transformer
+
+    fun editTransformer(transform: (com.lumix.estimator.domain.commercial.Transformer) -> com.lumix.estimator.domain.commercial.Transformer) {
+        updateDesign { it.copy(transformer = transform(it.transformer)) }
+    }
+
+    SectionCard(title = "Transformer") {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Transformer required?", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Switch(checked = transformer.required, onCheckedChange = { checked -> editTransformer { it.copy(required = checked) } })
+        }
+        if (transformer.required) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                NumberField(
+                    label = "Primary voltage", value = transformer.primaryVoltage, suffix = "V",
+                    onValueChange = { v -> editTransformer { it.copy(primaryVoltage = v) } },
+                    modifier = Modifier.weight(1f)
+                )
+                NumberField(
+                    label = "Secondary voltage", value = transformer.secondaryVoltage, suffix = "V",
+                    onValueChange = { v -> editTransformer { it.copy(secondaryVoltage = v) } },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Text("Phase", style = MaterialTheme.typography.bodyMedium)
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                com.lumix.estimator.domain.commercial.LoadPhaseType.entries.forEachIndexed { index, phase ->
+                    SegmentedButton(
+                        selected = transformer.phase == phase,
+                        onClick = { editTransformer { it.copy(phase = phase) } },
+                        shape = SegmentedButtonDefaults.itemShape(index, com.lumix.estimator.domain.commercial.LoadPhaseType.entries.size)
+                    ) {
+                        Text(when (phase) {
+                            com.lumix.estimator.domain.commercial.LoadPhaseType.SINGLE_PHASE -> "Single"
+                            com.lumix.estimator.domain.commercial.LoadPhaseType.SPLIT_PHASE -> "Split"
+                            com.lumix.estimator.domain.commercial.LoadPhaseType.THREE_PHASE -> "Three"
+                        })
+                    }
+                }
+            }
+            Text("Direction", style = MaterialTheme.typography.bodyMedium)
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                com.lumix.estimator.domain.commercial.TransformerDirection.entries.forEachIndexed { index, direction ->
+                    SegmentedButton(
+                        selected = transformer.direction == direction,
+                        onClick = { editTransformer { it.copy(direction = direction) } },
+                        shape = SegmentedButtonDefaults.itemShape(index, com.lumix.estimator.domain.commercial.TransformerDirection.entries.size)
+                    ) {
+                        Text(if (direction == com.lumix.estimator.domain.commercial.TransformerDirection.STEP_UP) "Step-Up" else "Step-Down")
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                NumberField(
+                    label = "kVA rating", value = transformer.kvaRating, suffix = "kVA",
+                    onValueChange = { v -> editTransformer { it.copy(kvaRating = v) } },
+                    modifier = Modifier.weight(1f)
+                )
+                NumberField(
+                    label = "Frequency", value = transformer.frequencyHz, suffix = "Hz",
+                    onValueChange = { v -> editTransformer { it.copy(frequencyHz = v) } },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            NumberField(
+                label = "Efficiency (illustrative — enter the real nameplate figure once known)",
+                value = transformer.efficiencyPercent, suffix = "%",
+                onValueChange = { v -> editTransformer { it.copy(efficiencyPercent = v.coerceIn(0.0, 100.0)) } }
+            )
+            HorizontalDivider()
+            Text(
+                "Transformer loss: %.2f kW — system must supply %.1f kW to deliver %.1f kW design load".format(
+                    design.transformerLossKw, design.designLoadKwIncludingTransformerLoss, design.designLoadKw
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.textSecondary
+            )
+        }
     }
 }
 

@@ -8268,3 +8268,56 @@ School's daytime default, Call Centre's shift presets, the Medical "verify spec"
 already applied to load wattages but not yet to schedules). `./gradlew` remains blocked by the same
 standing plugin-resolution network limitation; verified by balance-checking every touched file and
 the same id-cross-check-script + exhaustiveness-count discipline as Phase 44.
+
+## A130 — Phase 46: Transformer domain model
+
+Fifth phase of the Commercial/Industrial facility-load-profile update — §18's Transformer concept,
+an entirely new domain type with no prior analog anywhere in this codebase.
+
+**New `Transformer` data class** (`CommercialIndustrialDesign.kt`): `required` (defaults `false`
+and is never auto-enabled by any other field — §18's own "Do NOT automatically select a transformer
+unless the voltage/phase mismatch requires one"), `primaryVoltage`, `secondaryVoltage`, `phase`,
+`kvaRating`, `frequencyHz`, `direction` (new `TransformerDirection` enum — `STEP_UP`/`STEP_DOWN`),
+and `efficiencyPercent` (defaults 97% — a disclosed generic distribution-transformer rule of thumb,
+not a manufacturer figure, editable once a real unit is picked). There is no verified transformer
+equipment catalog in this app the way there is for inverters/batteries/panels, so unlike those,
+every `Transformer` field is the installer's own entered value — the same self-declared treatment
+already given to residential Manual-mode custom equipment, not a fabricated "typical model."
+
+**Loss representation** (§18 — "Transformer losses must be represented in the engineering model"):
+`Transformer.lossKw(throughputKw)` returns zero whenever `required` is false, otherwise
+`throughputKw × (100 − efficiencyPercent) / 100`. `CommercialIndustrialDesign` gains
+`transformerLossKw` (the loss at the design's own `designLoadKw`) and
+`designLoadKwIncludingTransformerLoss` — the real figure PV/inverter/battery sizing should read once
+a transformer is in the design, since the system must generate enough extra power to cover the
+transformer's own inefficiency on top of the load itself.
+
+**Deliberately no automatic mismatch detection.** §18 says to offer a transformer "if the selected
+inverter/system voltage does not match the facility electrical service" — but the verified inverter
+catalog's own `acVoltage` field is free-text (`"120/240 V split-phase"`), never parsed anywhere in
+this codebase, and every catalog inverter's `splitPhase` flag is already `true` (the same "no real
+three-phase inverter exists in the catalog yet" fact Phase 43 disclosed) — there was no reliable
+signal to build a real detector from without guessing. Building a heuristic on an unparsed string
+risked being confidently wrong, which is worse than not detecting at all. Instead, `ElectricalServiceSection`
+carries a plain static reminder ("If your inverter's AC output voltage or phase doesn't match this
+electrical service, add a transformer below") and the installer decides — consistent with §19's own
+"if uncertain, ask the installer" pattern already established in Phase 43.
+
+**UI (`TransformerSection`, new, placed after the parallel-inverter/battery sections):** a
+"Transformer required?" switch; when on, primary/secondary voltage, a phase segmented control, a
+step-up/step-down segmented control, kVA rating, frequency, an efficiency field labeled as
+illustrative, and a readout of the computed loss and the adjusted system-supply figure.
+
+**Explicitly deferred, not silently skipped:** §18 also asks for the transformer to appear in
+"Quotation... Equipment list" — wiring it into `MaterialTakeoffEngine`/`PriceList`/the PDF/CSV
+exports is a materially larger, separate cross-cutting change (new pricing fields, a materials line
+item) that this round doesn't attempt; the domain model and its loss math are real and usable today,
+but nothing yet puts a transformer line on a quote. Also deferred: the facility-driven schedule
+defaults (Phase 47).
+
+**Tests:** new `TransformerTest.kt` — a fresh `Transformer` (and a fresh `CommercialIndustrialDesign`)
+defaults to not-required with zero loss, the 97%/100%/0%-efficiency loss-math boundary cases, and a
+full `CommercialIndustrialDesign` round-trip proving the loss folds correctly into
+`designLoadKwIncludingTransformerLoss` when required and leaves it untouched when not. `./gradlew`
+remains blocked by the same standing plugin-resolution network limitation; verified by balance-
+checking every touched file.
