@@ -8376,3 +8376,77 @@ user's own answer to a Phase 42 clarifying question), transformer integration in
 quote/pricing layer (Phase 46), and Call Centre's named multi-shift granularity (this phase) — all
 three are real gaps against the full letter of the spec, not oversights, and each is documented at
 the point it was deferred.
+
+## A132 — Load-Sheet round: real Commercial/Industrial wattage/PF/hours corrections from a user-supplied datasheet
+
+The user uploaded "Lumix Load Sheet Defaults.xlsx" — a structured, two-sheet reference (a 74-row
+Load Defaults table spanning Residential/Commercial/Industrial, plus a Modeling Rules sheet
+explaining how each column should be used: "Most Likely Operating W" is the default for energy
+estimates, "Peak/Nameplate W" is for peak/inverter checks not continuous energy, cycling loads need
+a duty cycle rather than treating rated watts as continuous, etc.). Extracted via `openpyxl` (no
+`pandas` available in this sandbox).
+
+**42 `LoadDefinition` entries corrected** across `CommercialIndustrialLoadCatalog.commercialLoads`
+(23) and `.industrialLoads` (19) — `defaultRatedWatts` and `defaultPowerFactor` updated to the
+sheet's own "Most Likely Operating W"/"Power Factor" wherever a clean 1:1 semantic match exists
+between a sheet row and an existing catalog entry (e.g. `commercial_server` 500W→1500W,
+`industrial_compressor` 11000W→20000W, `industrial_large_hvac` 20000W→40000W). One real behavioral
+correction alongside the numbers: `commercial_signage` was modeled `CONTINUOUS`, but the sheet
+classifies it `Intermittent` at 6h/day (evening/night only) — changed to match, since signage
+genuinely isn't drawing power around the clock.
+
+**The commercial refrigeration trio got a real fix, not just a number bump.** `commercial_refrigeration`
+was labeled "walk-in cooler" but carried a plain 1200W figure — the sheet's actual "Walk-in cooler"
+row is 2500W, while "Commercial refrigerator" (800W) and "Commercial freezer" (1200W) are separate,
+lower-draw entries the catalog already had as `commercial_display_fridge`/`commercial_freezer`. All
+three now match the sheet's real three-way split instead of one being mislabeled.
+
+**New `LoadDefinition.defaultHoursPerDay` field** (Modeling Rules: "Default Hours/Day... seeds the
+estimate; user can edit") — seeded from the sheet for every corrected entry, wired into
+`newInstanceFrom` so a newly-added `LoadInstance` starts with a realistic `operatingHoursPerDay`
+instead of the previous flat 0. This only ever applies to a load the installer has actively added
+(quantity was 0 until they typed one) — nothing is forced or auto-counted, and every entry without a
+sourced hours figure still starts at 0 exactly as before.
+
+**Two things deliberately NOT wired in from the sheet:**
+- **"Peak/Nameplate W"** — the sheet's own separate peak-vs-operating distinction has no home in this
+  catalog's current model (`defaultRatedWatts` already serves both Connected Load and energy-estimate
+  roles); adding a second wattage concept that actually changes what `connectedLoadKw`/§5's own
+  "Connected Load" means is a bigger architectural change than a defaults correction, so it's
+  deferred rather than half-wired.
+- **Whole-facility aggregate sheet rows** ("Office LED lighting" 2500W, "Commercial AC" 6000W as a
+  central-plant figure) were NOT applied to catalog entries that are genuinely per-unit
+  (`commercial_interior_lighting`'s per-fixture 40W) — the sheet's own quantity convention there is
+  "one lighting system for the whole building," not "one fixture," and forcing an aggregate figure
+  onto a per-unit field would have produced wrong sizing, not a correction. `commercial_ac_package`
+  (a single packaged/rooftop unit) was judged close enough in kind to take the sheet's AC figure;
+  `commercial_ac_split` (a small split unit) was left untouched since the sheet has no matching
+  small-unit row.
+
+**Combined-entry judgment calls, disclosed rather than silently resolved:** both
+`commercial_laundry_equipment` and `industrial_laundry_equipment` combine washer+dryer into one
+catalog entry, but the sheet lists them as two separate rows with different wattages. Both were set
+to lean toward the more conservative (dryer-weighted) figure rather than an arbitrary average — real
+uncertainty, not a hidden guess. The sheet's combined "CCTV/security" row (250W) wasn't applied to
+either `commercial_cctv_nvr` or `commercial_security_system` since the catalog keeps those as two
+independently addable items and reallocating one combined figure across two would have been a guess.
+
+**Tests:** new `LoadSheetDefaultsTest.kt` — the new `defaultHoursPerDay`→`operatingHoursPerDay`
+wiring (seeded when sourced, still 0 when not), the refrigeration trio's three-way split, IT-load and
+motor-load spot checks against the sheet's real figures, the signage operation-type correction, and
+confirmation that an untouched entry (`commercial_elevator`, `industrial_electronics`) kept its
+original figures. Checked every existing test file for hardcoded wattage assertions that could have
+drifted from this round's corrections (the same discipline Phase 41's inverter-datasheet round used)
+— none exist; every test that constructs a `LoadInstance` does so with its own literal `ratedWatts`,
+never derived from the catalog's `defaultRatedWatts` via `newInstanceFrom`, so nothing broke.
+`./gradlew` remains blocked by the same standing plugin-resolution network limitation.
+
+**Residential intentionally not touched this round.** The sheet also has 28 Residential rows, but
+Residential wattages are duplicated across two separate enums (`ApplianceType` in `QuoteInputs.kt`
+and the simulation's own `SimApplianceType`) that a dedicated `ApplianceTypeConsistencyTest` requires
+to stay in exact agreement, and Residential's daily-energy figure already comes from a realistic
+duty-cycle/auto-schedule engine (`defaultDailyEnergyKwh`, built across Phase 28.2/A66) rather than a
+flat hours/day multiplier — a materially different, already-more-sophisticated model than the
+sheet's simpler watts×hours approach. Applying the sheet there safely needs reconciling three things
+at once instead of one catalog file, so it's being raised with the user as its own decision rather
+than assumed.

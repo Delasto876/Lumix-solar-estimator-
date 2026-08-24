@@ -63,7 +63,17 @@ data class LoadDefinition(
      * to seed the editor with, not a second source of truth for sizing.
      */
     val isAcLoad: Boolean = false,
-    val defaultBtu: Double? = null
+    val defaultBtu: Double? = null,
+    /**
+     * Load-Sheet round ("Lumix Load Sheet Defaults" — Modeling Rules' own "Default Hours/Day...
+     * seeds the estimate; user can edit"): a starting `operatingHoursPerDay` for a newly-added
+     * [LoadInstance] of this type — see [com.lumix.estimator.ui.components.newInstanceFrom]. Null
+     * (every entry before this field existed, and any without a sourced figure) means "start at 0
+     * hours," the original Phase 31.2 behavior — this only ever seeds a NEW instance, and only once
+     * the installer has already set a quantity above 0 for it, so it never counts toward sizing
+     * until the installer has actively included the load; nothing here is a forced assumption.
+     */
+    val defaultHoursPerDay: Double? = null
 )
 
 /**

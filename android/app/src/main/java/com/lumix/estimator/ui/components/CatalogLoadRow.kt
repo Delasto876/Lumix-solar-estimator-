@@ -58,7 +58,8 @@ fun newInstanceFrom(def: LoadDefinition): LoadInstance = LoadInstance(
     operationType = def.defaultOperationType,
     priority = def.defaultPriority,
     startingSurgeWatts = def.defaultStartingSurgeMultiplier?.let { it * def.defaultRatedWatts },
-    btu = def.defaultBtu
+    btu = def.defaultBtu,
+    operatingHoursPerDay = def.defaultHoursPerDay ?: 0.0
 )
 
 /**
