@@ -60,6 +60,19 @@ data class PanelSpec(
     val sourceUrl: String
 )
 
+/**
+ * Inverter Engine round (spec "Inverter Architecture Logic"/"Inverter Mode Logic" sheets — "Every
+ * inverter record must have exactly one primary mode: Hybrid, Off-grid, or Grid-tie"): the real,
+ * programmatic distinction [InverterSpec.type] never actually was — every one of the 13 pre-existing
+ * entries has `type = "Hybrid"` as free descriptive text, read by nothing. [InverterSpec.architecture]
+ * is what UI/calculation code should branch on: HYBRID = grid+battery+PV (existing residential/
+ * commercial logic, unchanged), OFF_GRID = battery+PV only, GRID_TIE = PV+grid only, no battery
+ * fields, no backup/battery sizing — "Do NOT calculate backup hours or battery capacity for a
+ * grid-tie-only inverter." Defaults to [HYBRID] so every existing entry (and any already-saved quote
+ * referencing one) keeps its exact current behavior without needing this field touched.
+ */
+enum class InverterArchitecture { HYBRID, OFF_GRID, GRID_TIE }
+
 /** One real hybrid/off-grid inverter's datasheet characteristics. */
 data class InverterSpec(
     val brand: String,
@@ -116,7 +129,26 @@ data class InverterSpec(
      */
     val supportsParallel: Boolean = false,
     /** Null = no confirmed limit on file — only meaningful once [supportsParallel] is true. */
-    val maxParallelUnits: Int? = null
+    val maxParallelUnits: Int? = null,
+    /** Inverter Engine round: see [InverterArchitecture]'s own doc. Defaults [InverterArchitecture.HYBRID] for every pre-existing entry. */
+    val architecture: InverterArchitecture = InverterArchitecture.HYBRID,
+    /**
+     * Inverter Engine round (spec — "Max Apparent Power kVA... size transformer from inverter
+     * maximum apparent output"): a grid-tie inverter's own maximum apparent-power rating, which can
+     * exceed [ratedOutputW]/1000 at reduced power factor (e.g. 33kVA max vs 30kW rated). Null for
+     * every hybrid/off-grid entry, where this figure was never part of the supplied datasheet data
+     * and [ratedOutputW] alone has always been what sizing reads.
+     */
+    val maxApparentPowerKva: Double? = null,
+    /**
+     * Inverter Engine round (spec "Transformer required: YES when inverter line-to-line voltage
+     * does not match the selected site/grid voltage"): the real line-to-line AC voltage(s) this
+     * inverter's datasheet confirms — a list because some real models (e.g. the S5-GC50K) support
+     * more than one regional voltage variant (220/380V or 230/400V). Empty for every hybrid/off-grid
+     * entry (their [acVoltage] stays free text, never parsed/compared numerically) — only populated
+     * for grid-tie entries this transformer-matching logic actually needs a real number for.
+     */
+    val acLineToLineVoltageOptionsV: List<Double> = emptyList()
 ) {
     /**
      * Whether this unit's own datasheet confirms 50Hz support — Jamaica's grid frequency.
@@ -560,9 +592,58 @@ object EquipmentSpecs {
             engineeringNote = "3 MPPT trackers, 2 PV strings per MPPT. CEC efficiency 97%; MPPT efficiency >=99.5%. Max grid passthrough 62.5A. Noise <=30dB(A); self-consumption <60W. Dimensions 440x855x256mm, 48.84kg.",
             sourceUrl = "https://us.growatt.com/upload/file/SPH_10000TL-HU-US_Datasheet_EN_202406.pdf",
             supportsParallel = true, maxParallelUnits = 6
-        )
+        ),
         // Growatt 12K/13K deliberately absent — source message: do not invent these if an exact
         // US split-phase model cannot be verified.
+
+        // Inverter Engine round (user-supplied "Lumix Load Sheet Defaults 2" spreadsheet's Inverter
+        // Catalog sheet): the first two GRID_TIE entries in this catalog — commercial/industrial
+        // three-phase string inverters, no battery port at all (batteryVoltageRange/maxBatteryA/etc.
+        // all null/"N/A", consistent with every other field here being null wherever the source data
+        // genuinely has nothing to report, never invented). This model's existing `acOutputA: Int?`
+        // field only holds a single rated-current figure — the source also gives a separate, higher
+        // MAX AC current for both models; rather than adding a new field for one pair of entries,
+        // that max figure (and the 50K's second rated-current voltage variant) is recorded in
+        // `engineeringNote` instead, the same "note it rather than force a field that doesn't fit
+        // the rest of this catalog" precedent this file's own surge-rating history already set.
+        InverterSpec(
+            brand = "Solis", model = "S5-GC30K-LV", series = "S5-GC", region = "220 V three-phase LV (Caribbean/regional grid-tie)",
+            ratingLabel = "30kW three-phase grid-tie", ratedOutputW = 30000, acVoltage = "3/(N)/PE, 220 V three-phase",
+            frequencyHzRaw = "50/60", splitPhase = false,
+            maxPvW = 45000, maxPvV = 1100, mpptVoltageMinV = 180, mpptVoltageMaxV = 1000, startupVoltageV = 195,
+            mpptCount = 4, stringsPerMppt = 2, maxInputCurrentPerMpptA = 32.0, maxShortCircuitCurrentPerMpptA = 40.0,
+            batteryVoltageRange = "N/A — grid-tie, no battery port", batteryVoltageMinV = null, batteryVoltageMaxV = null,
+            maxBatteryA = null, maxChargePowerKw = null, maxDischargePowerKw = null,
+            acOutputA = 79, efficiencyPercent = 98.4,
+            surgePowerRatio = null, surgeDurationSeconds = null,
+            type = "Grid-tie", verificationStatus = VerificationStatus.VERIFIED,
+            dataQualityNote = "User-supplied \"Lumix Load Sheet Defaults 2\" spreadsheet, Inverter Catalog sheet — every field below taken directly from that data. The source's own note: \"Verify exact regional variant before procurement.\"",
+            engineeringNote = "Rated AC current 78.7A, max AC current 86.6A (acOutputA above holds the rated figure, rounded to 79A; this model has no dedicated max-AC-current field, so the 86.6A max is recorded here in prose only). Max apparent power 33kVA / max AC output 33kW. PF >0.99 (0.8 lead-0.8 lag), THDi <3%. Protection: AFCI, DC/AC surge, reverse-polarity, over-current, anti-islanding, grid monitoring. Transformerless topology, IP66. Dimensions 691x578x338mm, 54.5kg. Parallel AC inverters: yes, subject to manufacturer/site design (no confirmed unit-count limit given).",
+            sourceUrl = "",
+            supportsParallel = true, maxParallelUnits = null,
+            architecture = InverterArchitecture.GRID_TIE,
+            maxApparentPowerKva = 33.0,
+            acLineToLineVoltageOptionsV = listOf(220.0)
+        ),
+        InverterSpec(
+            brand = "Solis", model = "S5-GC50K", series = "S5-GC", region = "220/380 V or 230/400 V three-phase (Caribbean/regional grid-tie)",
+            ratingLabel = "50kW three-phase grid-tie", ratedOutputW = 50000, acVoltage = "3/N/PE, 220/380 V or 230/400 V three-phase",
+            frequencyHzRaw = "50/60", splitPhase = false,
+            maxPvW = 66500, maxPvV = 1100, mpptVoltageMinV = 180, mpptVoltageMaxV = 1000, startupVoltageV = 195,
+            mpptCount = 5, stringsPerMppt = 2, maxInputCurrentPerMpptA = 32.0, maxShortCircuitCurrentPerMpptA = 40.0,
+            batteryVoltageRange = "N/A — grid-tie, no battery port", batteryVoltageMinV = null, batteryVoltageMaxV = null,
+            maxBatteryA = null, maxChargePowerKw = null, maxDischargePowerKw = null,
+            acOutputA = 76, efficiencyPercent = 98.7,
+            surgePowerRatio = null, surgeDurationSeconds = null,
+            type = "Grid-tie", verificationStatus = VerificationStatus.VERIFIED,
+            dataQualityNote = "User-supplied \"Lumix Load Sheet Defaults 2\" spreadsheet, Inverter Catalog sheet — every field below taken directly from that data. Two voltage variants are both real per the source (220/380V and 230/400V) — acOutputA holds the higher 380V-variant rated current (76.0A); the 400V variant's own rated current is 72.2A (see engineeringNote).",
+            engineeringNote = "Rated AC current 76.0A at 380V / 72.2A at 400V; max AC current 83.6A. Max apparent power 55kVA / max AC output 55kW; 66.5kW recommended max PV input. PF >0.99 (0.8 lead-0.8 lag), THDi <3%. Protection: AFCI, DC/AC surge, reverse-polarity, over-current, anti-islanding, grid monitoring, string monitoring, I/V scan. Transformerless topology, IP66. Dimensions 691x578x338mm, 54.5kg. Parallel AC inverters: yes, subject to manufacturer/site design (no confirmed unit-count limit given).",
+            sourceUrl = "",
+            supportsParallel = true, maxParallelUnits = null,
+            architecture = InverterArchitecture.GRID_TIE,
+            maxApparentPowerKva = 55.0,
+            acLineToLineVoltageOptionsV = listOf(380.0, 400.0)
+        )
     )
 
     val batteries = listOf(

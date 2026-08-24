@@ -72,8 +72,12 @@ object Catalog {
         InverterOption("off3_2k", "3200W Off-grid PowMr", 3.2, SystemMode.OFFGRID) { it.inverterOffgrid3_2kPowmr }
     )
 
+    // Inverter Engine round: the two real, verified GRID_TIE entries below join the prior generic
+    // placeholder (kept, never removed — a saved quote may already reference "grid15k").
     val gridtieInverters = listOf(
-        InverterOption("grid15k", "15000W Grid-tie 3-phase", 15.0, SystemMode.GRIDTIE) { it.inverterGridTie15k }
+        InverterOption("grid15k", "15000W Grid-tie 3-phase", 15.0, SystemMode.GRIDTIE) { it.inverterGridTie15k },
+        InverterOption("solisGc30kLv", displayName(spec("Solis", "S5-GC30K-LV")), 30.0, SystemMode.GRIDTIE) { it.inverterSolisGc30kLv },
+        InverterOption("solisGc50k", displayName(spec("Solis", "S5-GC50K")), 50.0, SystemMode.GRIDTIE) { it.inverterSolisGc50k }
     )
 
     /** MANUAL mode's picker — every real inverter EquipmentSpecs carries (never REGIONAL_MODEL_REQUIRES_CONFIRMATION/DO_NOT_USE, since none exist), plus off-grid/grid-tie. */

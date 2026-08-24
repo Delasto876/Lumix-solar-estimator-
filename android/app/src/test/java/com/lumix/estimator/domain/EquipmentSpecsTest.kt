@@ -33,7 +33,12 @@ class EquipmentSpecsTest {
 
     @Test
     fun `every other inverter has no invented surge figure`() {
-        val expectedWithout = setOf("GEN-LB-US 6K", "GEN-LB-US 10K", "ASF4880S180-H", "HES48100U200-H", "HESP 12K-US")
+        // Inverter Engine round: the two new GRID_TIE entries join this set too - the source
+        // spreadsheet gave no surge figure for either, so neither invents one.
+        val expectedWithout = setOf(
+            "GEN-LB-US 6K", "GEN-LB-US 10K", "ASF4880S180-H", "HES48100U200-H", "HESP 12K-US",
+            "S5-GC30K-LV", "S5-GC50K"
+        )
         val withoutSurge = EquipmentSpecs.inverters.filter { it.surgePowerRatio == null }.map { it.model }.toSet()
         assertEquals(expectedWithout, withoutSurge)
         assertTrue(EquipmentSpecs.inverters.filter { it.surgePowerRatio == null }.all { it.surgeDurationSeconds == null })
@@ -69,11 +74,15 @@ class EquipmentSpecsTest {
     @Test
     fun `exactly the compendium-confirmed models are marked parallel-capable, each with a real max-unit count`() {
         val parallelCapable = EquipmentSpecs.inverters.filter { it.supportsParallel }
-        val expected = mapOf(
+        // Inverter Engine round: the two new GRID_TIE entries are confirmed parallel-capable
+        // ("subject to manufacturer/site design") but the source gives no specific max-unit count,
+        // unlike every prior entry here — hence the map's value type widening to Int?.
+        val expected: Map<String, Int?> = mapOf(
             "GEN-LB-US 6K" to 10, "GEN-LB-US 8K" to 10, "GEN-LB-US 10K" to 10,
             "LXP-LB-US 12K/13K" to 10, "SNA-US 12K" to 16,
             "SUN-6K-SG02LP2-US" to 16, "SUN-8K-SG01LP1-US" to 16,
-            "HESP 12K-US" to 6, "SPH 8000TL-HU-US" to 6, "SPH 10000TL-HU-US" to 6
+            "HESP 12K-US" to 6, "SPH 8000TL-HU-US" to 6, "SPH 10000TL-HU-US" to 6,
+            "S5-GC30K-LV" to null, "S5-GC50K" to null
         )
         assertEquals(expected.keys, parallelCapable.map { it.model }.toSet())
         parallelCapable.forEach { spec ->

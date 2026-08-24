@@ -8515,3 +8515,102 @@ this round's changes), confirmation the AC tiers were correctly left alone, and 
 unmatched type (vacuum cleaner) kept its original figures. `./gradlew` remains blocked by the same
 standing plugin-resolution network limitation; verified by balance-checking every touched file and
 hand-tracing every updated test assertion against the corrected source values.
+
+## A134 — Phase 48: Inverter Engine, part 1 — architecture field + two real Solis grid-tie inverters
+
+User's new "UPDATE THE INVERTER ENGINE" message (second uploaded spreadsheet, "Lumix Load Sheet
+Defaults 2.xlsx") asked for a required inverter SYSTEM TYPE selector (HYBRID / OFF-GRID / GRID-TIE,
+the last with battery sizing/backup/BMS fields hidden entirely), two new commercial/industrial
+Solis grid-tie inverters with full datasheet specs, and a family of grid-tie transformer/PV-sizing/
+parallel-inverter logic — explicitly "DO NOT REBUILD UNRELATED PARTS... Do not change existing
+residential Hybrid/Off-grid logic." This is a large spec; it's being built in 4 phases (48-51) so
+each lands as a reviewable, independently-tested slice. **This section covers Phase 48 only** — the
+equipment-layer foundation. Phases 49-51 (transformer voltage-match logic, the Commercial/Industrial
+System Type UI + battery-section gating, and the grid-tie parallel-inverter summary readout) are
+still to come.
+
+**Architecture research finding, before writing any code:** the "required inverter SYSTEM TYPE
+selector" the spec asks for already exists — `SystemMode` (`HYBRID`/`OFFGRID`/`GRIDTIE`,
+`Catalog.kt`) already has a working 3-way picker for Residential (`StepLocation.kt`), already
+filters `Catalog.poolFor(mode)`, and already gates `StepBatteryBank.kt`'s battery UI off for
+Residential GRIDTIE. It's a separate concept from `InverterSpec.type: String`, which despite its
+name is free descriptive text read by nothing programmatically (every one of the 13 pre-existing
+entries just hardcodes `"Hybrid"`). So Phase 48 does NOT build a new selector from scratch — it adds
+the real, programmatic per-inverter classification (`InverterSpec.architecture`) that lets existing
+and future code branch on Hybrid/Off-grid/Grid-tie correctly, and the actual verified grid-tie
+catalog data that was missing (`Catalog.gridtieInverters` previously held only a hand-written
+placeholder with no real `InverterSpec` behind it). The remaining gap — Commercial/Industrial has no
+System Type UI step yet, and its battery-per-inverter section doesn't check inverter architecture
+before rendering — is Phase 50's job, not this one.
+
+**`EquipmentSpecs.kt`:**
+- New `enum class InverterArchitecture { HYBRID, OFF_GRID, GRID_TIE }`, documented as the real
+  distinction `InverterSpec.type` never was.
+- Three new `InverterSpec` fields, all defaulted so every pre-existing entry (and any already-saved
+  quote referencing one) keeps its exact current behavior untouched: `architecture` (defaults
+  `HYBRID`), `maxApparentPowerKva: Double?` (a grid-tie inverter's own max apparent-power rating,
+  which can exceed `ratedOutputW` at reduced power factor — e.g. 33kVA max vs 30kW rated; needed for
+  Phase 49's "size transformer from inverter max apparent power, not PV wattage" rule), and
+  `acLineToLineVoltageOptionsV: List<Double>` (a list, not a single value, because the S5-GC50K
+  genuinely supports two real regional voltage variants — 220/380V and 230/400V — and Phase 49's
+  voltage-match logic needs to check compatibility against either, not force one number).
+- Two new real `InverterSpec` entries, both sourced from the spreadsheet's Inverter Catalog sheet,
+  both `VerificationStatus.VERIFIED`:
+  - **Solis S5-GC30K-LV** — 30kW 3-phase 220V grid-tie, 45kW max PV, 4 MPPT, 1100V max DC,
+    180-1000V MPPT range, 33kVA max apparent power, 98.4% max efficiency, transformerless, IP66.
+  - **Solis S5-GC50K** — 50kW 3-phase (220/380V or 230/400V), 66.5kW max PV, 5 MPPT, 55kVA max
+    apparent power, 98.7% max efficiency, transformerless, IP66.
+  - Both: `architecture = GRID_TIE`, every battery-related field left `null`/"N/A — grid-tie, no
+    battery port" (no invented battery data for a unit with no battery port), `surgePowerRatio`/
+    `surgeDurationSeconds` left `null` (source gave no surge figure for either — not assumed from a
+    same-brand sibling), `supportsParallel = true` with `maxParallelUnits = null` (source confirms
+    "parallel AC inverters: yes, subject to manufacturer/site design" but gives no specific unit-count
+    limit — encoded as confirmed-capable-but-uncounted, not guessed). Neither model's existing
+    `acOutputA: Int?` field can hold both the rated AND the separate, higher MAX AC current the
+    source gives (86.6A/83.6A vs the 78.7A/76.0A rated figures) — rather than adding a new dedicated
+    field for just this one pair of entries, the max figures (and the 50K's second rated-current
+    voltage variant, 72.2A @ 400V) are recorded in `engineeringNote` prose instead, the same
+    "note it rather than force a field that doesn't fit the rest of the catalog" precedent this
+    file's own surge-rating history already established.
+- `sourceUrl = ""` (empty, not a guessed link — the source is the user-uploaded spreadsheet, not an
+  external URL), matching the pattern already used for other user-supplied-data entries.
+
+**`Catalog.kt`:** `gridtieInverters` rebuilt to keep the pre-existing `grid15k` placeholder (never
+removed — a saved quote may already reference it) and add both new real entries via `spec()`, which
+throws if the model string doesn't match `EquipmentSpecs.inverters` — a de facto wiring check.
+Automatically flows into `manualInverters` (already `+ gridtieInverters`) and `poolFor(GRIDTIE)`
+with no further changes needed there.
+
+**`PriceList.kt`:** `inverterSolisGc30kLv`/`inverterSolisGc50k` added as nullable `Double?` fields,
+defaulting to `null` — "Keep inverter PRICE BLANK until manually entered by the user" satisfied by
+the same nullable-price pattern every other catalog entry already uses, plus their
+`NullablePriceFieldSpec` registrations in the existing "Grid-tie Inverters" Settings category.
+
+**"Default frequency = 50Hz, but allow 60Hz when required" — already satisfied, not re-implemented:**
+`ElectricalService.frequencyHz` (Phase 43) already defaults to 50.0 and is freely editable per
+design; both new Solis entries' own `frequencyHzRaw = "50/60"` confirms real dual-frequency support
+on the equipment side. No code change was needed for this requirement.
+
+**Scope decision, disclosed here:** this Inverter Engine update (all 4 phases) is scoped to the
+quote/sizing/catalog/UI layer. The live Simulation screen's own engine doc states its grid connection
+is architecturally "strictly import-only... there is no solarToGridKw/export field, and none ever
+will be" — giving a true grid-tie inverter real export behavior on the animated Simulation screen
+would be a substantial separate undertaking, not a natural extension of this spec's own scope
+("UPDATE THE INVERTER ENGINE," about sizing/selection, not the digital-twin simulation). Deferred,
+not silently dropped.
+
+**Tests:** new `InverterArchitectureTest.kt` — every pre-existing inverter still defaults to
+`HYBRID`, both new Solis entries resolve to `GRID_TIE` with every battery field null and no invented
+surge figure, their real datasheet numbers (kVA, MPPT count, voltage options) are on file correctly,
+every non-grid-tie entry still has an empty `acLineToLineVoltageOptionsV`/null `maxApparentPowerKva`,
+`Catalog.gridtieInverters`/`manualInverters`/`poolFor(GRIDTIE)` all resolve both new entries without
+throwing, both new `PriceList` fields default to `null`, and both entries are confirmed
+parallel-capable with no invented unit-count limit. Two pre-existing `EquipmentSpecsTest.kt`
+assertions were updated for the 2 new catalog entries (the Phase-41-established "grep-sweep every
+test file for hardcoded catalog assumptions before considering a catalog change done" discipline,
+applied again) — the exact-surge-set test now expects both new models in the "no surge figure" set,
+and the exact-parallel-capable-map test's value type widened `Int` → `Int?` to represent "confirmed
+parallel-capable, no specific count given," a case no pre-existing entry had. `./gradlew` remains
+blocked by the same standing plugin-resolution network limitation; verified by balance-checking
+every touched file and hand-tracing every new/updated test assertion against the source spreadsheet
+figures. Phase 49 (transformer voltage-match/step-up-down logic) is next.

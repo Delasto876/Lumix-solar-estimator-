@@ -37,6 +37,11 @@ data class PriceList(
     val inverterGrowattSph8k: Double? = null,
 
     val inverterGridTie15k: Double? = null,
+    // Inverter Engine round: real Solis S5-GC30K-LV/S5-GC50K commercial/industrial grid-tie
+    // inverters — no price given, kept blank until the user manually enters it (spec: "Keep
+    // inverter PRICE BLANK until manually entered by the user").
+    val inverterSolisGc30kLv: Double? = null,
+    val inverterSolisGc50k: Double? = null,
 
     val inverterOffgrid3k72: Double? = null,
     val inverterOffgrid3k78: Double? = null,
@@ -324,6 +329,8 @@ object PriceFields {
         NullablePriceFieldSpec("inverterGrowattSph8k", "Growatt SPH 8000TL-HU-US (needs verification)", "Hybrid Inverters (Manual only)", { it.inverterGrowattSph8k }, { p, v -> p.copy(inverterGrowattSph8k = v) }),
 
         NullablePriceFieldSpec("inverterGridTie15k", "15000W Grid-tie 3-phase", "Grid-tie Inverters", { it.inverterGridTie15k }, { p, v -> p.copy(inverterGridTie15k = v) }),
+        NullablePriceFieldSpec("inverterSolisGc30kLv", "Solis S5-GC30K-LV (30kW 3-phase)", "Grid-tie Inverters", { it.inverterSolisGc30kLv }, { p, v -> p.copy(inverterSolisGc30kLv = v) }),
+        NullablePriceFieldSpec("inverterSolisGc50k", "Solis S5-GC50K (50kW 3-phase)", "Grid-tie Inverters", { it.inverterSolisGc50k }, { p, v -> p.copy(inverterSolisGc50k = v) }),
 
         NullablePriceFieldSpec("inverterOffgrid3k72", "3000W Off-grid 12V (72k)", "Off-grid Inverters", { it.inverterOffgrid3k72 }, { p, v -> p.copy(inverterOffgrid3k72 = v) }),
         NullablePriceFieldSpec("inverterOffgrid3k78", "3000W Off-grid 12V (78k)", "Off-grid Inverters", { it.inverterOffgrid3k78 }, { p, v -> p.copy(inverterOffgrid3k78 = v) }),
