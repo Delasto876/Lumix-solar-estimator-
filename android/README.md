@@ -7850,3 +7850,60 @@ totals unchanged from the old blended figures for the exact same input.
 schedulable in the running app) is correct by code review and the generic-iteration argument above,
 not by an interactive run — `./gradlew` remains blocked by this sandbox's standing network
 limitation, unrelated to this round's code.
+
+## A123 — Phase 39: 12-hour clock for Commercial/Industrial shifts & loads + fixed MPPT-count edit-down bug
+
+"for indutrial quotes, for the time and shift let me use 12hr clock instead of the 24hr clock
+type... when choosing to parallel inverter when i choose the mppt i am using its not allowing me to
+edit so some inverter comes with 3 mppt it shows but if i want to use 2 of the mppt i should be able
+to edit and put 2 mppt even though it has 3 mppt... and for industrial load use 12hr clock right
+throughout 12hr am 12hr pm." Two fixes this round.
+
+**1. Every Commercial/Industrial time entry is now a 12-hour clock.** `TimeField` — the ONE shared
+component behind the shift editor (`ShiftRow`), the wizard's Loads step (`CatalogLoadRow`'s own
+Starts/Ends), and the wizard's custom-load row (Phase 36's `LoadRow`) — was rebuilt from a 24-hour
+HH(0-23)/MM entry to an Hour(1-12)/Minute/AM-PM entry. Because all of these already called the SAME
+function, fixing it once fixes shifts and every load's Starts/Ends across both Commercial and
+Industrial at once — there was no separate "industrial clock" to build, since Commercial and
+Industrial already shared this exact component. The underlying domain representation (`Shift
+.startHour`/`.endHour`, `LoadInstance.typicalStartHour`, decimal hours 0.0-23.99, midnight-based) is
+completely unchanged — a purely additive entry/display conversion, via two new pure functions in
+`CommercialLoadSimulation.kt`: `decimalHourTo12Hour` (14.0 → 2:00 PM) and `twelveHourToDecimalHour`
+(the inverse). Residential's own time entry was already 12-hour (`formatSimTime`, used throughout
+the Appliances sheet's stepper-based schedule editor since earlier phases) — this brings
+Commercial/Industrial's typed HH:MM entry to the same convention, not a new one for the app.
+
+**2. Fixed the MPPT-count field not actually letting you type a smaller number.** Root cause: every
+numeric field in this app (`NumberField`/`IntField`, `Common.kt`) echoed its live text buffer back
+through `onValueChange` on EVERY keystroke, including the instant a digit is deleted (an empty
+buffer parsed to a hard-coded `0.0` and was pushed upstream immediately). Because the field's own
+displayed text is `remember(value)`-keyed to that same upstream value, the moment you backspaced a
+"3" to type "2" instead, the round-trip through 0 snapped the field's display back to "0" before you
+could finish typing — fighting every attempt to shrink an existing number. This was never actually a
+missing feature (the MPPT field's own `coerceAtMost(max)` logic already permitted any value from 0
+up to the model's real MPPT count — its supporting text already said "use fewer if you're leaving
+some unwired," from Phase 34.3) — the text field itself was silently fighting the user before the
+domain logic ever got a chance to accept the new value. Fixed by no longer propagating a transient
+empty/unparseable buffer upstream at all — only a value that actually parses commits now, so
+clearing a digit to retype a smaller one no longer forces a "0" flash mid-edit. This was a shared
+bug affecting every numeric field in the app, not just MPPT count — fixing it once in `NumberField`
+fixes it everywhere. `NullableNumberField` (Settings' price-entry fields, which deliberately commit
+`null` on a cleared field) was left untouched — its "clear to un-enter" behavior is intentional and
+distinct from this bug.
+
+**With both fixed, "8× 720W panels on 2 MPPTs instead of 3" now works exactly as described**: pick
+an inverter with 3 MPPTs (auto-fills "MPPTs / inverter" = 3), edit that field down to 2 (now
+possible), then "Panels per MPPT string" = 4 (8 panels ÷ 2 MPPTs) — no domain-model change was
+needed for this part; `ParallelInverterDesign`'s per-unit `strings` list already supported using
+fewer than the model's full MPPT count (`ParallelInverterValidator` only ever flags using MORE MPPTs
+than a model has, never fewer) — the only real gap was the text field silently overriding the
+installer's own edit before it could land.
+
+**Verification:** `Phase39TwelveHourClockTest` — midnight is 12 AM (not "0 o'clock"), noon is 12 PM,
+2:00 PM round-trips to decimal 14.0, an out-of-range "13 o'clock" clamps to 12, every whole hour of
+the day round-trips exactly through the 12-hour conversion, and the installer's own 9am-3pm (6h) and
+11pm-8am (9h, overnight-wrapping) worked examples still resolve correctly when entered via the new
+12-hour fields. The `NumberField` fix has no dedicated test — this project has no Compose UI test
+harness (confirmed absent this round; every prior UI-only change carries the same disclosed
+limitation) — verified by code review of the exact keystroke round-trip described above, and
+`./gradlew` remains blocked by this sandbox's standing network limitation regardless.

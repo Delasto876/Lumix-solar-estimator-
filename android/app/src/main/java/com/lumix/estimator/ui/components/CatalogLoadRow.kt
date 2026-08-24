@@ -1,6 +1,8 @@
 package com.lumix.estimator.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,20 +10,28 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.domain.commercial.LoadDefinition
 import com.lumix.estimator.domain.commercial.LoadInstance
+import com.lumix.estimator.domain.commercial.decimalHourTo12Hour
 import com.lumix.estimator.domain.commercial.hoursBetweenWrapping
+import com.lumix.estimator.domain.commercial.twelveHourToDecimalHour
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixColors
+import com.lumix.estimator.ui.theme.LumixRadius
 import kotlin.math.roundToInt
 
 /**
@@ -51,24 +61,72 @@ fun newInstanceFrom(def: LoadDefinition): LoadInstance = LoadInstance(
     btu = def.defaultBtu
 )
 
-/** HH:MM time entry — the decimal-hour figures every Shift/BusinessHours/LoadInstance.typicalStartHour field is stored as underneath are hard to type directly, so this splits into two IntFields and converts. */
+/**
+ * Phase 39 ("for the time and shift let me use 12hr clock instead of the 24hr clock type... for
+ * industrial load use 12hr clock right throughout 12hr am 12hr pm"): a 12-hour Hour/Minute/AM-PM
+ * time entry — the decimal-hour figures every Shift/BusinessHours/LoadInstance.typicalStartHour
+ * field is stored as underneath (0.0-23.99, midnight-based — UNCHANGED by this round, a purely
+ * additive entry/display conversion via [decimalHourTo12Hour]/[twelveHourToDecimalHour]) are hard
+ * to type directly in 24-hour form ("14:00" for 2pm) — this now matches how installers actually
+ * think and speak about a shift or a load's schedule. Shared by every Commercial/Industrial time
+ * entry surface (shifts, load Starts/Ends — this file's own [CatalogLoadRow] and
+ * `StepCommercialIndustrialDesign.kt`'s ShiftRow/custom-load LoadRow all call this one function),
+ * so fixing the clock convention here fixes it everywhere at once.
+ */
 @Composable
 fun TimeField(label: String, hour: Double, onChange: (Double) -> Unit, modifier: Modifier = Modifier) {
     val palette = LocalLumixPalette.current
-    val h = hour.toInt().coerceIn(0, 23)
-    val m = ((hour - h) * 60.0).roundToInt().coerceIn(0, 59)
+    val clock = decimalHourTo12Hour(hour)
+
+    fun emit(hour12: Int, minute: Int, isPm: Boolean) {
+        onChange(twelveHourToDecimalHour(hour12, minute, isPm))
+    }
+
     Column(modifier = modifier) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
             IntField(
-                label = "HH", value = h,
-                onValueChange = { newH -> onChange(newH.coerceIn(0, 23) + m / 60.0) },
+                label = "H", value = clock.hour12,
+                onValueChange = { newHour12 -> emit(newHour12, clock.minute, clock.isPm) },
                 modifier = Modifier.weight(1f)
             )
             IntField(
-                label = "MM", value = m,
-                onValueChange = { newM -> onChange(h + newM.coerceIn(0, 59) / 60.0) },
+                label = "MM", value = clock.minute,
+                onValueChange = { newMinute -> emit(clock.hour12, newMinute, clock.isPm) },
                 modifier = Modifier.weight(1f)
+            )
+            AmPmToggle(
+                isPm = clock.isPm,
+                onChange = { newIsPm -> emit(clock.hour12, clock.minute, newIsPm) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+/** A two-way AM/PM pill toggle, matching this app's existing day-type pill selectors (e.g. the residential Appliances sheet's RunEditorRow Weekday/Sat/Sun row). */
+@Composable
+private fun AmPmToggle(isPm: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+    val palette = LocalLumixPalette.current
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(LumixRadius.sm))
+            .background(palette.glass)
+    ) {
+        listOf(false to "AM", true to "PM").forEach { (pm, pmLabel) ->
+            val selected = pm == isPm
+            Text(
+                pmLabel,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) palette.background else palette.textSecondary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(LumixRadius.sm))
+                    .background(if (selected) palette.solarYellow else Color.Transparent)
+                    .clickable { onChange(pm) }
+                    .padding(vertical = 14.dp)
             )
         }
     }

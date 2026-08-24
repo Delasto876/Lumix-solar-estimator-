@@ -1,6 +1,7 @@
 package com.lumix.estimator.domain.commercial
 
 import com.lumix.estimator.domain.simulation.DayType
+import kotlin.math.roundToInt
 
 /**
  * Phase 32 ("for the appliance section... if commercial or industrial choose those in appliances
@@ -37,6 +38,39 @@ import com.lumix.estimator.domain.simulation.DayType
 fun hoursBetweenWrapping(startHour: Double, endHour: Double): Double {
     val raw = endHour - startHour
     return if (raw >= 0.0) raw else raw + 24.0
+}
+
+/**
+ * Phase 39 ("for the time and shift let me use 12hr clock instead of the 24hr clock type... for
+ * industrial load use 12hr clock right throughout 12hr am 12hr pm"): the installer-facing 12-hour
+ * shape (1-12, minute, AM/PM) of a decimal hour — every Shift/BusinessHours/LoadInstance
+ * .typicalStartHour field underneath is unchanged (still 0.0-23.99, midnight-based), this is purely
+ * the display/entry conversion `TimeField` uses so the installer types "2:00 PM" instead of "14:00".
+ */
+data class Clock12(val hour12: Int, val minute: Int, val isPm: Boolean)
+
+/** Decimal hour (0.0-23.99...) -> 12-hour clock shape. See [Clock12]'s own doc. */
+fun decimalHourTo12Hour(hour: Double): Clock12 {
+    val h24 = hour.toInt().coerceIn(0, 23)
+    val minute = ((hour - h24) * 60.0).roundToInt().coerceIn(0, 59)
+    val isPm = h24 >= 12
+    val hour12 = when {
+        h24 == 0 -> 12
+        h24 > 12 -> h24 - 12
+        else -> h24
+    }
+    return Clock12(hour12, minute, isPm)
+}
+
+/** 12-hour clock shape -> decimal hour (0.0-23.99...). Inverse of [decimalHourTo12Hour]; [hour12] is clamped to 1-12 (there is no "0 o'clock" or "13 o'clock" on a 12-hour face). */
+fun twelveHourToDecimalHour(hour12: Int, minute: Int, isPm: Boolean): Double {
+    val clampedHour12 = hour12.coerceIn(1, 12)
+    val hour24 = when {
+        !isPm && clampedHour12 == 12 -> 0
+        isPm && clampedHour12 != 12 -> clampedHour12 + 12
+        else -> clampedHour12
+    }
+    return hour24 + minute.coerceIn(0, 59) / 60.0
 }
 
 /**

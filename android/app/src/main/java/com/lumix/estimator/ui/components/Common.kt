@@ -203,7 +203,16 @@ fun NumberField(
                 c.isDigit() || (c == '.' && allowDecimal) || (c == '-' && allowNegative && index == 0)
             }
             text = sanitized
-            onValueChange(sanitized.toDoubleOrNull() ?: 0.0)
+            // Phase 39 ("its not allowing me to edit" — reported on the MPPT count field, but this
+            // was the same shared bug behind every numeric field in the app): don't round-trip a
+            // transient empty/unparseable buffer back through [onValueChange] as an implicit 0.
+            // Before this, clearing a digit to type a smaller replacement (e.g. 3 -> 2) committed
+            // 0 immediately on the backspace keystroke — `remember(value)` above then snapped this
+            // field's own display back to "0" before the user could finish typing, fighting every
+            // attempt to shrink an existing number. Only a value that actually parses commits
+            // upward now; `text` above already reflects exactly what's on screen regardless, so the
+            // field stays genuinely blank (not force-reset) while mid-edit.
+            sanitized.toDoubleOrNull()?.let(onValueChange)
         },
         label = { Text(label) },
         suffix = suffix?.let { { Text(it) } },
