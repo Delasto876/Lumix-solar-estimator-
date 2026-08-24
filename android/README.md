@@ -8614,3 +8614,59 @@ parallel-capable, no specific count given," a case no pre-existing entry had. `.
 blocked by the same standing plugin-resolution network limitation; verified by balance-checking
 every touched file and hand-tracing every new/updated test assertion against the source spreadsheet
 figures. Phase 49 (transformer voltage-match/step-up-down logic) is next.
+
+## A135 — Phase 49: grid-tie transformer voltage-match / step-up-down advisor
+
+Second slice of the Inverter Engine update (§"GRID-TIE LOGIC"/"TRANSFORMER SIZING": "If inverter AC
+voltage/phase matches site voltage/phase... No transformer. If voltage does not match... transformer
+required, labeled STEP-UP or STEP-DOWN... sized from inverter maximum apparent power/kVA plus
+applicable engineering/derating requirements, never from PV wattage alone").
+
+**New `GridTieTransformerAdvisor.kt`** (`domain/commercial`) — a pure function, deliberately
+**advisory-only**: it reads an `EquipmentSpecs.InverterSpec` and an `ElectricalService` and returns a
+`Recommendation`, but never writes into the Phase 46 `Transformer` class itself. That split is
+intentional and was already anticipated in Phase 46's own doc comment ("no verified transformer
+equipment catalog... every field here is the installer's own entered value, not a picked-from-catalog
+model") — `Transformer.required` stays an explicit installer choice per §18's own "Do NOT
+automatically select a transformer unless the voltage/phase mismatch requires one," and this advisor
+is what a later phase's UI will use to pre-fill/suggest that choice, not silently override it.
+
+**Logic, matching the spec's own two worked examples exactly** (both reproduced verbatim as tests):
+- `applicable = false` whenever the inverter's `architecture != GRID_TIE` — this advisor has nothing
+  to say about a Hybrid/Off-grid design, matching "Do not change existing residential Hybrid/Off-grid
+  logic."
+- Compares the site's `ElectricalService.nominalVoltage` against every real voltage in the inverter's
+  own `acLineToLineVoltageOptionsV` (a list — the S5-GC50K genuinely supports two variants, 220/380V
+  and 230/400V, and either being site-compatible means no transformer, not just the first one) using a
+  2% relative tolerance (ANSI C84.1-magnitude utility voltage tolerance — real utility voltage is never
+  exact to the volt, so an exact-equality check would wrongly demand a transformer for a 401V site
+  against a 400V-rated inverter).
+- **Worked example 1**: S5-GC30K-LV (220V only) into a 400V three-phase site → mismatch, site voltage
+  higher → `STEP_UP`. **Worked example 2**: S5-GC50K (220/380V or 230/400V) into a compatible 400V
+  three-phase site → matches the 400V variant → no transformer.
+- Also checks `site.phase == THREE_PHASE` (both new Solis models are three-phase-only units) — a
+  phase mismatch forces `required = true` with an explicit note, even if the raw voltage number happens
+  to coincide, since a transformer alone can't reconcile a phase-count mismatch.
+- **Sizing**: `recommendedKvaRating = maxApparentPowerKva × inverterCount × 1.25` — the 125% figure is
+  the same NEC continuous-load convention (Art. 210.19(A)/215.2(A)) already implicit elsewhere in this
+  codebase's breaker/conductor sizing, applied here because a grid-tie inverter can run at full rated
+  output continuously during sunlight hours; a real, citable code convention, not an invented number.
+  Deliberately reads `maxApparentPowerKva`, never `maxPvW` — per the spec's own explicit "Do not size
+  transformer from PV wattage alone." `inverterCount` (defaulting to 1, multiplied in for Phase 51's
+  parallel-inverter designs) lets several units sharing one interconnection point size one shared
+  transformer correctly rather than one-per-unit.
+- Returns `required = null` (not a guessed `true`/`false`) whenever the inverter has no
+  `acLineToLineVoltageOptionsV` on file or the site voltage is unset — "unconfirmed" stays
+  unconfirmed, the same rule this codebase applies to every other unconfirmed manufacturer figure.
+
+**Tests:** new `GridTieTransformerAdvisorTest.kt` — both spec worked examples verbatim, the S5-GC50K's
+other real voltage variant (380V) also matching, the 125%-margin kVA sizing calculation traced by
+hand for both a single unit and 3 parallel units, tolerance-band matching (401V against a 400V rating),
+the phase-mismatch-forces-a-transformer case, non-applicability for a Hybrid inverter, the
+"insufficient data returns unknown, not a guess" case, and a STEP-DOWN case (mismatched site voltage
+below the inverter's own rating) to confirm the direction logic isn't hardcoded to always step up.
+`./gradlew` remains blocked by the same standing plugin-resolution network limitation; this round adds
+no changes to any existing file besides the two new files, so no other test could have been affected —
+verified by balance-checking both new files and confirming (via grep) nothing pre-existing references
+`GridTieTransformerAdvisor`. Phase 50 (Commercial/Industrial System Type UI + battery-section gating)
+is next.
