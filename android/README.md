@@ -8730,3 +8730,67 @@ limitation; verified by balance-checking every touched file and confirming (via 
 of the three modified private composables was updated in lockstep with their new `systemMode`
 parameter. Phase 51 (grid-tie parallel-inverter summary + PV sizing validation) is next — the final
 phase of this Inverter Engine update.
+
+## A137 — Phase 51: grid-tie parallel-inverter summary + final wrap-up (Inverter Engine update complete)
+
+Final phase of the Inverter Engine update (§"PARALLEL GRID-TIE... Show: Number of inverters, kW per
+inverter, Total AC kW, Panels per inverter, Strings per inverter, Strings per MPPT, Total PV kW,
+Total AC current, Transformer requirement, Transformer voltage, Transformer kVA, AC protection, DC
+protection").
+
+**New `GridTieSystemSummary.kt`** (`domain/commercial`) — a pure, read-only object that assembles
+every one of the spec's "Show:" fields from data that already existed after Phases 27/48/49: inverter
+count/kW/panels/strings straight off the existing `ParallelInverterDesign` (Phase 27), total AC
+current from the resolved real `InverterSpec.acOutputA` (Phase 48, real datasheet current x unit
+count — deliberately not re-derived from an assumed power factor), the transformer requirement/
+voltage/kVA from `GridTieTransformerAdvisor.recommend` (Phase 49) unchanged, and new AC/DC protection
+guidance text computed from the same real `acOutputA` (125% NEC continuous-duty margin, matching
+Phase 49's own established convention) and `maxShortCircuitCurrentPerMpptA`/`maxPvV`/`mpptCount`
+fields — never an invented breaker/fuse figure, and an honest "not on file, confirm against the
+manufacturer's datasheet" message whenever the installer's typed model doesn't resolve to a real
+catalog spec (tested explicitly: pure count/kW figures still compute from the design alone in that
+case, while every datasheet-derived field degrades rather than guessing).
+
+**New `GridTieSummarySection`**, wired into `StepCommercialIndustrialDesign.kt` right after
+`TransformerSection`, shown only when `systemMode == GRIDTIE` and an inverter model has been entered
+above — a compact stat-card layout (inverters x kW, total AC kW, panels/strings per inverter with
+strings-per-MPPT, total PV kW, total AC current) plus a plain-language transformer-requirement line
+and the new AC/DC protection guidance text. No new calculation logic lives in the UI layer — every
+number is read straight off `GridTieSystemSummary.summarize`.
+
+**Deliberately not built:** a dedicated grid-tie-specific PV/string sizing validator distinct from
+`ParallelInverterValidator` — that validator (Phase 27, reusing `EquipmentSelectionEngine
+.checkPanelInverterCompatibilityForLimits`) is architecture-agnostic already: it validates a unit's
+total panel count against the real MPPT/voltage/current limits on file for whatever `InverterSpec` is
+resolved, and now correctly sees the two new Solis grid-tie models' real MPPT/voltage/current data
+(Phase 48) with no changes needed. Building a second, grid-tie-specific validator alongside it would
+duplicate logic this app's own architecture already deliberately centralizes in one place — flagged
+here as a considered decision, not an oversight.
+
+**Tests:** new `GridTieSystemSummaryTest.kt` — a worked 3-parallel-S5-GC30K-LV-unit example into a
+mismatched 400V site confirms every one of the spec's required fields computes correctly (including
+matching Phase 49's own transformer numbers exactly), a matched-voltage S5-GC50K case confirms no
+transformer is shown, and an unresolved custom inverter model confirms every datasheet-derived field
+degrades to "not on file" rather than a guess while the pure design-only figures (count, kW) still
+compute. `./gradlew` remains blocked by the same standing plugin-resolution network limitation;
+verified by balance-checking every touched file and hand-tracing every test assertion against
+`GridTieTransformerAdvisor`'s own already-tested numbers.
+
+**Inverter Engine update — complete, Phases 48-51.** Scope actually delivered: a real, programmatic
+`InverterArchitecture` classification; two real, verified Solis commercial/industrial grid-tie
+inverters with full datasheet specs; grid-tie-vs-hybrid/off-grid battery-field gating for Commercial/
+Industrial (Residential's own gating already existed); a real transformer voltage-match/step-up-down
+advisor sized from the inverter's own real apparent-power rating, never PV wattage; a prominent
+System Type selector on the Commercial/Industrial design step; a mode-scoped inverter equipment
+picker; and the full grid-tie parallel-inverter summary the spec's own "Show:" list asked for.
+**Scope deliberately NOT covered, disclosed rather than silently dropped:** the live Simulation
+screen's own animated digital-twin engine cannot represent true grid-tie export behavior — its own
+existing code doc states the grid connection is architecturally "strictly import-only... there is no
+solarToGridKw/export field, and none ever will be" as currently built. Giving a selected grid-tie
+inverter real export physics on that screen (a solar-to-grid energy flow, net-metering visualization,
+etc.) is a substantial, separate undertaking distinct from this spec's own explicit ask (sizing/
+selection/quoting, not the animated simulation) and was out of scope for all four phases of this
+round. "Default frequency = 50Hz, allow 60Hz when required" was confirmed already satisfied by
+existing Phase 43 behavior (`ElectricalService.frequencyHz` already defaults 50.0, freely editable)
+with no code change needed. "Keep inverter PRICE BLANK until manually entered" was satisfied the same
+way every other catalog entry already is — nullable `PriceList` fields, defaulting `null`.

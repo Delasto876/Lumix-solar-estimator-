@@ -43,6 +43,7 @@ import com.lumix.estimator.domain.commercial.ElectricalService
 import com.lumix.estimator.domain.commercial.ElectricalServicePreset
 import com.lumix.estimator.domain.commercial.FacilityLoadLibrary
 import com.lumix.estimator.domain.commercial.FacilityScheduleLibrary
+import com.lumix.estimator.domain.commercial.GridTieSystemSummary
 import com.lumix.estimator.domain.commercial.GridTieTransformerAdvisor
 import com.lumix.estimator.domain.commercial.IndustrialShiftSchedule
 import com.lumix.estimator.domain.commercial.InverterUnitPvDesign
@@ -120,6 +121,9 @@ fun StepCommercialIndustrialDesign(inputs: QuoteInputs, onUpdate: ((QuoteInputs)
         ParallelInverterSection(design, inputs.systemMode, ::updateDesign)
         BatteryPerInverterSection(design, inputs.systemMode, ::updateDesign)
         TransformerSection(design, inputs.systemMode, ::updateDesign)
+        if (inputs.systemMode == SystemMode.GRIDTIE) {
+            GridTieSummarySection(design)
+        }
 
         LoadsSection(inputs.systemCategory, design, ::updateDesign)
 
@@ -398,6 +402,76 @@ private fun TransformerSection(design: CommercialIndustrialDesign, systemMode: S
                 color = palette.textSecondary
             )
         }
+    }
+}
+
+/**
+ * Phase 51 (Inverter Engine spec, "PARALLEL GRID-TIE... Show: Number of inverters, kW per inverter,
+ * Total AC kW, Panels per inverter, Strings per inverter, Strings per MPPT, Total PV kW, Total AC
+ * current, Transformer requirement, Transformer voltage, Transformer kVA, AC protection, DC
+ * protection"): only rendered when [SystemMode.GRIDTIE] is selected ([StepCommercialIndustrialDesign]'s
+ * own call site), reading [GridTieSystemSummary.summarize] — every field here is either read directly
+ * off [ParallelInverterSection]'s own [ParallelInverterDesign] or derived from the resolved real
+ * [EquipmentSpecs.InverterSpec] (Phase 48) plus [GridTieTransformerAdvisor] (Phase 49); this composable
+ * performs no calculation of its own.
+ */
+@Composable
+private fun GridTieSummarySection(design: CommercialIndustrialDesign) {
+    val palette = LocalLumixPalette.current
+    val parallelDesign = design.parallelInverterDesign
+    if (parallelDesign == null || parallelDesign.inverterModelId.isBlank()) {
+        return
+    }
+    val inverterSpec = EquipmentSpecs.inverters.firstOrNull { it.model == parallelDesign.inverterModelId }
+    val summary = GridTieSystemSummary.summarize(parallelDesign, inverterSpec, design.electricalService)
+
+    SectionCard(title = "Grid-tie system summary") {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            SummaryStat("INVERTERS", "${summary.inverterCount} x %.1f kW".format(summary.kwPerInverter), Modifier.weight(1f))
+            SummaryStat("TOTAL AC", "%.1f kW".format(summary.totalAcKw), Modifier.weight(1f))
+        }
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            SummaryStat("PANELS / INVERTER", "${summary.panelsPerInverter}", Modifier.weight(1f))
+            SummaryStat("STRINGS / INVERTER", "${summary.stringsPerInverter} (${summary.stringsPerMppt}/MPPT)", Modifier.weight(1f))
+        }
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            SummaryStat("TOTAL PV", "%.1f kW".format(summary.totalPvKw), Modifier.weight(1f))
+            SummaryStat(
+                "TOTAL AC CURRENT",
+                summary.totalAcCurrentA?.let { "%.1f A".format(it) } ?: "Not on file",
+                Modifier.weight(1f)
+            )
+        }
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+        val transformer = summary.transformer
+        val transformerRequired: Boolean? = transformer?.required
+        val transformerText = when (transformerRequired) {
+            null -> "Transformer requirement: ${transformer?.reason ?: "unconfirmed — no real inverter voltage data resolved yet."}"
+            false -> "Transformer requirement: NO — inverter AC voltage matches the site's electrical service."
+            true -> {
+                val directionLabel = when (transformer?.direction) {
+                    com.lumix.estimator.domain.commercial.TransformerDirection.STEP_UP -> "Step-Up"
+                    com.lumix.estimator.domain.commercial.TransformerDirection.STEP_DOWN -> "Step-Down"
+                    null -> "direction unconfirmed"
+                }
+                val voltageLabel = transformer?.siteVoltage?.let { "voltage %.0f V".format(it) } ?: "voltage unconfirmed"
+                val kvaLabel = transformer?.recommendedKvaRating?.let { "%.1f kVA".format(it) } ?: "kVA unconfirmed"
+                "Transformer requirement: YES ($directionLabel) — $voltageLabel, $kvaLabel"
+            }
+        }
+        Text(transformerText, style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
+        Text(
+            "AC protection: ${summary.acProtection}",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        Text(
+            "DC protection: ${summary.dcProtection}",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary,
+            modifier = Modifier.padding(top = 4.dp)
+        )
     }
 }
 
