@@ -8670,3 +8670,63 @@ no changes to any existing file besides the two new files, so no other test coul
 verified by balance-checking both new files and confirming (via grep) nothing pre-existing references
 `GridTieTransformerAdvisor`. Phase 50 (Commercial/Industrial System Type UI + battery-section gating)
 is next.
+
+## A136 — Phase 50: Commercial/Industrial System Type UI + battery-section gating + transformer advisor wired in
+
+Third slice of the Inverter Engine update (§"COMMERCIAL/INDUSTRIAL — make... inverter type, inverter
+quantity, PV/string allocation and transformer selection prominent"; §"GRID-TIE... Hide/disable
+battery sizing, battery count, backup-hours and BMS fields... Do NOT ask for battery per inverter
+when GRID-TIE is selected"). All changes this round are confined to
+`StepCommercialIndustrialDesign.kt` — no domain-layer file changed, since Phase 48/49 already built
+everything this round needed to wire in.
+
+**New `SystemTypeSection`, at the top of the Commercial/Industrial design step.** `QuoteInputs
+.systemMode` ([SystemMode] HYBRID/OFFGRID/GRIDTIE) already existed and already had a working 3-way
+picker on the shared Location step (`StepLocation.kt`, visited earlier in the same design flow for
+every system category, including Commercial/Industrial — `WizardViewModel.designSteps()` routes
+Commercial/Industrial through `listOf(2, 3, 15)`, and step 3 is that same Location step). This is NOT
+a new field — it's the same value surfaced again, front-and-center, directly on the Commercial/
+Industrial design step itself, exactly where the spec asks for "inverter type" to be prominent,
+instead of requiring the installer to remember it was set two steps earlier.
+
+**`ParallelInverterSection`'s inverter dropdown is now scoped to `Catalog.poolFor(systemMode)`**,
+replacing the previous `Catalog.manualInverters` (which mixed every Hybrid/Off-grid/Grid-tie model
+together in one list). An installer who picks Grid-tie above now only sees the two real Solis grid-tie
+units (plus the legacy `grid15k` placeholder) in this dropdown — never a Hybrid model with a battery
+port grid-tie has no use for, and vice versa.
+
+**`BatteryPerInverterSection` now hides itself for Grid-tie.** Whenever `systemMode == GRIDTIE`, the
+section renders a short explanatory note ("Not applicable — Grid-tie is PV + grid only...") instead of
+the battery form, and clears any `batteryPerInverterDesign` left over from before the installer
+switched modes. No calculator change was needed for this: `CommercialIndustrialCalculator` already
+reads `batteryPerInverterDesign` as fully optional (`batteryDesign?.let { ... } ?: null`/`0.0`) — the
+UI-level clear is sufficient on its own to remove battery sizing/backup/BMS output from the result,
+confirmed by a new domain-level regression test (Compose UI itself isn't unit-tested in this project,
+so the test exercises the calculator-level consequence the gating relies on, the same pattern
+`Phase29ParallelInverterUiWiringTest.kt` already established).
+
+**`TransformerSection` now shows the Phase 49 `GridTieTransformerAdvisor` recommendation** whenever
+`systemMode == GRIDTIE` and an inverter with a real `GRID_TIE`-architecture spec has been picked above
+— a plain-text "Grid-tie voltage check: ..." line plus a one-tap "Apply grid-tie recommendation"
+button when a transformer is actually required, which fills in `primaryVoltage`/`secondaryVoltage`/
+`direction`/`kvaRating` from the advisor's own real numbers. This still never writes into `Transformer`
+on its own — Phase 46/49's own "never auto-select a transformer" rule is preserved; the advisor only
+ever informs a button the installer has to tap.
+
+**Deliberately NOT built this round** (Phase 51's own scope): the grid-tie parallel-inverter summary
+readout (Number of inverters, kW per inverter, Total AC kW, Panels/strings per inverter, Strings per
+MPPT, Total PV kW, Total AC current, Transformer requirement/voltage/kVA, AC/DC protection — the
+spec's explicit "Show:" list) and grid-tie-specific PV/string sizing validation using the new real
+`InverterSpec` MPPT/voltage/current limits. `ParallelInverterSection`'s existing PV/string fields and
+`ParallelInverterValidator` already work correctly for a grid-tie selection (they're architecture-
+agnostic), just without that dedicated summary card yet.
+
+**Tests:** new `Phase50GridTieUiWiringTest.kt` — a Grid-tie commercial design (real S5-GC30K-LV,
+`batteryPerInverterDesign = null`) produces `batteryName = null`/`totalBatteryKwh = 0.0` end to end,
+`Catalog.poolFor(GRIDTIE)` resolves to exactly the two real Solis models plus the legacy placeholder
+with every real entry's spec confirmed `GRID_TIE` architecture, and `Catalog.poolFor(HYBRID)` never
+includes a grid-tie model. `./gradlew` remains blocked by the same standing plugin-resolution network
+limitation; verified by balance-checking every touched file and confirming (via grep) every call site
+of the three modified private composables was updated in lockstep with their new `systemMode`
+parameter. Phase 51 (grid-tie parallel-inverter summary + PV sizing validation) is next — the final
+phase of this Inverter Engine update.

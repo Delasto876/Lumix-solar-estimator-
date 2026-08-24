@@ -26,8 +26,10 @@ import androidx.compose.ui.unit.dp
 import com.lumix.estimator.domain.BatterySpecSheet
 import com.lumix.estimator.domain.Catalog
 import com.lumix.estimator.domain.EquipmentSpecs
+import com.lumix.estimator.domain.InverterArchitecture
 import com.lumix.estimator.domain.InverterOption
 import com.lumix.estimator.domain.QuoteInputs
+import com.lumix.estimator.domain.SystemMode
 import com.lumix.estimator.domain.SystemType
 import com.lumix.estimator.domain.commercial.BatteryPerInverterAllocation
 import com.lumix.estimator.domain.commercial.BatteryPerInverterDesign
@@ -41,6 +43,7 @@ import com.lumix.estimator.domain.commercial.ElectricalService
 import com.lumix.estimator.domain.commercial.ElectricalServicePreset
 import com.lumix.estimator.domain.commercial.FacilityLoadLibrary
 import com.lumix.estimator.domain.commercial.FacilityScheduleLibrary
+import com.lumix.estimator.domain.commercial.GridTieTransformerAdvisor
 import com.lumix.estimator.domain.commercial.IndustrialShiftSchedule
 import com.lumix.estimator.domain.commercial.InverterUnitPvDesign
 import com.lumix.estimator.domain.commercial.LoadInstance
@@ -102,6 +105,8 @@ fun StepCommercialIndustrialDesign(inputs: QuoteInputs, onUpdate: ((QuoteInputs)
             color = palette.textSecondary
         )
 
+        SystemTypeSection(inputs.systemMode) { mode -> onUpdate { it.copy(systemMode = mode) } }
+
         ElectricalServiceSection(design, ::updateDesign)
 
         if (inputs.systemCategory == SystemType.COMMERCIAL) {
@@ -112,13 +117,53 @@ fun StepCommercialIndustrialDesign(inputs: QuoteInputs, onUpdate: ((QuoteInputs)
 
         DiversityFactorSection(design.diversityFactor) { factor -> updateDesign { it.copy(diversityFactor = factor) } }
 
-        ParallelInverterSection(design, ::updateDesign)
-        BatteryPerInverterSection(design, ::updateDesign)
-        TransformerSection(design, ::updateDesign)
+        ParallelInverterSection(design, inputs.systemMode, ::updateDesign)
+        BatteryPerInverterSection(design, inputs.systemMode, ::updateDesign)
+        TransformerSection(design, inputs.systemMode, ::updateDesign)
 
         LoadsSection(inputs.systemCategory, design, ::updateDesign)
 
         DesignSummarySection(design)
+    }
+}
+
+/**
+ * Phase 50 (Inverter Engine spec — "Add a required inverter SYSTEM TYPE selector... When Commercial
+ * or Industrial is selected, make... inverter type... prominent"): [QuoteInputs.systemMode] already
+ * exists and already has a working 3-way picker on the shared Location step (`StepLocation.kt`,
+ * visited earlier in this same design flow for every system category) — this section is NOT a new
+ * field, it's the same [SystemMode] surfaced again here, front-and-center on the Commercial/
+ * Industrial design step itself, exactly where the spec asks for it to be prominent, rather than
+ * requiring the installer to remember it was set two steps back. [ParallelInverterSection]/
+ * [BatteryPerInverterSection]/[TransformerSection] below all read this same value.
+ */
+@Composable
+private fun SystemTypeSection(systemMode: SystemMode, onModeChange: (SystemMode) -> Unit) {
+    val palette = LocalLumixPalette.current
+    SectionCard(title = "System type") {
+        Text(
+            "Hybrid = PV + grid + battery. Off-grid = PV + battery, no grid. Grid-tie = PV + grid only, no battery.",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary
+        )
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            SystemMode.entries.forEachIndexed { index, mode ->
+                SegmentedButton(
+                    selected = systemMode == mode,
+                    onClick = { onModeChange(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(index, SystemMode.entries.size)
+                ) {
+                    Text(
+                        when (mode) {
+                            SystemMode.HYBRID -> "Hybrid"
+                            SystemMode.OFFGRID -> "Off-grid"
+                            SystemMode.GRIDTIE -> "Grid-tie"
+                        },
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -229,9 +274,17 @@ private fun ElectricalServiceSection(design: CommercialIndustrialDesign, updateD
  * electrical service to guess a mismatch (see [ElectricalServiceSection]'s own plain-text reminder
  * above instead, which nudges without deciding). Every field below only appears once `required` is
  * on, matching the spec's own "if YES:" structure.
+ *
+ * Phase 50 (Inverter Engine spec — "Automatically label transformer STEP-UP or STEP-DOWN based on
+ * voltage difference"): when [systemMode] is [SystemMode.GRIDTIE] and an inverter has been picked in
+ * [ParallelInverterSection], [GridTieTransformerAdvisor] computes a real recommendation from that
+ * inverter's own datasheet voltage(s) versus [CommercialIndustrialDesign.electricalService] and shows
+ * it here as plain-text guidance plus a one-tap "Apply" button — still never writing into
+ * [Transformer] on its own, consistent with this section's own pre-existing "never auto-select" rule
+ * immediately above.
  */
 @Composable
-private fun TransformerSection(design: CommercialIndustrialDesign, updateDesign: ((CommercialIndustrialDesign) -> CommercialIndustrialDesign) -> Unit) {
+private fun TransformerSection(design: CommercialIndustrialDesign, systemMode: SystemMode, updateDesign: ((CommercialIndustrialDesign) -> CommercialIndustrialDesign) -> Unit) {
     val palette = LocalLumixPalette.current
     val transformer = design.transformer
 
@@ -239,7 +292,41 @@ private fun TransformerSection(design: CommercialIndustrialDesign, updateDesign:
         updateDesign { it.copy(transformer = transform(it.transformer)) }
     }
 
+    val gridTieRecommendation: GridTieTransformerAdvisor.Recommendation? = if (systemMode == SystemMode.GRIDTIE) {
+        design.parallelInverterDesign?.inverterModelId
+            ?.let { modelId -> EquipmentSpecs.inverters.firstOrNull { it.model == modelId } }
+            ?.takeIf { it.architecture == InverterArchitecture.GRID_TIE }
+            ?.let { spec ->
+                GridTieTransformerAdvisor.recommend(
+                    spec, design.parallelInverterDesign?.inverterCount ?: 1, design.electricalService
+                )
+            }
+    } else null
+
     SectionCard(title = "Transformer") {
+        if (gridTieRecommendation != null) {
+            Text(
+                "Grid-tie voltage check: ${gridTieRecommendation.reason}",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary
+            )
+            if (gridTieRecommendation.required == true) {
+                TextButton(onClick = {
+                    editTransformer {
+                        it.copy(
+                            required = true,
+                            primaryVoltage = gridTieRecommendation.inverterVoltage ?: it.primaryVoltage,
+                            secondaryVoltage = gridTieRecommendation.siteVoltage ?: it.secondaryVoltage,
+                            direction = gridTieRecommendation.direction ?: it.direction,
+                            kvaRating = gridTieRecommendation.recommendedKvaRating ?: it.kvaRating
+                        )
+                    }
+                }) {
+                    Text("Apply grid-tie recommendation")
+                }
+            }
+            HorizontalDivider()
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Transformer required?", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             Switch(checked = transformer.required, onCheckedChange = { checked -> editTransformer { it.copy(required = checked) } })
@@ -510,9 +597,15 @@ private fun DiversityFactorSection(factor: DiversityFactor, onChange: (Diversity
  * MPPT count the installer knows differs from what's on file. Paralleling is now an explicit
  * Switch — off means a single inverter, on reveals a manual "how many in parallel" count — instead
  * of always showing a bare count field.
+ *
+ * Phase 50 (Inverter Engine spec — "make... inverter type, inverter quantity, PV/string
+ * allocation... prominent"): the inverter dropdown is now scoped to [Catalog.poolFor] the design's
+ * own [SystemMode] ([SystemTypeSection] above), instead of the full [Catalog.manualInverters] list
+ * mixing Hybrid/Off-grid/Grid-tie together — an installer who picked Grid-tie above should only see
+ * grid-tie units here, never a Hybrid model with a battery port grid-tie has no use for.
  */
 @Composable
-private fun ParallelInverterSection(design: CommercialIndustrialDesign, updateDesign: ((CommercialIndustrialDesign) -> CommercialIndustrialDesign) -> Unit) {
+private fun ParallelInverterSection(design: CommercialIndustrialDesign, systemMode: SystemMode, updateDesign: ((CommercialIndustrialDesign) -> CommercialIndustrialDesign) -> Unit) {
     val palette = LocalLumixPalette.current
     val existing = design.parallelInverterDesign
     val modelId = existing?.inverterModelId ?: ""
@@ -525,7 +618,8 @@ private fun ParallelInverterSection(design: CommercialIndustrialDesign, updateDe
 
     /** The real catalog spec behind an [InverterOption] — [InverterOption.id] is a short internal code, not the model string [ParallelInverterDesign.inverterModelId]/[ParallelInverterValidator] match against. */
     fun specFor(option: InverterOption) = EquipmentSpecs.inverterSpecFor(option.kw, option.name)
-    val selectedOption = Catalog.manualInverters.firstOrNull { specFor(it)?.model == modelId }
+    val inverterPool = Catalog.poolFor(systemMode)
+    val selectedOption = inverterPool.firstOrNull { specFor(it)?.model == modelId }
     // Phase 34 ("if the inverter have 3 mppt, add that or i can use 2 mppt or all 3 or just 1"):
     // the installer can still use fewer than the model's full MPPT count — this only stops them
     // from entering MORE than the real hardware has.
@@ -563,7 +657,7 @@ private fun ParallelInverterSection(design: CommercialIndustrialDesign, updateDe
         )
         LabeledDropdown(
             label = "Inverter model",
-            options = listOf<InverterOption?>(null) + Catalog.manualInverters,
+            options = listOf<InverterOption?>(null) + inverterPool,
             selected = selectedOption,
             optionLabel = { opt -> opt?.name ?: "Custom / not in catalog" },
             onSelected = { opt ->
@@ -661,10 +755,36 @@ private fun ParallelInverterSection(design: CommercialIndustrialDesign, updateDe
  * connection." One battery model + a batteries-per-unit count, applied uniformly across every
  * parallel inverter unit (same reasoning as [ParallelInverterSection] — [BatteryPerInverterDesign
  * .allocations] still carries a fully independent entry per unit underneath).
+ *
+ * Phase 50 (Inverter Engine spec — "GRID-TIE = PV + GRID ONLY. NO BATTERY. Hide/disable battery
+ * sizing, battery count, backup-hours and BMS fields... Do NOT ask for battery per inverter when
+ * GRID-TIE is selected"): whenever [systemMode] is [SystemMode.GRIDTIE] this section renders a
+ * short explanatory note instead of the battery form, and any [CommercialIndustrialDesign
+ * .batteryPerInverterDesign] left over from before the installer switched to Grid-tie is cleared —
+ * [com.lumix.estimator.domain.commercial.CommercialIndustrialCalculator] already reads that field
+ * as fully optional (`batteryDesign?.let { ... } ?: 0.0`/`null`), so clearing it here is sufficient
+ * to remove battery sizing/backup/BMS output from the result with no calculator change needed.
  */
 @Composable
-private fun BatteryPerInverterSection(design: CommercialIndustrialDesign, updateDesign: ((CommercialIndustrialDesign) -> CommercialIndustrialDesign) -> Unit) {
+private fun BatteryPerInverterSection(design: CommercialIndustrialDesign, systemMode: SystemMode, updateDesign: ((CommercialIndustrialDesign) -> CommercialIndustrialDesign) -> Unit) {
     val palette = LocalLumixPalette.current
+
+    if (systemMode == SystemMode.GRIDTIE) {
+        LaunchedEffect(design.batteryPerInverterDesign) {
+            if (design.batteryPerInverterDesign != null) {
+                updateDesign { it.copy(batteryPerInverterDesign = null) }
+            }
+        }
+        SectionCard(title = "Battery per inverter") {
+            Text(
+                "Not applicable — Grid-tie is PV + grid only, with no battery. Switch System type above to Hybrid or Off-grid to configure battery storage.",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary
+            )
+        }
+        return
+    }
+
     val inverterCount = design.parallelInverterDesign?.inverterCount ?: 0
     val existing = design.batteryPerInverterDesign
     val batteryModelId = existing?.allocations?.firstOrNull()?.batteryModelId ?: ""
