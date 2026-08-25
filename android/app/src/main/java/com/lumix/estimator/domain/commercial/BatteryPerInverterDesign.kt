@@ -1,6 +1,8 @@
 package com.lumix.estimator.domain.commercial
 
+import com.lumix.estimator.domain.BatterySpecSheet
 import com.lumix.estimator.domain.EquipmentSpecs
+import com.lumix.estimator.domain.InverterSpec
 import kotlinx.serialization.Serializable
 
 /**
@@ -70,8 +72,8 @@ object BatteryPerInverterValidator {
     /** [inverterCatalog]/[batteryCatalog] default to the real production catalogs; overridable for tests — same reasoning as [ParallelInverterValidator.validate]'s own `inverterCatalog` parameter. */
     fun validate(
         design: BatteryPerInverterDesign, inverterModelId: String,
-        inverterCatalog: List<EquipmentSpecs.InverterSpec> = EquipmentSpecs.inverters,
-        batteryCatalog: List<EquipmentSpecs.BatterySpecSheet> = EquipmentSpecs.batteries
+        inverterCatalog: List<InverterSpec> = EquipmentSpecs.inverters,
+        batteryCatalog: List<BatterySpecSheet> = EquipmentSpecs.batteries
     ): BatteryPerInverterValidationResult {
         val invSpec = inverterCatalog.firstOrNull { it.model == inverterModelId }
         val inverterMaxBatteryA = invSpec?.maxBatteryA?.toDouble()

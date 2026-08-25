@@ -1,6 +1,7 @@
 package com.lumix.estimator.domain.commercial
 
 import com.lumix.estimator.domain.EquipmentSpecs
+import com.lumix.estimator.domain.InverterSpec
 
 /**
  * Phase 51 (Inverter Engine spec, "PARALLEL GRID-TIE... Show: Number of inverters, kW per inverter,
@@ -40,7 +41,7 @@ object GridTieSystemSummary {
      * file" rather than a guess, while the pure count/kW/panel figures — which only depend on
      * [design] itself — still compute normally.
      */
-    fun summarize(design: ParallelInverterDesign, inverterSpec: EquipmentSpecs.InverterSpec?, site: ElectricalService): Summary {
+    fun summarize(design: ParallelInverterDesign, inverterSpec: InverterSpec?, site: ElectricalService): Summary {
         val unit = design.unitPvDesigns.firstOrNull()
         val panelsPerInverter = unit?.totalPanels ?: 0
         val stringsPerInverter = unit?.strings?.size ?: 0

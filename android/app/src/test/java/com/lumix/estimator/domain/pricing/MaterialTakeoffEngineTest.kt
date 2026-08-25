@@ -168,7 +168,7 @@ class MaterialTakeoffEngineTest {
 
     // ---- 9. Changeover switch NONE -> 3in trunking; a real switch mode -> 4in trunking ----
     @Test
-    fun `no transfer switch means 3in trunking; a real switch mode means 4in trunking`() {
+    fun `no transfer switch means 3in trunking - a real switch mode means 4in trunking`() {
         val none = MaterialTakeoffEngine.compute(
             MaterialTakeoffEngine.TakeoffInput(
                 panelW = 620, panelCount = 4, effectiveSystemMode = SystemMode.HYBRID,
@@ -328,7 +328,7 @@ class MaterialTakeoffEngineTest {
 
     // ---- 14a2. AC breaker count: 2 for hybrid (JPS-input + inverter-output), 1 for grid-tie/off-grid ----
     @Test
-    fun `hybrid gets 2 AC breakers (JPS input plus inverter output); grid-tie and off-grid get 1`() {
+    fun `hybrid gets 2 AC breakers (JPS input plus inverter output) - grid-tie and off-grid get 1`() {
         val hybrid = MaterialTakeoffEngine.compute(
             MaterialTakeoffEngine.TakeoffInput(
                 panelW = 620, panelCount = 4, effectiveSystemMode = SystemMode.HYBRID,
@@ -439,7 +439,7 @@ class MaterialTakeoffEngineTest {
 
     // ---- 16. A blank toll price on a toll route blocks finalization; a non-toll route never needs it ----
     @Test
-    fun `a toll route with no toll price entered blocks finalization; a non-toll route does not`() {
+    fun `a toll route with no toll price entered blocks finalization - a non-toll route does not`() {
         val tollInputs = QuoteInputs(
             quoteMode = QuoteMode.MANUAL, systemMode = SystemMode.HYBRID,
             manualPanelWatts = 620, manualPanelCount = 4,

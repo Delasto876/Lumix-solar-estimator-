@@ -31,7 +31,7 @@ enum class WeatherScenario(val label: String) {
 }
 
 /** One transient cloud (or rain) event — a smooth dip in irradiance availability, not an instant on/off step. */
-private data class CloudEvent(val centerHour: Double, val halfWidthHours: Double, val depth: Double)
+internal data class CloudEvent(val centerHour: Double, val halfWidthHours: Double, val depth: Double)
 
 /**
  * A precomputed set of cloud events for one simulated day, exposing [factorAt] — the irradiance

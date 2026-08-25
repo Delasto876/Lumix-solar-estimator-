@@ -1,11 +1,13 @@
 package com.lumix.estimator.domain.commercial
 
 import com.lumix.estimator.domain.EquipmentSpecs
+import com.lumix.estimator.domain.InverterSpec
 import com.lumix.estimator.domain.PriceList
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.domain.SystemMode
 import com.lumix.estimator.domain.SystemType
+import com.lumix.estimator.domain.VerificationStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -98,7 +100,7 @@ class Phase27CommercialIndustrialTest {
 
     // ---- §8/§9/§10: parallel inverters + per-unit PV/MPPT validation ----
 
-    private val testParallelCapableInverter = EquipmentSpecs.InverterSpec(
+    private val testParallelCapableInverter = InverterSpec(
         brand = "TestBrand", model = "TEST-PARALLEL-12K", series = "TEST", region = "TEST",
         ratingLabel = "12kW three-phase", ratedOutputW = 12000, acVoltage = "208/120 V three-phase",
         frequencyHzRaw = "60", splitPhase = false,
@@ -107,7 +109,7 @@ class Phase27CommercialIndustrialTest {
         batteryVoltageRange = "40-60 V", batteryVoltageMinV = 40.0, batteryVoltageMaxV = 60.0,
         maxBatteryA = 200, maxChargePowerKw = 12.0, maxDischargePowerKw = 12.0, acOutputA = null, efficiencyPercent = null,
         surgePowerRatio = 2.0, surgeDurationSeconds = 5.0,
-        type = "Hybrid", verificationStatus = EquipmentSpecs.VerificationStatus.VERIFIED,
+        type = "Hybrid", verificationStatus = VerificationStatus.VERIFIED,
         dataQualityNote = "Test fixture — not a real manufacturer spec.", engineeringNote = "", sourceUrl = "",
         supportsParallel = true, maxParallelUnits = 4
     )
@@ -187,7 +189,7 @@ class Phase27CommercialIndustrialTest {
         val result = ParallelInverterValidator.validate(design, inverterCatalog = listOf(testParallelCapableInverter))
         val unit = result.unitResults.single()
         assertFalse(unit.valid)
-        assertTrue(unit.notes.any { it.contains("only has 2 tracker(s)") })
+        assertTrue(unit.notes.any { it.contains("outside this inverter's 2 available trackers") })
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.lumix.estimator.domain.commercial
 
 import com.lumix.estimator.domain.EquipmentSelectionEngine
 import com.lumix.estimator.domain.EquipmentSpecs
+import com.lumix.estimator.domain.InverterSpec
 import kotlinx.serialization.Serializable
 
 /** Phase 27 §10: one PV string, assigned to one specific MPPT input, on one inverter unit. */
@@ -79,7 +80,7 @@ object ParallelInverterValidator {
     }
 
     /** [inverterCatalog] defaults to the real production catalog; overridable so tests can validate against fixture inverters without adding unconfirmed data to [EquipmentSpecs.inverters] itself — same reasoning as [EquipmentSelectionEngine.checkPanelInverterCompatibilityForLimits]'s own explicit-limits split. */
-    fun validate(design: ParallelInverterDesign, inverterCatalog: List<EquipmentSpecs.InverterSpec> = EquipmentSpecs.inverters): ParallelValidationResult {
+    fun validate(design: ParallelInverterDesign, inverterCatalog: List<InverterSpec> = EquipmentSpecs.inverters): ParallelValidationResult {
         val invSpec = inverterCatalog.firstOrNull { it.model == design.inverterModelId }
         val warnings = mutableListOf<String>()
 

@@ -2,6 +2,7 @@ package com.lumix.estimator.domain.commercial
 
 import com.lumix.estimator.domain.EquipmentSpecs
 import com.lumix.estimator.domain.InverterArchitecture
+import com.lumix.estimator.domain.InverterSpec
 import kotlin.math.abs
 
 /**
@@ -63,7 +64,7 @@ object GridTieTransformerAdvisor {
      * system-level figure.
      */
     fun recommend(
-        inverterSpec: EquipmentSpecs.InverterSpec,
+        inverterSpec: InverterSpec,
         inverterCount: Int,
         site: ElectricalService
     ): Recommendation {

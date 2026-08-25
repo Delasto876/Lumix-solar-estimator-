@@ -8794,3 +8794,80 @@ round. "Default frequency = 50Hz, allow 60Hz when required" was confirmed alread
 existing Phase 43 behavior (`ElectricalService.frequencyHz` already defaults 50.0, freely editable)
 with no code change needed. "Keep inverter PRICE BLANK until manually entered" was satisfied the same
 way every other catalog entry already is — nullable `PriceList` fields, defaulting `null`.
+
+## A138 — Real compiler verification pass (Inverter Engine work) + a pre-existing bug found spanning back to Phase 27
+
+The user asked for a check that the Inverter Engine work (Phases 48-51) was actually built correctly
+and made logical sense — "did I miss anything." Every prior phase this whole session verified only by
+balance-checking brackets/parens and hand-tracing logic, since `./gradlew` has been reported blocked
+by a plugin-resolution network limitation for dozens of phases straight. This round found a way to do
+real, substantially stronger verification instead of repeating that same limited check.
+
+**A real Kotlin compiler was available all along, just not through `./gradlew`.** Gradle's own local
+installation (`/opt/gradle-8.14.3`) ships `kotlin-compiler-embeddable` plus the exact `kotlin-stdlib`/
+`kotlinx-serialization`/`kotlinx-coroutines`/JUnit 4 jars this project needs, already cached under
+`~/.gradle/caches` from earlier dependency resolution — everything needed to invoke the K2 compiler
+directly (`java -cp ... org.jetbrains.kotlin.cli.jvm.K2JVMCompiler`), bypassing the Android Gradle
+Plugin resolution failure entirely. The domain layer (`domain/` + the sibling `solar/` package, 68
+files total) has zero Android/Compose imports, so it compiles standalone. Confirmed with a minimal
+reproduction first, to rule out this being an artifact of the ad-hoc setup rather than a real finding.
+
+**Found: `EquipmentSpecs.InverterSpec`/`.BatterySpecSheet`/`.VerificationStatus` is invalid Kotlin —
+a real, previously undetected compile error dating back to Phase 27.** `InverterSpec`,
+`BatterySpecSheet`, and `VerificationStatus` are top-level classes declared in the same file as
+`object EquipmentSpecs`, not nested inside it — referencing them as `EquipmentSpecs.InverterSpec` etc.
+only works in KDoc comments (which don't enforce real symbol resolution), not in actual code. This was
+broken in real, load-bearing code in five places: `ParallelInverterDesign.kt` and
+`BatteryPerInverterDesign.kt` (both Phase 27, predating this session by many phases), and this
+session's own `GridTieTransformerAdvisor.kt` (Phase 49) and `GridTieSystemSummary.kt` (Phase 51) —
+plus a test fixture constructor call in `Phase27CommercialIndustrialTest.kt`. All five now import the
+real top-level types directly and reference them unqualified. Since `./gradlew` has been unable to
+run this whole session, this bug had apparently sat undetected since Phase 27 — every "verify" step
+across dozens of intervening phases relied on balance-checking and reasoning, never an actual
+compiler, so nothing caught it until this round's compiler access made it visible.
+
+**Two more small, unrelated pre-existing issues found and fixed while verifying, both far outside the
+Inverter Engine's own scope:**
+- `WeatherCurve.kt` (Phase 17/A80): an `internal constructor` exposed a `private-in-file` parameter
+  type (`CloudEvent`) — a real Kotlin visibility violation. Fixed by promoting `CloudEvent` to
+  `internal` (it was already effectively used module-wide by the sibling `WeatherEngine` object in the
+  same file; the constructor's own `internal` modifier was correct, `CloudEvent`'s `private` was not).
+- `MaterialTakeoffEngineTest.kt` (Phase 27/A89): three backtick test names contained a literal `;`
+  character, which is illegal in a JVM method name — confirmed with the same minimal-repro technique,
+  not a K2-specific quirk. Renamed with a dash separator; no logic change.
+- `Phase27CommercialIndustrialTest.kt`: one test asserted a stale expected message substring
+  ("only has 2 tracker(s)") that no longer matches `ParallelInverterValidator`'s real, correct wording
+  ("outside this inverter's 2 available trackers") — the underlying validation behavior was always
+  correct (the unit was correctly flagged invalid); only the test's own string expectation was wrong.
+  Updated to match reality.
+
+**Verification results, using the real compiler (not balance-checks) end to end:**
+- All 68 `domain/`+`solar/` main-source files compile clean (`-Xfriend-paths` used for the test compile
+  so `internal`-visibility test helpers resolve the same way Gradle's own test source set would).
+- All 62 domain-layer test files (every one not requiring the `ui/` package's Compose-adjacent helpers,
+  which can't be resolved without the Android SDK/Compose jars unavailable in this sandbox) compile
+  clean against the fixed main sources.
+- **Every test class specific to this session's Inverter Engine work — `InverterArchitectureTest`,
+  `EquipmentSpecsTest`, `GridTieTransformerAdvisorTest`, `GridTieSystemSummaryTest`,
+  `Phase50GridTieUiWiringTest`, `Phase27CommercialIndustrialTest`, `Phase29ParallelInverterUiWiringTest`,
+  `MaterialTakeoffEngineTest` — actually ran under real JUnit 4 and passed: 77/77.** This is materially
+  stronger confirmation than any prior phase's balance-check-only verification.
+- Running the FULL domain test suite (397 tests) surfaced 14 failures, all in six files with zero
+  connection to the Inverter Engine (`BackupEstimatorTest`, `PvElectricalModelTest`,
+  `Phase24EngineeringValidationTest`, `RechargeFeasibilityTest`, `WeatherEngineTest`,
+  `Phase33GridBypassInverterTest` — all Phase 17-54-era simulation-engine tests). Root-caused, not
+  just noted: `SimulationEngine.kt`/`ClearSkyPshEstimator.kt` deliberately use `LocalDate.now()` for
+  solar-position/PSH math ("live digital twin," per that file's own doc comment) — these six test
+  files assert exact numeric values that were hand-traced against whatever real calendar date they
+  were last verified on, and those numbers have since genuinely drifted because real time has moved
+  on, not because the app's logic is wrong. This is a pre-existing test-fragility pattern (asserting
+  date-sensitive output without pinning a reference date), unrelated to and predating the Inverter
+  Engine work by dozens of phases — disclosed here rather than silently left out of the report, but
+  deliberately NOT fixed this round: doing so properly needs a design decision (inject a fixed
+  `Clock`/reference date for tests, or loosen tolerances) outside this round's actual scope.
+
+**Net effect on the Inverter Engine work itself: no logic changed, five files gained correct type
+references so they actually compile, and the whole thing is now verified by a real compiler and a real
+test run for the first time, not just balance-checked.** `./gradlew` itself remains blocked by the
+standing plugin-resolution network limitation — this round's verification used a different route
+entirely, not a fix to that underlying limitation.
