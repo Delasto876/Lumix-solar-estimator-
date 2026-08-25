@@ -142,15 +142,21 @@ class EquipmentSelectionEngineTest {
     // ---- 8. A case where required discharge power drives module count above what energy alone needs ----
     @Test
     fun `battery module count is driven up by discharge power, not just usable energy`() {
-        // 6 kWh usable alone would fit in a single 5kWh-tier module (~4.8kWh usable); a 15kW
-        // discharge-power requirement cannot be met by one ~5.1kW-capable module, so power should
-        // be the binding constraint pushing the module count to 3.
+        // 6 kWh usable alone fits in a single real 10kWh-tier module (SRNE SR-EOS10B, 9.83kWh
+        // usable) — energy alone would pick 1 module. Its real 200A/51.2V discharge rating is only
+        // 10.24kW, short of the 15kW required, so power is the binding constraint pushing the
+        // module count to 2 (2 x 10.24kW = 20.48kW, coerced to the 20kW inverter ceiling, clears
+        // 15kW comfortably). The 5kWh tier could also reach 15kW discharge, but only with 3
+        // modules in parallel — over Phase 38's real "no more than 2 x 5kWh in parallel" cap — so
+        // the engine correctly escalates to the 10kWh tier instead of proposing an uncapped 5kWh
+        // bank, ending up at 2 modules rather than 3.
         val choice = EquipmentSelectionEngine.selectBestHybridBattery(
             requiredUsableKwh = 6.0, requiredDischargeKw = 15.0, inverterCeilingKw = 20.0
         )
-        assertTrue(
-            "expected discharge power to require more modules than usable energy alone (got ${choice.moduleCount})",
-            choice.moduleCount >= 3
+        assertEquals(10.0, choice.option!!.kwh, 0.001)
+        assertEquals(
+            "discharge power (15kW, needs 2 x 10.24kW modules) should drive module count above what 6kWh usable energy alone needs (1 module)",
+            2, choice.moduleCount
         )
         assertTrue(
             "expected the resulting bank to actually cover the discharge requirement, got %.2f kW".format(choice.totalMaxDischargeKw),

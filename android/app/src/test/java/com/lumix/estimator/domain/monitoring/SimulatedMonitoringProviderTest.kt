@@ -20,6 +20,14 @@ import org.junit.Test
  */
 class SimulatedMonitoringProviderTest {
 
+    // 2026-08-25 fix: avgDailyLoadKwh was 20.0 (~0.3kW daytime load) against this 3.69kW array
+    // starting at startSocFraction=0.6 — real JVM run shows the 10.24kWh battery tops off well
+    // before noon at that load, so [SimulatedMonitoringProviderTest]'s own "real PV output at
+    // solar noon" test saw the array correctly throttled back to near-load-only output (~0.4kW),
+    // not a bug (see SimFrame.pvKw's own "harvested, not potential" doc) but the wrong scenario to
+    // demonstrate genuine mid-morning generation. 40.0 keeps the battery below 100% through noon
+    // (real JVM run: 92.2% at hour 12, pv=2.90kW), giving every test here real, unthrottled PV to
+    // assert field-mapping correctness against.
     private fun configFor() = SimSystemConfig(
         pvCapacityKw = 6 * 0.615,
         panelCount = 6,
@@ -30,7 +38,7 @@ class SimulatedMonitoringProviderTest {
         batteryName = "10kWh (SRNE SR-EOS10B)",
         hasBattery = true,
         gridConnectable = true,
-        avgDailyLoadKwh = 20.0,
+        avgDailyLoadKwh = 40.0,
         peakLoadKw = 3.0,
         batteryMaxChargeKw = 7.68,
         batteryMaxDischargeKw = 10.0,

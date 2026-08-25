@@ -1,7 +1,6 @@
 package com.lumix.estimator.domain.simulation
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -36,11 +35,26 @@ class WeatherEngineTest {
 
     @Test
     fun `an explicit seed overrides the default derived seed`() {
+        // A single fixed hour (noon) isn't a reliable place to check for a seed-driven difference:
+        // the seed only drives which/where transient CloudEvents land (WeatherCurve.factorAt), not
+        // the baseline itself — a real JVM run confirms noon lands outside every event's window for
+        // BOTH seed 42 and seed 99 here, so both correctly return the same unattenuated baseline
+        // (0.7025) at that one point despite the seeds genuinely differing (40 of 241 samples across
+        // the day disagree). Sampling across the day, as the sibling "different scenario" test
+        // already does, is what actually verifies the seed's effect rather than assuming any one
+        // hour must show it.
         val a = WeatherEngine.generate(WeatherScenario.TYPICAL, month = 6, seed = 42L)
         val b = WeatherEngine.generate(WeatherScenario.TYPICAL, month = 6, seed = 42L)
         val c = WeatherEngine.generate(WeatherScenario.TYPICAL, month = 6, seed = 99L)
-        assertEquals(a.factorAt(12.0), b.factorAt(12.0), 0.0)
-        assertNotEquals(a.factorAt(12.0), c.factorAt(12.0))
+        for (h in 0..240) {
+            val hour = h / 10.0
+            assertEquals(a.factorAt(hour), b.factorAt(hour), 0.0)
+        }
+        val differsSomewhere = (0..240).any { h ->
+            val hour = h / 10.0
+            a.factorAt(hour) != c.factorAt(hour)
+        }
+        assertTrue("seed 99 should differ from seed 42 somewhere across the day", differsSomewhere)
     }
 
     @Test

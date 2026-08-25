@@ -81,8 +81,12 @@ class PvElectricalModelTest {
     // ---- 3. 3-MPPT inverter shows three independent MPPT values ----
     @Test
     fun `3-MPPT inverter splits panels into three independent tracker strings`() {
+        // Growatt SPH 10000TL-HU-US is a real, verified 3-MPPT model (EquipmentSpecs.kt) — the
+        // LuxPower LXP-LB-US 12K/13K this test used before Phase 41's real-datasheet correction
+        // actually has only 2 real MPPT trackers, which silently made this test assert a stale,
+        // pre-correction figure never caught since ./gradlew couldn't run to flag the drift.
         val readouts = PvElectricalModel.mpptReadouts(
-            panelWatts = 615, panelCount = 12, inverterKw = 12.0, inverterNameHint = "LuxPower LXP-LB-US 12K",
+            panelWatts = 615, panelCount = 12, inverterKw = 10.0, inverterNameHint = "Growatt SPH 10000TL-HU-US",
             cellTempC = 25.0, potentialPvKw = 6.0, realizedPvKw = 6.0
         )
         assertEquals(3, readouts.size)

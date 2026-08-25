@@ -13,7 +13,15 @@ import org.junit.Test
  */
 class Phase33GridBypassInverterTest {
 
-    private fun configFor(gridServiceAmps: Double = SimulationEngine.DEFAULT_GRID_SERVICE_AMPS) = SimSystemConfig(
+    // 2026-08-25 fix: this factory's own `gridServiceAmps` parameter was dead — SimSystemConfig has
+    // no such field (gridServiceAmps is buildDayTimeline's own separate parameter, see its ATS-cap
+    // block), so every call below that passed a value here was silently building a config that
+    // still simulated against buildDayTimeline's real default (DEFAULT_GRID_SERVICE_AMPS = 30A,
+    // 6.6kW) regardless. Harmless for the two tests whose demand (~0.46kW) clears 6.6kW either way,
+    // but it meant "the ATS amp cap still throttles" below was never actually exercising a 1A cap —
+    // real JVM run confirms it silently passed on an untouched 6.6kW ceiling. Fixed by threading
+    // gridServiceAmps through to buildDayTimeline's own parameter directly at each call site instead.
+    private fun configFor() = SimSystemConfig(
         pvCapacityKw = 0.0, // isolate the grid-vs-battery-vs-unmet decision from solar entirely
         panelCount = 1,
         panelWatts = 1,
@@ -44,7 +52,7 @@ class Phase33GridBypassInverterTest {
     @Test
     fun `SOL mode without the bypass leaves load unmet even though grid is connected - residential, unchanged`() {
         val frame = SimulationEngine.buildDayTimeline(
-            config = configFor(gridServiceAmps = 200.0), gridConnected = true,
+            config = configFor(), gridConnected = true, gridServiceAmps = 200.0,
             inverterMode = InverterMode.SOL, resolutionMinutes = 60, startHour = 12.0, durationHours = 0.0
             // gridBypassesInverter omitted -> defaults false, exactly the pre-Phase-33 residential behavior.
         ).first()
@@ -55,7 +63,7 @@ class Phase33GridBypassInverterTest {
     @Test
     fun `SOL mode WITH the bypass serves load from JPS via the ATS instead of leaving it unmet`() {
         val frame = SimulationEngine.buildDayTimeline(
-            config = configFor(gridServiceAmps = 200.0), gridConnected = true,
+            config = configFor(), gridConnected = true, gridServiceAmps = 200.0,
             inverterMode = InverterMode.SOL, gridBypassesInverter = true,
             resolutionMinutes = 60, startHour = 12.0, durationHours = 0.0
         ).first()
@@ -73,7 +81,7 @@ class Phase33GridBypassInverterTest {
         // (~0.22kW) can't cover even that, so some of it must still go unmet - the cap is real,
         // not a rubber-stamped bypass.
         val frame = SimulationEngine.buildDayTimeline(
-            config = configFor(gridServiceAmps = 1.0), gridConnected = true,
+            config = configFor(), gridConnected = true, gridServiceAmps = 1.0,
             inverterMode = InverterMode.SOL, gridBypassesInverter = true,
             resolutionMinutes = 60, startHour = 12.0, durationHours = 0.0
         ).first()

@@ -1,6 +1,7 @@
 package com.lumix.estimator.domain
 
 import com.lumix.estimator.domain.simulation.RechargeFeasibility
+import com.lumix.estimator.domain.simulation.SimulationEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,12 +12,19 @@ import org.junit.Test
  * panels indefinitely"): regression tests for [SystemCalculator.recheckPanelCountForRecharge].
  *
  * Reuses, rather than re-traces, [com.lumix.estimator.domain.simulation.RechargeFeasibilityTest]'s
- * own already-hand-traced day-simulation results for the exact same real hardware (6 x 615W,
- * 10kWh SRNE SR-EOS10B: `avgDailyLoadKwh=60` reaches 90% SOC by 12:40pm; `avgDailyLoadKwh=150`
- * never reaches it, 40.7% at 2pm) — [RechargeFeasibility.evaluate]'s own physics don't depend on
- * which [InverterOption] name is attached to a [com.lumix.estimator.domain.simulation.SimSystemConfig],
+ * own already-verified (real JVM-run, not hand-traced) day-simulation results for the exact same
+ * real hardware (6 x 615W, 10kWh SRNE SR-EOS10B) — [RechargeFeasibility.evaluate]'s own physics
+ * don't depend on which [InverterOption] name is attached to a [com.lumix.estimator.domain.simulation.SimSystemConfig],
  * only its numeric fields, so those already-verified outcomes are exact, not re-derived, inputs
- * here. Uses the real catalog Growatt 10k inverter (not RechargeFeasibilityTest's synthetic "Deye
+ * here — PROVIDED [QuoteInputs.peakSunHours] is pinned to the exact same reference PSH
+ * [com.lumix.estimator.domain.simulation.RechargeFeasibilityTest]'s own config used
+ * ([SimulationEngine.REFERENCE_CURVE_PSH_HOURS], the curve's native unscaled amplitude) — this
+ * function's own `trial()` deliberately scales the simulated curve by the real
+ * `input.peakSunHours` (never the unscaled reference) so a design's recharge check reflects its
+ * own real site PSH, not an idealized one; `noApplianceInputs()` below pins it explicitly for
+ * exactly this reason, since `QuoteInputs.peakSunHours`'s own default (5.5, Jamaica's rough
+ * average) is a real, different number that was previously assumed away, not actually verified.
+ * Uses the real catalog Growatt 10k inverter (not RechargeFeasibilityTest's synthetic "Deye
  * SUN-10K" name) so [EquipmentSelectionEngine.checkPanelInverterCompatibility]'s own real
  * EquipmentSpecs match resolves correctly for the electrical-validity re-check every trial panel
  * count goes through.
@@ -30,8 +38,14 @@ class SystemCalculatorRechargeAwareSizingTest {
     private val srneEos10bChargeKw = ((150 * 51.2) / 1000.0).coerceAtMost(10.0)
     private val srneEos10bDischargeKw = ((200 * 51.2) / 1000.0).coerceAtMost(10.0)
 
+    // peakSunHours pinned to RechargeFeasibilityTest's own reference PSH (see this class's own
+    // doc) — without this, `recheckPanelCountForRecharge`'s trial() scales the simulated curve by
+    // the default 5.5h Jamaica-average PSH instead, a real, meaningfully lower figure that makes
+    // the same 6-panel baseline genuinely need an extra panel to hit the same 2pm target.
     private fun noApplianceInputs() = QuoteInputs(
-        appliances = ApplianceType.entries.associateWith { ApplianceLoad(qty = 0) }
+        appliances = ApplianceType.entries.associateWith { ApplianceLoad(qty = 0) },
+        peakSunHours = SimulationEngine.REFERENCE_CURVE_PSH_HOURS,
+        peakSunHoursManuallySet = true
     )
 
     private fun baselineChoice(panelCount: Int, stringCounts: List<Int>) = EquipmentSelectionEngine.PanelChoice(
