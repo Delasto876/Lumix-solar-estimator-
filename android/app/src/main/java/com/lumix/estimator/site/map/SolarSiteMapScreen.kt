@@ -31,6 +31,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
@@ -97,6 +100,7 @@ import com.lumix.estimator.network.NetworkConnectivityObserver
 import com.lumix.estimator.sensors.CompassManager
 import com.lumix.estimator.site.GeoPoint
 import com.lumix.estimator.site.PanelOrientation
+import com.lumix.estimator.site.RoofPlane
 import com.lumix.estimator.site.ShadeAndExclusionSection
 import com.lumix.estimator.site.SolarCompassBadge
 import com.lumix.estimator.site.SolarApiFetchState
@@ -105,6 +109,8 @@ import com.lumix.estimator.site.geometry.SolarSuitability
 import com.lumix.estimator.site.geometry.SolarSuitabilityCalculator
 import com.lumix.estimator.site.solarapi.GoogleSolarApiClient
 import com.lumix.estimator.site.geometry.PanelLayoutOptimizer
+import com.lumix.estimator.site.geometry.RoofExclusionType
+import com.lumix.estimator.site.geometry.RoofExclusionZone
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
 import com.lumix.estimator.site.geometry.ShadeEstimator
 import com.lumix.estimator.site.geometry.ShadeObstructionType
@@ -263,6 +269,16 @@ fun SolarSiteMapScreen(
     var searchSuggestions by remember { mutableStateOf<List<KnownPlace>>(emptyList()) }
     var roofFormVertices by remember { mutableStateOf<List<GeoPoint>?>(null) }
 
+    // Site Survey / Solar Mapping round (spec "Allow the user to mark exclusions manually:
+    // Chimneys, Vents, Skylights, AC units, ... Structural obstructions, ... Other obstacles"):
+    // a second, independent RoofDrawingService instance rather than reusing [roofController] —
+    // an obstruction trace has its own separate undo/redo history and must never be confused with
+    // an in-progress roof trace/edit (the two floating buttons are mutually gated below so only
+    // one drawing mode can be active at a time).
+    val obstructionController = remember { RoofDrawingService() }
+    var obstructionFormVertices by remember { mutableStateOf<List<GeoPoint>?>(null) }
+    var showObstructionsSheet by remember { mutableStateOf(false) }
+
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(jamaicaDefault.toLatLng(), 8f)
     }
@@ -320,6 +336,7 @@ fun SolarSiteMapScreen(
 
     fun handleMapClick(point: GeoPoint) {
         when {
+            obstructionController.isDrawing -> obstructionController.addVertex(point)
             roofController.isDrawing -> roofController.addVertex(point)
             roofController.isEditing && editMode == RoofEditMode.ADD -> {
                 val afterIndex = roofController.selectedVertexIndex ?: (roofController.vertices.size - 1)
@@ -402,6 +419,41 @@ fun SolarSiteMapScreen(
                         onDragMove = { moved -> roofController.updateVertexDragPosition(index, moved) },
                         onDragEnd = { roofController.endVertexDrag() }
                     )
+                }
+            }
+
+            // Site Survey / Solar Mapping round: already-added exclusion zones (chimneys, vents,
+            // skylights, ...) for every roof plane, drawn as small red polygons distinct from the
+            // suitability-colored roof planes themselves so they read as "avoid this area," not
+            // "this section is unsuitable."
+            state.roofPlanes.forEach { plane ->
+                plane.exclusionZones.forEach { zone ->
+                    if (zone.vertices.size >= 3) {
+                        Polygon(
+                            points = zone.vertices.map { it.toLatLng() },
+                            fillColor = Color(0x66FF5252),
+                            strokeColor = Color(0xFFFF5252),
+                            strokeWidth = 2f
+                        )
+                    }
+                }
+            }
+
+            // The obstruction polygon currently being traced.
+            val obstructionVertices = obstructionController.vertices
+            if (obstructionVertices.size >= 3) {
+                Polygon(
+                    points = obstructionVertices.map { it.toLatLng() },
+                    fillColor = Color(0x66FF5252),
+                    strokeColor = Color(0xFFFF5252),
+                    strokeWidth = 4f
+                )
+            } else if (obstructionVertices.size == 2) {
+                Polyline(points = obstructionVertices.map { it.toLatLng() }, color = Color(0xFFFF5252), width = 4f)
+            }
+            obstructionVertices.forEachIndexed { index, point ->
+                key("obstruction_$index") {
+                    StaticGeoMarker(point = point, icon = markerIcons.vertex)
                 }
             }
 
@@ -581,6 +633,20 @@ fun SolarSiteMapScreen(
                 contentDescription = "Auto-detect roof (Solar API)",
                 active = state.solarApiFetchState is SolarApiFetchState.Loading
             ) { Icon(Icons.Default.WbSunny, contentDescription = null) }
+            // Site Survey / Solar Mapping round: obstruction tracing needs at least one confirmed
+            // roof plane to attach to, and is gated off while a roof trace/edit is in progress so
+            // the two polygon-drawing flows can never run at the same time.
+            if (state.roofPlanes.isNotEmpty() && !roofController.isDrawing && !roofController.isEditing) {
+                MapControlButton(
+                    onClick = { obstructionController.startDrawing() },
+                    contentDescription = "Add roof obstruction",
+                    active = obstructionController.isDrawing
+                ) { Icon(Icons.Default.Block, contentDescription = null) }
+                MapControlButton(
+                    onClick = { showObstructionsSheet = true },
+                    contentDescription = "Manage obstructions"
+                ) { Icon(Icons.Default.List, contentDescription = null) }
+            }
         }
 
         if (compassManager.isAvailable) {
@@ -626,6 +692,17 @@ fun SolarSiteMapScreen(
                     onRedo = roofController::editRedo,
                     canUndo = roofController.canUndoEdit,
                     canRedo = roofController.canRedoEdit
+                )
+                obstructionController.isDrawing -> RoofDrawingControls(
+                    vertexCount = obstructionController.vertices.size,
+                    onUndo = obstructionController::undo,
+                    onClear = obstructionController::clear,
+                    onCancel = obstructionController::cancelDrawing,
+                    onDone = {
+                        if (obstructionController.vertices.size >= 3) {
+                            obstructionFormVertices = obstructionController.finishDrawing()
+                        }
+                    }
                 )
                 measureModeActive -> MeasureControls(
                     pointA = measurePointA,
@@ -685,6 +762,51 @@ fun SolarSiteMapScreen(
                     roofFormVertices = null
                 },
                 onCancel = { roofFormVertices = null }
+            )
+        }
+    }
+
+    if (obstructionFormVertices != null) {
+        ModalBottomSheet(
+            onDismissRequest = { obstructionFormVertices = null },
+            sheetState = rememberModalBottomSheetState()
+        ) {
+            ObstructionConfirmForm(
+                vertices = obstructionFormVertices!!,
+                roofPlanes = state.roofPlanes,
+                defaultPlaneId = state.roofPlanes.lastOrNull()?.id,
+                onConfirm = { planeId, type ->
+                    val plane = state.roofPlanes.firstOrNull { it.id == planeId }
+                    val layout = plane?.panelLayout
+                    viewModel.addExclusionZone(
+                        planeId,
+                        RoofExclusionZone(type, obstructionFormVertices!!),
+                        layout?.panelWidthM ?: 2.278,
+                        layout?.panelHeightM ?: 1.134,
+                        layout?.panelWattage ?: 600.0
+                    )
+                    obstructionFormVertices = null
+                },
+                onCancel = { obstructionFormVertices = null }
+            )
+        }
+    }
+
+    if (showObstructionsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showObstructionsSheet = false },
+            sheetState = rememberModalBottomSheetState()
+        ) {
+            ObstructionsManageSheet(
+                roofPlanes = state.roofPlanes,
+                onRemove = { plane, index ->
+                    val layout = plane.panelLayout
+                    viewModel.removeExclusionZone(
+                        plane.id, index,
+                        layout?.panelWidthM ?: 2.278, layout?.panelHeightM ?: 1.134, layout?.panelWattage ?: 600.0
+                    )
+                },
+                onClose = { showObstructionsSheet = false }
             )
         }
     }
@@ -1321,5 +1443,127 @@ private fun RoofConfirmForm(
                 modifier = Modifier.weight(1f)
             )
         }
+    }
+}
+
+/**
+ * Site Survey / Solar Mapping round (spec "Allow the user to mark exclusions manually: Chimneys,
+ * Vents, Skylights, AC units, Water tanks, Roof edges/setbacks, Walkways, Fire access, Structural
+ * obstructions, ... Other obstacles"): shown right after tracing an obstruction polygon on the
+ * map — picks which roof section it belongs to (only asked when there's more than one) and its
+ * [RoofExclusionType], then hands both back so the caller can build a real [RoofExclusionZone]
+ * from the already-traced [vertices].
+ */
+@Composable
+private fun ObstructionConfirmForm(
+    vertices: List<GeoPoint>,
+    roofPlanes: List<RoofPlane>,
+    defaultPlaneId: String?,
+    onConfirm: (planeId: String, type: RoofExclusionType) -> Unit,
+    onCancel: () -> Unit
+) {
+    val palette = LocalLumixPalette.current
+    val areaM2 = remember(vertices) { RoofGeometryEngine.horizontalAreaM2(vertices) }
+    var selectedPlaneId by remember { mutableStateOf(defaultPlaneId ?: roofPlanes.lastOrNull()?.id) }
+    var selectedType by remember { mutableStateOf(RoofExclusionType.CHIMNEY) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp)
+            .navigationBarsPadding()
+            .imePadding(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Mark Obstruction", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+        Text(
+            "Traced area: %.2f m² — panels will not be placed inside this shape.".format(areaM2),
+            style = MaterialTheme.typography.bodySmall,
+            color = palette.textSecondary
+        )
+        if (roofPlanes.size > 1) {
+            LabeledDropdown(
+                label = "Roof section",
+                options = roofPlanes.map { it.id },
+                selected = selectedPlaneId ?: roofPlanes.first().id,
+                optionLabel = { id -> roofPlanes.firstOrNull { it.id == id }?.label ?: id },
+                onSelected = { selectedPlaneId = it }
+            )
+        }
+        LabeledDropdown(
+            label = "Obstruction type",
+            options = RoofExclusionType.entries,
+            selected = selectedType,
+            optionLabel = { it.label },
+            onSelected = { selectedType = it }
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            LumixSecondaryButton(text = "Cancel", onClick = onCancel, modifier = Modifier.weight(1f))
+            LumixPrimaryButton(
+                text = "Add Obstruction",
+                onClick = { selectedPlaneId?.let { onConfirm(it, selectedType) } },
+                enabled = selectedPlaneId != null,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+/**
+ * Site Survey / Solar Mapping round: lists every real, drawn exclusion zone across all roof
+ * planes with a delete affordance — the read/manage half of the obstruction-marking flow, since
+ * the map itself only ever shows the zones, never lets you remove one directly (there's no
+ * per-vertex marker or tap target on a confirmed exclusion polygon, unlike an in-progress roof
+ * edit — re-tracing a corrected shape is simpler than building a second drag/delete UI for what
+ * is usually a small, one-off obstruction shape).
+ */
+@Composable
+private fun ObstructionsManageSheet(
+    roofPlanes: List<RoofPlane>,
+    onRemove: (RoofPlane, Int) -> Unit,
+    onClose: () -> Unit
+) {
+    val palette = LocalLumixPalette.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Roof Obstructions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+        if (roofPlanes.all { it.exclusionZones.isEmpty() }) {
+            Text(
+                "No obstructions marked yet. Use \"Add roof obstruction\" on the map to trace a chimney, vent, skylight, or other feature panels must avoid.",
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.textSecondary
+            )
+        }
+        roofPlanes.forEach { plane ->
+            if (plane.exclusionZones.isNotEmpty()) {
+                Text(plane.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                plane.exclusionZones.forEachIndexed { index, zone ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(zone.type.label, style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
+                            Text("~%.1f m²".format(zone.areaM2), style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+                        }
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Remove ${zone.type.label}",
+                            tint = palette.warningRedText,
+                            modifier = Modifier.clickable { onRemove(plane, index) }
+                        )
+                    }
+                }
+            }
+        }
+        LumixPrimaryButton(text = "Close", onClick = onClose, modifier = Modifier.fillMaxWidth())
     }
 }

@@ -1,5 +1,6 @@
 package com.lumix.estimator.site
 
+import com.lumix.estimator.site.geometry.RoofExclusionZone
 import kotlinx.serialization.Serializable
 
 /**
@@ -26,7 +27,24 @@ data class RoofPlane(
     val azimuthDegrees: Double?,
     val pitchDegrees: Double?,
     val setbackMeters: Double = 0.5,
-    val exclusionZones: List<List<GeoPoint>> = emptyList(),
+    /**
+     * Site Survey / Solar Mapping round: real, individually-typed, drawn obstruction polygons
+     * (chimney, vent, skylight, ...) — see [RoofExclusionZone]'s own doc. Was previously
+     * `List<List<GeoPoint>>` (untyped raw polygons) but was never actually populated by any real
+     * code path — [RoofGeometryEngine.usableAreaM2] and [PanelLayoutOptimizer.Input.exclusionZones]
+     * both already had real subtraction/avoidance logic for this list, just never fed anything
+     * (every call site passed `emptyList()`), so upgrading the type to something real callers can
+     * now actually populate isn't a functional regression for any already-saved site.
+     */
+    val exclusionZones: List<RoofExclusionZone> = emptyList(),
+    /**
+     * Site Survey / Solar Mapping round: the manual lump-sum obstruction estimate from the initial
+     * roof-creation form (see [RoofGeometryEngine.usableAreaM2]'s own `additionalExclusionAreaM2`
+     * parameter) — persisted here (it used to be consumed once into [usableAreaM2] at creation time
+     * and discarded) so [com.lumix.estimator.site.SolarSiteViewModel.addExclusionZone] can correctly
+     * recompute [usableAreaM2] later without losing this original estimate.
+     */
+    val additionalExclusionAreaM2: Double = 0.0,
     val shadingFactor: Double = 1.0,
     val panelLayout: PanelLayout? = null,
     /**

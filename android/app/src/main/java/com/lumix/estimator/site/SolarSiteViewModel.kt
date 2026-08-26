@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.lumix.estimator.site.geometry.PanelLayoutOptimizer
+import com.lumix.estimator.site.geometry.RoofExclusionZone
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
 import com.lumix.estimator.site.solarapi.SolarApiClient
 import com.lumix.estimator.site.solarapi.SolarApiResult
@@ -217,12 +218,83 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
             azimuthDegrees = confirmedAzimuthDegrees,
             pitchDegrees = pitchDegrees,
             setbackMeters = setbackMeters,
+            additionalExclusionAreaM2 = excludedAreaM2,
             shadingFactor = shadingFactor,
             panelLayout = panelLayout,
             solarApiAnnualSunshineHours = solarApiAnnualSunshineHours,
             solarApiBuildingMaxSunshineHoursPerYear = solarApiBuildingMaxSunshineHoursPerYear
         )
         _state.update { it.copy(roofPlanes = it.roofPlanes + roofPlane) }
+    }
+
+    /**
+     * Site Survey / Solar Mapping round (spec "Allow the user to mark exclusions manually...
+     * chimneys, vents, skylights, AC units, water tanks, ... walkways, fire access, structural
+     * obstructions"): adds one real, drawn, typed obstruction polygon to an already-existing roof
+     * plane and re-runs the exact same geometry/panel-packing pipeline [appendRoofPlane] used to
+     * build it originally — [RoofGeometryEngine.usableAreaM2] and [PanelLayoutOptimizer.Input
+     * .exclusionZones] both already had real subtraction/avoidance logic for exclusion polygons
+     * (see [RoofPlane.exclusionZones]'s own doc for why this was previously always empty); this is
+     * what actually starts feeding them real data. No-op if [planeId] doesn't match any current
+     * roof plane.
+     */
+    fun addExclusionZone(
+        planeId: String,
+        zone: RoofExclusionZone,
+        panelWidthM: Double,
+        panelHeightM: Double,
+        panelWattage: Double
+    ) {
+        _state.update { state ->
+            state.copy(roofPlanes = state.roofPlanes.map { plane ->
+                if (plane.id != planeId) return@map plane
+                val updatedZones = plane.exclusionZones + zone
+                val usableArea = RoofGeometryEngine.usableAreaM2(
+                    plane.vertices, plane.horizontalAreaM2, plane.roofAreaM2, plane.setbackMeters,
+                    updatedZones, plane.additionalExclusionAreaM2
+                )
+                val effectiveAzimuth = plane.azimuthDegrees ?: plane.suggestedAzimuthDegrees ?: 0.0
+                val panelLayout = PanelLayoutOptimizer.optimize(
+                    PanelLayoutOptimizer.Input(
+                        vertices = plane.vertices,
+                        panelWidthM = panelWidthM,
+                        panelHeightM = panelHeightM,
+                        panelWattage = panelWattage,
+                        setbackM = plane.setbackMeters,
+                        alignmentAzimuthDegrees = effectiveAzimuth,
+                        exclusionZones = updatedZones.map { it.vertices }
+                    )
+                )
+                plane.copy(exclusionZones = updatedZones, usableAreaM2 = usableArea, panelLayout = panelLayout)
+            })
+        }
+    }
+
+    /** Removes one exclusion zone (by its position in [RoofPlane.exclusionZones]) and re-runs the same recompute [addExclusionZone] does. */
+    fun removeExclusionZone(planeId: String, zoneIndex: Int, panelWidthM: Double, panelHeightM: Double, panelWattage: Double) {
+        _state.update { state ->
+            state.copy(roofPlanes = state.roofPlanes.map { plane ->
+                if (plane.id != planeId || zoneIndex !in plane.exclusionZones.indices) return@map plane
+                val updatedZones = plane.exclusionZones.filterIndexed { i, _ -> i != zoneIndex }
+                val usableArea = RoofGeometryEngine.usableAreaM2(
+                    plane.vertices, plane.horizontalAreaM2, plane.roofAreaM2, plane.setbackMeters,
+                    updatedZones, plane.additionalExclusionAreaM2
+                )
+                val effectiveAzimuth = plane.azimuthDegrees ?: plane.suggestedAzimuthDegrees ?: 0.0
+                val panelLayout = PanelLayoutOptimizer.optimize(
+                    PanelLayoutOptimizer.Input(
+                        vertices = plane.vertices,
+                        panelWidthM = panelWidthM,
+                        panelHeightM = panelHeightM,
+                        panelWattage = panelWattage,
+                        setbackM = plane.setbackMeters,
+                        alignmentAzimuthDegrees = effectiveAzimuth,
+                        exclusionZones = updatedZones.map { it.vertices }
+                    )
+                )
+                plane.copy(exclusionZones = updatedZones, usableAreaM2 = usableArea, panelLayout = panelLayout)
+            })
+        }
     }
 
     /**

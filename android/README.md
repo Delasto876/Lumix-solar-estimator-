@@ -9131,3 +9131,56 @@ clean via the established standalone kotlinc route, and the calculator itself wa
 diagnostic runs (not hand-traced) as described above. `SolarSiteMapScreen.kt`/`SolarPotentialCard.kt`'s
 own edits depend on the Android SDK/Compose this sandbox can't compile standalone — reviewed by hand
 and brace/paren-balance-checked instead, the same disclosed limitation every map-layer round carries.
+
+## A143 — Site Survey / Solar Mapping Phase 4: real drawn exclusion zones (chimneys, vents, skylights, ...)
+
+Spec's own "Allow the user to mark exclusions manually: Chimneys, Vents, Skylights, AC units, Water
+tanks, Roof edges/setbacks, Walkways, Fire access, Structural obstructions, ... Other obstacles."
+`RoofGeometryEngine.usableAreaM2`'s exclusion-subtraction math and `PanelLayoutOptimizer.Input
+.exclusionZones`'s point-in-polygon avoidance logic were both real and correct since Solar Site Phase
+1 — but no call site had ever fed them anything (`RoofPlane.exclusionZones` was always `emptyList()`);
+this phase is what actually starts populating them with real, drawn, typed polygons.
+
+- **`site/geometry/RoofExclusionZone.kt`** (new): `RoofExclusionType` enum (10 entries matching the
+  spec's list verbatim, "Other obstacle" as the catch-all) and `RoofExclusionZone(type, vertices,
+  note?)` with a computed `areaM2` (via the same `horizontalAreaM2` shoelace math roofs themselves
+  use). Deliberately does **not** duplicate "Trees" / "Nearby buildings" from the spec's list — those
+  are already modeled as `ShadeObstructionType` entries (a shading *source* with a flat percentage
+  estimate, not a footprint the roof physically loses), and adding a second mechanism for the same
+  real-world object risked double-counting it.
+- **`RoofPlane.exclusionZones`** retyped from `List<List<GeoPoint>>` to `List<RoofExclusionZone>` (the
+  only existing call site used named arguments and always passed `emptyList()`, so this isn't a
+  functional regression for any already-saved site) plus a new `additionalExclusionAreaM2` field so
+  the original manual lump-sum estimate survives being recomputed later instead of being consumed
+  once and discarded.
+- **`SolarSiteViewModel.addExclusionZone` / `.removeExclusionZone`** (new): append or remove one zone
+  on an existing roof plane and re-run the exact same `usableAreaM2` + `PanelLayoutOptimizer.optimize`
+  pipeline `appendRoofPlane` used to build the plane originally, so usable area and panel count both
+  stay consistent with the real obstruction set at all times.
+- **Map UI (`SolarSiteMapScreen.kt`)**: a second, independent `RoofDrawingService` instance (its own
+  undo/redo history, never confused with an in-progress roof trace/edit — the two are mutually gated:
+  "Add roof obstruction" only shows once a roof plane exists and neither roof-drawing mode is active).
+  Tracing a polygon opens `ObstructionConfirmForm` (picks the target roof section when there's more
+  than one, plus the obstruction type) before calling `addExclusionZone`. A new "Manage obstructions"
+  button opens `ObstructionsManageSheet`, listing every zone across every roof plane with its real
+  area and a delete action wired to `removeExclusionZone`. Already-added zones render on the map as
+  small red polygons, visually distinct from the suitability-colored roof planes themselves.
+
+**Verification** (real, not assumed): the very first diagnostic run exposed what looked like a bug —
+a chimney exclusion zone added to a 10m×10m test roof left `PanelLayoutOptimizer`'s panel count
+completely unchanged (25 with vs. without). Tracing it down (a second diagnostic with debug output,
+then a third rebuilt from scratch) found the actual defect was in the **test's own coordinate
+construction**: the chimney's `GeoPoint`s had been built as offsets from a shared synthetic anchor
+distinct from the roof's own first vertex, while `PanelLayoutOptimizer` (correctly) re-projects
+exclusion vertices relative to `vertices.first()` — exactly what a real user-drawn obstruction on the
+live map naturally satisfies (both roof and obstruction are genuine absolute lat/lon points, never
+synthetic offsets), but not what the hand-built test coordinates satisfied. Rebuilding the test's
+chimney coordinates relative to the roof's own first vertex (matching both `PanelLayoutOptimizer`'s
+convention and how real map taps work) confirmed the production logic was correct all along: panel
+count dropped from 32→24 and 25→19 across two orientations once a correctly-placed exclusion zone was
+supplied. The area-subtraction math was independently confirmed correct throughout (position-
+invariant by design — a ~4.0 m² chimney reduced `usableAreaM2` by ~4.0 m² regardless of where it sat).
+`RoofExclusionZone.kt`, `RoofPlane.kt`, and `RoofGeometryEngine.kt` all compiled clean via the
+established standalone kotlinc route; `SolarSiteMapScreen.kt`'s UI wiring depends on the Android
+SDK/Compose/Google Maps SDK this sandbox can't compile standalone — reviewed by hand and brace/paren-
+balance-checked instead, the same disclosed limitation every map-layer round carries.
