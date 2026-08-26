@@ -9237,3 +9237,49 @@ and malformed JSON — all three resolved exactly as expected. `SolarSiteMapScre
 depends on the Android SDK/Compose/Google Maps SDK this sandbox can't compile standalone — reviewed
 by hand and brace/paren-balance-checked instead, the same disclosed limitation every map-layer round
 carries.
+
+## A145 — Site Survey / Solar Mapping Phase 6: Street View site verification
+
+Spec's own "Integrate Street View (where available) for site verification." A real ground-level
+photo of the property, so an installer can sanity-check access, obstructions, and pole/meter
+location without a site visit being the only way to see it.
+
+- **`site/streetview/`** (new package): `StreetViewModels.kt` (`StreetViewResult` — a three-way
+  Available/NoCoverage/Unavailable shape mirroring `solarapi.SolarApiResult`/`elevation
+  .ElevationResult`'s own reasoning), `StreetViewMetadataParser.kt` (pure JSON status parsing,
+  tested independent of the network), and `StreetViewClient.kt` (`GoogleStreetViewClient`). The
+  client makes **two** real requests, not one: it checks the `metadata` endpoint FIRST, since the
+  Static API's own image endpoint returns a generic "no imagery here" placeholder image with an
+  HTTP 200 for a genuine coverage gap — skipping the metadata check would silently present that
+  placeholder as if it were a real photo, which the spec's own "Never fabricate ... data" rules out.
+  The whole package stays pure Kotlin/JDK (raw `ByteArray`, no `android.graphics`), same
+  `GoogleSolarApiConfig` key reuse as the elevation client, for the same reason.
+- **`SolarSiteViewModel.kt`**: new `StreetViewFetchState` sealed class (mirrors
+  `SolarApiFetchState`/`ElevationFetchState`'s per-outcome shape) and `fetchStreetView(client,
+  headingDegrees?)`. Deliberately **not** persisted onto `SolarSite` — a live verification aid
+  during the survey, not sizing-relevant data the quote/report engines need later.
+- **Map UI (`SolarSiteMapScreen.kt`)**: a new floating button (visible once a location is selected)
+  fetches and opens a sheet showing the real photo — decoded from the fetched bytes via
+  `BitmapFactory.decodeByteArray` at display time, the only point in this flow that touches
+  `android.graphics` (the client/parser/models stay pure). Coverage gaps and operational failures
+  are worded differently, never collapsed into one dead end.
+
+**Verification**: `StreetViewModels.kt`, `StreetViewMetadataParser.kt`, and `StreetViewClient.kt` all
+compiled clean via the established standalone kotlinc route; a real diagnostic exercised
+`StreetViewMetadataParser.parseStatus` against real "OK", "ZERO_RESULTS", and "REQUEST_DENIED"
+sample payloads plus malformed JSON — all four resolved exactly as expected.
+
+One disclosed gap in this round's verification, worth flagging explicitly: this sandbox has no
+network path to Google's Maven repository (`dl.google.com` — confirmed blocked by the egress proxy;
+Maven Central, which IS reachable here, doesn't mirror `androidx.compose.material:material-icons-
+extended`), so the exact icon names used for the new floating buttons (`Icons.Filled.Terrain`,
+`Icons.Filled.FormatListBulleted`, `Icons.Filled.Block`) could not be checked against the real
+artifact the way every other line in this round was checked against something real. `Icons.Filled
+.Delete` and `.List` are already used elsewhere in this exact app (`HistoryScreen.kt` uses `Delete`)
+or are long-standing core Material icons, so those are low-risk; the Street View button itself was
+deliberately switched from `Icons.Filled.Streetview` (unverifiable here, and less certain) to
+`Icons.Filled.Visibility` — used ubiquitously across Android apps (password show/hide toggles) and
+essentially risk-free — specifically to avoid shipping an unverified guess on a feature this round
+was otherwise able to verify end-to-end. Worth a quick Android Studio sync as a sanity check on the
+handful of `Terrain`/`FormatListBulleted`/`Block` icon references before shipping, though all three
+are common, long-standing Material icons.

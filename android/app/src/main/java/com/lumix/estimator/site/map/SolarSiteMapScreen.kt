@@ -2,10 +2,12 @@ package com.lumix.estimator.site.map
 
 import android.Manifest
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -42,6 +44,7 @@ import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material.icons.filled.ThreeDRotation
 import androidx.compose.material.icons.filled.Traffic
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,6 +72,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -110,11 +114,13 @@ import com.lumix.estimator.site.SiteMeasurementKind
 import com.lumix.estimator.site.SolarCompassBadge
 import com.lumix.estimator.site.SolarApiFetchState
 import com.lumix.estimator.site.SolarSiteViewModel
+import com.lumix.estimator.site.StreetViewFetchState
 import com.lumix.estimator.site.elevation.GoogleElevationApiClient
 import com.lumix.estimator.site.geometry.DistanceCalculator
 import com.lumix.estimator.site.geometry.SolarSuitability
 import com.lumix.estimator.site.geometry.SolarSuitabilityCalculator
 import com.lumix.estimator.site.solarapi.GoogleSolarApiClient
+import com.lumix.estimator.site.streetview.GoogleStreetViewClient
 import com.lumix.estimator.site.geometry.PanelLayoutOptimizer
 import com.lumix.estimator.site.geometry.RoofExclusionType
 import com.lumix.estimator.site.geometry.RoofExclusionZone
@@ -226,6 +232,7 @@ fun SolarSiteMapScreen(
     val roofController = remember { RoofDrawingService() }
     val solarApiClient = remember { GoogleSolarApiClient() }
     val elevationClient = remember { GoogleElevationApiClient() }
+    val streetViewClient = remember { GoogleStreetViewClient() }
     val geocodingProvider = remember { AndroidGeocodingProvider(context) }
     val locationManager = remember { DeviceLocationManager(context) }
     val compassManager = remember { CompassManager(context) }
@@ -275,6 +282,12 @@ fun SolarSiteMapScreen(
     val obstructionController = remember { RoofDrawingService() }
     var obstructionFormVertices by remember { mutableStateOf<List<GeoPoint>?>(null) }
     var showObstructionsSheet by remember { mutableStateOf(false) }
+    // Site Survey / Solar Mapping round ("Integrate Street View (where available) for site
+    // verification"): a live verification aid, not sizing-relevant survey data — deliberately not
+    // persisted onto SolarSite the way roof planes/exclusions/measurements are (see
+    // StreetViewFetchState's own doc), so this only needs local UI state for whether the sheet is
+    // showing.
+    var showStreetViewSheet by remember { mutableStateOf(false) }
 
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(jamaicaDefault.toLatLng(), 8f)
@@ -627,6 +640,14 @@ fun SolarSiteMapScreen(
                     contentDescription = "Ground elevation",
                     active = state.elevationFetchState is ElevationFetchState.Loading
                 ) { Icon(Icons.Default.Terrain, contentDescription = null) }
+                MapControlButton(
+                    onClick = {
+                        showStreetViewSheet = true
+                        scope.launch { viewModel.fetchStreetView(streetViewClient) }
+                    },
+                    contentDescription = "Street View site verification",
+                    active = state.streetViewFetchState is StreetViewFetchState.Loading
+                ) { Icon(Icons.Default.Visibility, contentDescription = null) }
             }
             // Site Survey / Solar Mapping round (spec "Automatically detect/use available building
             // and roof information when Google Solar API data is available"): reuses
@@ -847,6 +868,18 @@ fun SolarSiteMapScreen(
                 measurements = state.siteMeasurements,
                 onRemove = { viewModel.removeSiteMeasurement(it) },
                 onClose = { showMeasurementsSheet = false }
+            )
+        }
+    }
+
+    if (showStreetViewSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showStreetViewSheet = false },
+            sheetState = rememberModalBottomSheetState()
+        ) {
+            StreetViewSheet(
+                fetchState = state.streetViewFetchState,
+                onClose = { showStreetViewSheet = false }
             )
         }
     }
@@ -1759,6 +1792,68 @@ private fun SiteMeasurementsSheet(
                     tint = palette.warningRedText,
                     modifier = Modifier.clickable { onRemove(measurement.id) }
                 )
+            }
+        }
+        LumixPrimaryButton(text = "Close", onClick = onClose, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+/**
+ * Site Survey / Solar Mapping round (spec "Integrate Street View (where available) for site
+ * verification"): shows the real fetched ground-level photo (decoded from the raw bytes
+ * [StreetViewFetchState.Succeeded] carries — the only place in this flow that touches
+ * `android.graphics`, since [com.lumix.estimator.site.streetview.StreetViewClient] itself stays
+ * pure Kotlin/JDK, same split [buildMapMarkerIcons] already established for marker bitmaps), or the
+ * right message for every other outcome — a coverage gap and an operational failure are worded
+ * differently, never collapsed into a single "couldn't load image" dead end.
+ */
+@Composable
+private fun StreetViewSheet(fetchState: StreetViewFetchState, onClose: () -> Unit) {
+    val palette = LocalLumixPalette.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(20.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Street View", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+        when (fetchState) {
+            is StreetViewFetchState.Idle -> Text(
+                "No photo fetched yet.",
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.textSecondary
+            )
+            is StreetViewFetchState.Loading -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Text("Fetching ground-level photo…", style = MaterialTheme.typography.bodySmall, color = palette.textSecondary)
+            }
+            is StreetViewFetchState.Succeeded -> {
+                val bitmap = remember(fetchState.imageBytes) {
+                    BitmapFactory.decodeByteArray(fetchState.imageBytes, 0, fetchState.imageBytes.size)
+                }
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Street View photo of the site",
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(LumixRadius.md))
+                    )
+                    Text(
+                        "Real Google Street View imagery — use it to sanity-check access, obstructions, and pole/meter location, not as a substitute for a site visit.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textSecondary
+                    )
+                } else {
+                    Text("Street View returned an image that couldn't be decoded.", style = MaterialTheme.typography.bodySmall, color = palette.warningRedText)
+                }
+            }
+            is StreetViewFetchState.NoCoverage -> Text(fetchState.message, style = MaterialTheme.typography.bodySmall, color = palette.textSecondary)
+            is StreetViewFetchState.Failed -> Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Street View fetch failed.", style = MaterialTheme.typography.bodySmall, color = palette.warningRedText)
+                Text(fetchState.reason, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
             }
         }
         LumixPrimaryButton(text = "Close", onClick = onClose, modifier = Modifier.fillMaxWidth())

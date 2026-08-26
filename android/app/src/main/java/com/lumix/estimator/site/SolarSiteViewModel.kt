@@ -10,6 +10,8 @@ import com.lumix.estimator.site.geometry.RoofExclusionZone
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
 import com.lumix.estimator.site.solarapi.SolarApiClient
 import com.lumix.estimator.site.solarapi.SolarApiResult
+import com.lumix.estimator.site.streetview.StreetViewClient
+import com.lumix.estimator.site.streetview.StreetViewResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -33,9 +35,25 @@ data class SiteUiState(
     /** Site Survey / Solar Mapping round: named, saved point-to-point distances — see [SiteMeasurement]'s own doc. */
     val siteMeasurements: List<SiteMeasurement> = emptyList(),
     /** Site Survey / Solar Mapping round: real ground elevation at the draft location, once fetched — see [ElevationFetchState]'s own doc. */
-    val elevationFetchState: ElevationFetchState = ElevationFetchState.Idle
+    val elevationFetchState: ElevationFetchState = ElevationFetchState.Idle,
+    /** Site Survey / Solar Mapping round: the current/last outcome of a Street View verification-photo fetch for the draft location — see [StreetViewFetchState]'s own doc. Deliberately not persisted onto [SolarSite] (a live verification aid during the survey, not sizing-relevant data). */
+    val streetViewFetchState: StreetViewFetchState = StreetViewFetchState.Idle
 ) {
     val hasLocation: Boolean get() = draftLatitude != null && draftLongitude != null
+}
+
+/**
+ * Site Survey / Solar Mapping round: UI-facing status for the Street View verification-photo
+ * fetch — mirrors [SolarApiFetchState]/[ElevationFetchState]'s own per-outcome shape (a real image,
+ * "no imagery here," or an operational failure, plus loading).
+ */
+sealed class StreetViewFetchState {
+    data object Idle : StreetViewFetchState()
+    data object Loading : StreetViewFetchState()
+    /** Plain (non-data) class: see [StreetViewResult.Available]'s own doc for why [ByteArray]'s reference-based equality is irrelevant here. */
+    class Succeeded(val imageBytes: ByteArray) : StreetViewFetchState()
+    data class NoCoverage(val message: String) : StreetViewFetchState()
+    data class Failed(val reason: String) : StreetViewFetchState()
 }
 
 /**
@@ -392,6 +410,23 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
             }
             is ElevationResult.NoData -> _state.update { it.copy(elevationFetchState = ElevationFetchState.NoData(result.message)) }
             is ElevationResult.Unavailable -> _state.update { it.copy(elevationFetchState = ElevationFetchState.Failed(result.reason)) }
+        }
+    }
+
+    /**
+     * Site Survey / Solar Mapping round (spec "Integrate Street View (where available) for site
+     * verification"): fetches a real ground-level photo at the draft site location via [client] —
+     * a genuine three-way outcome (see [StreetViewFetchState]'s own doc), never a fabricated or
+     * placeholder image when the API has no coverage or fails.
+     */
+    suspend fun fetchStreetView(client: StreetViewClient, headingDegrees: Double? = null) {
+        val lat = _state.value.draftLatitude ?: return
+        val lon = _state.value.draftLongitude ?: return
+        _state.update { it.copy(streetViewFetchState = StreetViewFetchState.Loading) }
+        when (val result = client.fetchPanoramaImage(GeoPoint(lat, lon), headingDegrees)) {
+            is StreetViewResult.Available -> _state.update { it.copy(streetViewFetchState = StreetViewFetchState.Succeeded(result.imageBytes)) }
+            is StreetViewResult.NoCoverage -> _state.update { it.copy(streetViewFetchState = StreetViewFetchState.NoCoverage(result.message)) }
+            is StreetViewResult.Unavailable -> _state.update { it.copy(streetViewFetchState = StreetViewFetchState.Failed(result.reason)) }
         }
     }
 
