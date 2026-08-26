@@ -33,11 +33,13 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Straighten
+import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material.icons.filled.ThreeDRotation
 import androidx.compose.material.icons.filled.Traffic
 import androidx.compose.material.icons.filled.WbSunny
@@ -98,13 +100,18 @@ import com.lumix.estimator.map.GoogleMapsConfig
 import com.lumix.estimator.map.KnownPlace
 import com.lumix.estimator.network.NetworkConnectivityObserver
 import com.lumix.estimator.sensors.CompassManager
+import com.lumix.estimator.site.ElevationFetchState
 import com.lumix.estimator.site.GeoPoint
 import com.lumix.estimator.site.PanelOrientation
 import com.lumix.estimator.site.RoofPlane
 import com.lumix.estimator.site.ShadeAndExclusionSection
+import com.lumix.estimator.site.SiteMeasurement
+import com.lumix.estimator.site.SiteMeasurementKind
 import com.lumix.estimator.site.SolarCompassBadge
 import com.lumix.estimator.site.SolarApiFetchState
 import com.lumix.estimator.site.SolarSiteViewModel
+import com.lumix.estimator.site.elevation.GoogleElevationApiClient
+import com.lumix.estimator.site.geometry.DistanceCalculator
 import com.lumix.estimator.site.geometry.SolarSuitability
 import com.lumix.estimator.site.geometry.SolarSuitabilityCalculator
 import com.lumix.estimator.site.solarapi.GoogleSolarApiClient
@@ -122,10 +129,6 @@ import com.lumix.estimator.ui.components.NumberField
 import com.lumix.estimator.ui.theme.LocalLumixPalette
 import com.lumix.estimator.ui.theme.LumixRadius
 import kotlinx.coroutines.launch
-import kotlin.math.asin
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 private val pitchOptions: List<Double?> = listOf(null, 0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0)
 private val jamaicaDefault = GeoPoint(18.1096, -77.2975)
@@ -135,20 +138,6 @@ private enum class RoofEditMode { NONE, MOVE, DELETE, ADD }
 private fun GeoPoint.toLatLng() = LatLng(latitude, longitude)
 private fun LatLng.toGeoPoint() = GeoPoint(latitude, longitude)
 
-/**
- * 2026-08-19 (map Part 6, "measure the distance between them"): standard great-circle distance —
- * accurate enough for the cable-run/roof-to-inverter placement distances this is meant for (tens
- * to low hundreds of meters), where the earth's curvature is a rounding error either way.
- */
-private fun haversineMeters(a: GeoPoint, b: GeoPoint): Double {
-    val earthRadiusM = 6371000.0
-    val lat1 = Math.toRadians(a.latitude)
-    val lat2 = Math.toRadians(b.latitude)
-    val dLat = Math.toRadians(b.latitude - a.latitude)
-    val dLon = Math.toRadians(b.longitude - a.longitude)
-    val h = sin(dLat / 2).let { it * it } + cos(lat1) * cos(lat2) * sin(dLon / 2).let { it * it }
-    return 2 * earthRadiusM * asin(sqrt(h.coerceIn(0.0, 1.0)))
-}
 
 /**
  * 2026-08-19 ("change map to google map"): the base-map looks the installer can flip between —
@@ -236,6 +225,7 @@ fun SolarSiteMapScreen(
     val mapController = remember { MapController() }
     val roofController = remember { RoofDrawingService() }
     val solarApiClient = remember { GoogleSolarApiClient() }
+    val elevationClient = remember { GoogleElevationApiClient() }
     val geocodingProvider = remember { AndroidGeocodingProvider(context) }
     val locationManager = remember { DeviceLocationManager(context) }
     val compassManager = remember { CompassManager(context) }
@@ -263,6 +253,13 @@ fun SolarSiteMapScreen(
     var measureModeActive by remember { mutableStateOf(false) }
     var measurePointA by remember { mutableStateOf<GeoPoint?>(null) }
     var measurePointB by remember { mutableStateOf<GeoPoint?>(null) }
+    // Site Survey / Solar Mapping round ("measurement tool extensions... useful for cable runs,
+    // roof-to-inverter placement distance, electrical service distance"): the two-point measure
+    // above was always ephemeral (discarded on Done) — this lets the installer name and keep one
+    // as a real SiteMeasurement instead, without changing the ephemeral default for a quick check.
+    var measurementKind by remember { mutableStateOf(SiteMeasurementKind.ELECTRICAL_SERVICE) }
+    var measurementLabel by remember { mutableStateOf("") }
+    var showMeasurementsSheet by remember { mutableStateOf(false) }
 
     var searchQuery by remember { mutableStateOf(state.draftAddress ?: "") }
     var searchError by remember { mutableStateOf(false) }
@@ -551,6 +548,7 @@ fun SolarSiteMapScreen(
                 MapKeyMissingBanner()
             }
             SolarApiFetchBanner(state.solarApiFetchState)
+            ElevationFetchBanner(state.elevationFetchState)
             if (state.roofPlanes.any { it.vertices.size >= 3 }) {
                 SolarSuitabilityLegend()
             }
@@ -611,11 +609,25 @@ fun SolarSiteMapScreen(
                     if (!measureModeActive) {
                         measurePointA = null
                         measurePointB = null
+                        measurementLabel = ""
                     }
                 },
                 contentDescription = "Measure distance",
                 active = measureModeActive
             ) { Icon(Icons.Default.Straighten, contentDescription = null) }
+            if (state.siteMeasurements.isNotEmpty()) {
+                MapControlButton(
+                    onClick = { showMeasurementsSheet = true },
+                    contentDescription = "View saved measurements"
+                ) { Icon(Icons.Default.FormatListBulleted, contentDescription = null) }
+            }
+            if (state.hasLocation) {
+                MapControlButton(
+                    onClick = { scope.launch { viewModel.fetchElevation(elevationClient) } },
+                    contentDescription = "Ground elevation",
+                    active = state.elevationFetchState is ElevationFetchState.Loading
+                ) { Icon(Icons.Default.Terrain, contentDescription = null) }
+            }
             // Site Survey / Solar Mapping round (spec "Automatically detect/use available building
             // and roof information when Google Solar API data is available"): reuses
             // RoofConfirmForm's own default panel assumption (2.278m x 1.134m, 600W) since Solar
@@ -707,11 +719,26 @@ fun SolarSiteMapScreen(
                 measureModeActive -> MeasureControls(
                     pointA = measurePointA,
                     pointB = measurePointB,
-                    onClear = { measurePointA = null; measurePointB = null },
+                    kind = measurementKind,
+                    onKindChange = { measurementKind = it },
+                    label = measurementLabel,
+                    onLabelChange = { measurementLabel = it },
+                    onClear = { measurePointA = null; measurePointB = null; measurementLabel = "" },
                     onDone = {
                         measureModeActive = false
                         measurePointA = null
                         measurePointB = null
+                        measurementLabel = ""
+                    },
+                    onSave = {
+                        val a = measurePointA
+                        val b = measurePointB
+                        if (a != null && b != null && measurementLabel.isNotBlank()) {
+                            viewModel.addSiteMeasurement(measurementKind, measurementLabel, a, b)
+                            measurePointA = null
+                            measurePointB = null
+                            measurementLabel = ""
+                        }
                     }
                 )
                 else -> SiteAnalysisPanel(
@@ -807,6 +834,19 @@ fun SolarSiteMapScreen(
                     )
                 },
                 onClose = { showObstructionsSheet = false }
+            )
+        }
+    }
+
+    if (showMeasurementsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showMeasurementsSheet = false },
+            sheetState = rememberModalBottomSheetState()
+        ) {
+            SiteMeasurementsSheet(
+                measurements = state.siteMeasurements,
+                onRemove = { viewModel.removeSiteMeasurement(it) },
+                onClose = { showMeasurementsSheet = false }
             )
         }
     }
@@ -1055,6 +1095,51 @@ private fun SolarApiFetchBanner(fetchState: SolarApiFetchState) {
 }
 
 /**
+ * Site Survey / Solar Mapping round (spec "Use elevation/topography data where useful for site
+ * planning purposes... this must never be presented as a structural survey"): one banner per
+ * [ElevationFetchState] branch, mirroring [SolarApiFetchBanner]'s own per-outcome shape — a real
+ * reading, "no data here" (a real, if unusual, outcome for Google's Elevation API), or an
+ * operational failure, never a silent no-op or a fabricated number either way.
+ */
+@Composable
+private fun ElevationFetchBanner(fetchState: ElevationFetchState) {
+    val palette = LocalLumixPalette.current
+    when (fetchState) {
+        is ElevationFetchState.Idle -> Unit
+        is ElevationFetchState.Loading -> GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Text("Checking ground elevation…", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            }
+        }
+        is ElevationFetchState.Succeeded -> GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+            Text(
+                "Ground elevation: %.0f m — context for site planning only, not a structural survey.".format(fetchState.elevationMeters),
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)
+            )
+        }
+        is ElevationFetchState.NoData -> GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+            Text(fetchState.message, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary, modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp))
+        }
+        is ElevationFetchState.Failed -> GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text("Elevation lookup failed.", style = MaterialTheme.typography.labelSmall, color = palette.warningRedText)
+                Text(fetchState.reason, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            }
+        }
+    }
+}
+
+/**
  * 2026-08-19 ("change map to google map"): a compact segmented control to flip the base map
  * between [mapTypeOptions] — same look/behavior as the earlier MapLibre-era style switcher, now
  * driving Google Maps' own [MapType] instead of a style URL. Each cell sizes to its own natural
@@ -1189,9 +1274,27 @@ private fun RoofEditingControls(
     }
 }
 
-/** "Add a way to pin two points and measure the distance between them" (2026-08-19, map Part 6). */
+/**
+ * "Add a way to pin two points and measure the distance between them" (2026-08-19, map Part 6).
+ *
+ * Site Survey / Solar Mapping round ("measurement tool extensions... useful for cable runs,
+ * roof-to-inverter placement distance, electrical service distance"): once both points are placed,
+ * this now also offers naming the measurement and saving it as a real [SiteMeasurement] via
+ * [onSave] — "Done" alone still just clears the pins the way it always did, for a quick check that
+ * doesn't need to be kept.
+ */
 @Composable
-private fun MeasureControls(pointA: GeoPoint?, pointB: GeoPoint?, onClear: () -> Unit, onDone: () -> Unit) {
+private fun MeasureControls(
+    pointA: GeoPoint?,
+    pointB: GeoPoint?,
+    kind: SiteMeasurementKind,
+    onKindChange: (SiteMeasurementKind) -> Unit,
+    label: String,
+    onLabelChange: (String) -> Unit,
+    onClear: () -> Unit,
+    onDone: () -> Unit,
+    onSave: () -> Unit
+) {
     val palette = LocalLumixPalette.current
     GlassSurface(shape = RoundedCornerShape(LumixRadius.lg)) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1205,12 +1308,50 @@ private fun MeasureControls(pointA: GeoPoint?, pointB: GeoPoint?, onClear: () ->
                 color = palette.textPrimary
             )
             if (pointA != null && pointB != null) {
-                val meters = haversineMeters(pointA, pointB)
+                val meters = DistanceCalculator.haversineMeters(pointA, pointB)
                 Text(
                     "%.1f m  (%.1f ft)".format(meters, meters * 3.28084),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = palette.solarYellowText
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    SiteMeasurementKind.entries.forEach { entry ->
+                        val selected = entry == kind
+                        Text(
+                            entry.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selected) palette.solarYellowText else palette.textSecondary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(LumixRadius.pill))
+                                .background(if (selected) palette.solarYellow.copy(alpha = 0.16f) else palette.glass)
+                                .clickable { onKindChange(entry) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+                GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+                    BasicTextField(
+                        value = label,
+                        onValueChange = onLabelChange,
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = palette.textPrimary),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                        decorationBox = { inner ->
+                            if (label.isEmpty()) {
+                                Text("Name this measurement (e.g. \"Meter to inverter\")", style = MaterialTheme.typography.bodyMedium, color = palette.textSecondary)
+                            }
+                            inner()
+                        }
+                    )
+                }
+                LumixPrimaryButton(
+                    text = "Save measurement",
+                    onClick = onSave,
+                    enabled = label.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                    compact = true
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1562,6 +1703,62 @@ private fun ObstructionsManageSheet(
                         )
                     }
                 }
+            }
+        }
+        LumixPrimaryButton(text = "Close", onClick = onClose, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+/**
+ * Site Survey / Solar Mapping round: lists every real, named, saved [SiteMeasurement] with its
+ * distance and a delete action — the read/manage half of the measurement-saving flow (mirrors
+ * [ObstructionsManageSheet]'s own shape for the equivalent obstruction list), so measurements taken
+ * earlier in a survey (roof dimensions, equipment-to-equipment runs, electrical service distance)
+ * stay visible and correctable without re-measuring on the map.
+ */
+@Composable
+private fun SiteMeasurementsSheet(
+    measurements: List<SiteMeasurement>,
+    onRemove: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    val palette = LocalLumixPalette.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Site Measurements", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+        if (measurements.isEmpty()) {
+            Text(
+                "No measurements saved yet. Use the ruler tool on the map, then \"Save measurement\" to keep one here.",
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.textSecondary
+            )
+        }
+        measurements.forEach { measurement ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(measurement.label, style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
+                    Text(
+                        "${measurement.kind.label} — %.1f m (%.1f ft)".format(measurement.distanceMeters, measurement.distanceFeet),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textSecondary
+                    )
+                }
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Remove ${measurement.label}",
+                    tint = palette.warningRedText,
+                    modifier = Modifier.clickable { onRemove(measurement.id) }
+                )
             }
         }
         LumixPrimaryButton(text = "Close", onClick = onClose, modifier = Modifier.fillMaxWidth())

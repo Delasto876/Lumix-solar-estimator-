@@ -3,6 +3,8 @@ package com.lumix.estimator.site
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.lumix.estimator.site.elevation.ElevationApiClient
+import com.lumix.estimator.site.elevation.ElevationResult
 import com.lumix.estimator.site.geometry.PanelLayoutOptimizer
 import com.lumix.estimator.site.geometry.RoofExclusionZone
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
@@ -27,9 +29,27 @@ data class SiteUiState(
     val roofPlanes: List<RoofPlane> = emptyList(),
     val savedSiteId: String? = null,
     /** Site Survey / Solar Mapping round: the current/last outcome of a Solar API auto-detect attempt for this site — see [SolarApiFetchState]'s own doc. */
-    val solarApiFetchState: SolarApiFetchState = SolarApiFetchState.Idle
+    val solarApiFetchState: SolarApiFetchState = SolarApiFetchState.Idle,
+    /** Site Survey / Solar Mapping round: named, saved point-to-point distances — see [SiteMeasurement]'s own doc. */
+    val siteMeasurements: List<SiteMeasurement> = emptyList(),
+    /** Site Survey / Solar Mapping round: real ground elevation at the draft location, once fetched — see [ElevationFetchState]'s own doc. */
+    val elevationFetchState: ElevationFetchState = ElevationFetchState.Idle
 ) {
     val hasLocation: Boolean get() = draftLatitude != null && draftLongitude != null
+}
+
+/**
+ * Site Survey / Solar Mapping round: UI-facing status for the ground-elevation lookup — mirrors
+ * [SolarApiFetchState]'s own per-outcome shape (a real reading, "no data here," or an operational
+ * failure, plus loading) rather than collapsing everything into a nullable elevation value, for the
+ * same reason: the map screen needs to show the right message, not just a blank/zero.
+ */
+sealed class ElevationFetchState {
+    data object Idle : ElevationFetchState()
+    data object Loading : ElevationFetchState()
+    data class Succeeded(val elevationMeters: Double, val resolutionMeters: Double?) : ElevationFetchState()
+    data class NoData(val message: String) : ElevationFetchState()
+    data class Failed(val reason: String) : ElevationFetchState()
 }
 
 /**
@@ -168,7 +188,9 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
             timestampMillis = System.currentTimeMillis(),
             roofPlanes = s.roofPlanes,
             parish = s.draftParish,
-            town = s.draftTown
+            town = s.draftTown,
+            siteMeasurements = s.siteMeasurements,
+            groundElevationMeters = (s.elevationFetchState as? ElevationFetchState.Succeeded)?.elevationMeters
         )
         repository.save(site)
         cachedSites[id] = site
@@ -341,6 +363,35 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
             }
             is SolarApiResult.NoCoverage -> _state.update { it.copy(solarApiFetchState = SolarApiFetchState.NoCoverage(result.message)) }
             is SolarApiResult.Unavailable -> _state.update { it.copy(solarApiFetchState = SolarApiFetchState.Failed(result.reason)) }
+        }
+    }
+
+    /** Saves one named point-to-point distance (roof dimension, equipment-to-equipment run, electrical service distance, ...) — see [SiteMeasurement]'s own doc. */
+    fun addSiteMeasurement(kind: SiteMeasurementKind, label: String, pointA: GeoPoint, pointB: GeoPoint) {
+        val measurement = SiteMeasurement(id = UUID.randomUUID().toString(), kind = kind, label = label, pointA = pointA, pointB = pointB)
+        _state.update { it.copy(siteMeasurements = it.siteMeasurements + measurement) }
+    }
+
+    fun removeSiteMeasurement(id: String) {
+        _state.update { it.copy(siteMeasurements = it.siteMeasurements.filterNot { m -> m.id == id }) }
+    }
+
+    /**
+     * Site Survey / Solar Mapping round (spec "Use elevation/topography data where useful for site
+     * planning purposes... never presented as a structural survey"): looks up real ground elevation
+     * at the draft site location via [client] — a genuine three-way outcome (see
+     * [ElevationFetchState]'s own doc), never a fabricated number when the API has no data or fails.
+     */
+    suspend fun fetchElevation(client: ElevationApiClient) {
+        val lat = _state.value.draftLatitude ?: return
+        val lon = _state.value.draftLongitude ?: return
+        _state.update { it.copy(elevationFetchState = ElevationFetchState.Loading) }
+        when (val result = client.elevationAt(GeoPoint(lat, lon))) {
+            is ElevationResult.Available -> _state.update {
+                it.copy(elevationFetchState = ElevationFetchState.Succeeded(result.reading.elevationMeters, result.reading.resolutionMeters))
+            }
+            is ElevationResult.NoData -> _state.update { it.copy(elevationFetchState = ElevationFetchState.NoData(result.message)) }
+            is ElevationResult.Unavailable -> _state.update { it.copy(elevationFetchState = ElevationFetchState.Failed(result.reason)) }
         }
     }
 

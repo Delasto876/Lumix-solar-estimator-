@@ -25,7 +25,11 @@ data class SolarSite(
     val mapZoomLevel: Float? = null,
     val roofPlanes: List<RoofPlane> = emptyList(),
     val parish: String? = null,
-    val town: String? = null
+    val town: String? = null,
+    /** Site Survey / Solar Mapping round: named, saved point-to-point distances — see [SiteMeasurement]'s own doc. */
+    val siteMeasurements: List<SiteMeasurement> = emptyList(),
+    /** Site Survey / Solar Mapping round: real ground elevation at [latitude]/[longitude] from Google's Elevation API, when available — see [com.lumix.estimator.site.elevation.ElevationReading]'s own doc. Null whenever the lookup wasn't run or returned no data, never fabricated. */
+    val groundElevationMeters: Double? = null
 ) {
     val totalUsableAreaM2: Double get() = roofPlanes.sumOf { it.usableAreaM2 }
     val totalPanelCount: Int get() = roofPlanes.sumOf { it.panelLayout?.panelCount ?: 0 }

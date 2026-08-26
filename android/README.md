@@ -9184,3 +9184,56 @@ invariant by design — a ~4.0 m² chimney reduced `usableAreaM2` by ~4.0 m² re
 established standalone kotlinc route; `SolarSiteMapScreen.kt`'s UI wiring depends on the Android
 SDK/Compose/Google Maps SDK this sandbox can't compile standalone — reviewed by hand and brace/paren-
 balance-checked instead, the same disclosed limitation every map-layer round carries.
+
+## A144 — Site Survey / Solar Mapping Phase 5: measurement extensions + real elevation lookup
+
+Spec's own "measurement tool extensions: roof dimensions, equipment-to-equipment distance,
+electrical service distance... use elevation/topography data where useful for site planning
+purposes... never presented as a structural survey." The map's existing measure tool (map Part 6)
+already computed a real point-to-point distance, but discarded it the instant the installer tapped
+Done — nothing was ever kept with the site. This phase makes a measurement a real, named, saved
+part of the site record, and adds a genuine (never fabricated) ground-elevation lookup.
+
+- **`site/geometry/DistanceCalculator.kt`** (new): the haversine distance rule, moved out of a
+  private helper inside `SolarSiteMapScreen.kt` into the domain layer — per the spec's own "no
+  duplicated ... logic; separate concerns" rule, this is now the one real distance calculation for
+  the whole module (roof dimensions, equipment-to-equipment runs, electrical service distance all
+  go through it), not a UI-layer copy.
+- **`site/SiteMeasurement.kt`** (new): `SiteMeasurementKind` (Roof dimension / Equipment-to-
+  equipment run / Electrical service distance / Other) + `SiteMeasurement(id, kind, label, pointA,
+  pointB)` with computed `distanceMeters`/`distanceFeet`. `SolarSite` gains a persisted
+  `siteMeasurements: List<SiteMeasurement>` field (additive, safe for already-saved sites —
+  `SiteRepository`'s `ignoreUnknownKeys = true` JSON already tolerates new fields with defaults).
+- **`site/elevation/`** (new package): `ElevationApiModels.kt` (`ElevationReading`,
+  `ElevationResult` — a three-way Available/NoData/Unavailable shape mirroring
+  `solarapi.SolarApiResult`'s own reasoning), `ElevationApiResponseParser.kt` (pure JSON parsing,
+  tested independent of the network), and `ElevationApiClient.kt` (`GoogleElevationApiClient`, a
+  plain `HttpURLConnection` GET against `maps.googleapis.com`'s Elevation API — deliberately reuses
+  `GoogleSolarApiConfig`'s already-configured key rather than adding a fourth `local.properties`
+  entry, since Elevation API is, like Solar API, a plain REST call this app makes directly and in
+  practice both live on the same Google Cloud project/key). `SolarSite` gains a persisted
+  `groundElevationMeters: Double?` — null whenever the lookup wasn't run or found no data, never a
+  guess.
+- **`SolarSiteViewModel.kt`**: new `ElevationFetchState` sealed class (mirrors
+  `SolarApiFetchState`'s per-outcome shape), `addSiteMeasurement`/`removeSiteMeasurement`, and
+  `fetchElevation(client)`; `saveSite()` now persists both the measurement list and the last
+  successful elevation reading onto the saved `SolarSite`.
+- **Map UI (`SolarSiteMapScreen.kt`)**: the measure tool's bottom panel, once two points are placed,
+  now also offers a kind-picker + a name field + "Save measurement" (kept separate from "Done,"
+  which still just clears the pins for a quick unsaved check). A new "View saved measurements"
+  floating button (visible once at least one exists) opens a list with per-item distance and delete.
+  A new "Ground elevation" floating button (visible once a location is selected) fetches real
+  elevation and shows the same kind of outcome banner `SolarApiFetchBanner` already established,
+  explicitly worded as site-planning context, never a structural claim.
+
+**Verification**: `DistanceCalculator.kt`, `SiteMeasurement.kt`, the `elevation` package, and every
+other touched pure-Kotlin file compiled clean via the established standalone kotlinc route (with the
+`kotlinx-coroutines-core-jvm` jar added to the classpath — the elevation/solar API clients' own
+`Dispatchers`/`withContext` calls needed it, and it had been missing from this round's dependency
+list until now). A real diagnostic exercised `SiteMeasurement.distanceMeters` (a known ~1°-of-
+latitude separation came out to ~111.2 km, consistent with this method's own accuracy disclaimer)
+and `ElevationApiResponseParser` against a real sample "OK" payload, a real "ZERO_RESULTS" payload,
+and malformed JSON — all three resolved exactly as expected. `SolarSiteMapScreen.kt`'s own UI wiring
+depends on the Android SDK/Compose/Google Maps SDK this sandbox can't compile standalone — reviewed
+by hand and brace/paren-balance-checked instead, the same disclosed limitation every map-layer round
+carries.
