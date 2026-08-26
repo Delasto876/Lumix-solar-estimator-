@@ -14,6 +14,7 @@ import com.lumix.estimator.domain.SolarResource
 import com.lumix.estimator.domain.SystemCalculator
 import com.lumix.estimator.domain.SystemType
 import com.lumix.estimator.domain.Validation
+import com.lumix.estimator.site.SiteSurveySummary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -213,10 +214,16 @@ class WizardViewModel(
      * so a roof traced on the map now carries the same parish/PSH auto-fill `StepLocation` gives a
      * manually-typed location — not just lat/lon for panel-count capping.
      */
-    fun startWithRoofConstraint(constraint: RoofConstraint, parish: String? = null, town: String? = null) {
+    fun startWithRoofConstraint(
+        constraint: RoofConstraint,
+        parish: String? = null,
+        town: String? = null,
+        /** Site Survey / Solar Mapping round: captured alongside [constraint] — see [QuoteInputs.siteSurveySummary]'s own doc. */
+        siteSurveySummary: SiteSurveySummary? = null
+    ) {
         reset()
         _inputs.value = _inputs.value.let { current ->
-            var updated = current.copy(roofConstraint = constraint)
+            var updated = current.copy(roofConstraint = constraint, siteSurveySummary = siteSurveySummary)
             if (!parish.isNullOrBlank()) {
                 updated = updated.copy(parish = parish, nearestTown = town.orEmpty())
                 if (!updated.peakSunHoursManuallySet) {

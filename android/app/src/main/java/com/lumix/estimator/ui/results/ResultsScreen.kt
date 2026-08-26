@@ -41,6 +41,7 @@ import com.lumix.estimator.domain.BackupCoverage
 import com.lumix.estimator.domain.BusinessInfo
 import com.lumix.estimator.domain.QuoteInputs
 import com.lumix.estimator.domain.QuoteResult
+import com.lumix.estimator.site.SiteSurveySummary
 import com.lumix.estimator.domain.SavingsCalculator
 import com.lumix.estimator.domain.SystemMode
 import com.lumix.estimator.domain.formatCurrency
@@ -265,6 +266,12 @@ fun ResultsScreen(
                     }
                 }
 
+                inputs.siteSurveySummary?.let { summary ->
+                    item {
+                        SiteSurveySummaryCard(summary = summary)
+                    }
+                }
+
                 if (result.backupCapacityWarningKw != null) {
                     item {
                         BackupCapacityWarningBanner(warningKw = result.backupCapacityWarningKw, inverterKw = result.inverterKw)
@@ -451,6 +458,55 @@ private fun RoofConstraintBanner(inputs: QuoteInputs, result: QuoteResult) {
                 )
             }
         }
+    }
+}
+
+/**
+ * Site Survey / Solar Mapping round (spec "produce a full site-survey summary for the final
+ * quote/report"): the on-screen counterpart to [com.lumix.estimator.pdf.QuotePdfGenerator]'s own
+ * "Site Survey Summary" section — same figures, shown here so the installer sees exactly what will
+ * appear on the exported quote before generating it, not only after.
+ */
+@Composable
+private fun SiteSurveySummaryCard(summary: SiteSurveySummary) {
+    val palette = LocalLumixPalette.current
+    SectionCard(title = "Site Survey Summary") {
+        Text(
+            "%d roof plane(s) · %.1f m² usable · %d panel(s) · %.2f kW total".format(
+                summary.roofPlanes.size, summary.totalUsableAreaM2, summary.totalPanelCount, summary.totalCapacityKw
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+            color = palette.textPrimary
+        )
+        summary.roofPlanes.forEach { plane ->
+            Text(
+                "${plane.label}: %.1f m², %d panel(s), %.2f kW — %s".format(plane.usableAreaM2, plane.panelCount, plane.capacityKw, plane.suitability.label),
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary
+            )
+        }
+        if (summary.exclusionZones.isNotEmpty()) {
+            Text(
+                "Exclusions marked: ${summary.exclusionZones.joinToString(", ") { "${it.type.label} (${it.count})" }} — %.1f m² excluded".format(summary.totalExclusionAreaM2),
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.textPrimary
+            )
+        }
+        summary.measurements.forEach { measurement ->
+            Text(
+                "${measurement.kind.label}: ${measurement.label} — %.1f m".format(measurement.distanceMeters),
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary
+            )
+        }
+        summary.groundElevationMeters?.let { elevation ->
+            Text("Ground elevation: %.0f m".format(elevation), style = MaterialTheme.typography.bodyMedium, color = palette.textPrimary)
+        }
+        Text(
+            "Site survey data derived from satellite imagery, manual tracing, and/or Google Solar API — a preliminary estimate, not a certified structural or topographic survey. Verify on-site conditions before installation.",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textSecondary
+        )
     }
 }
 

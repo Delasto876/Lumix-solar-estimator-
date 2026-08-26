@@ -1,6 +1,7 @@
 package com.lumix.estimator.domain
 
 import com.lumix.estimator.domain.commercial.CommercialIndustrialDesign
+import com.lumix.estimator.site.SiteSurveySummary
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -302,6 +303,14 @@ data class QuoteInputs(
 
     /** A81 (Phase 18, restored): set only via a Solar Site "Use This Roof" flow — see [RoofConstraint]'s own doc. */
     val roofConstraint: RoofConstraint? = null,
+    /**
+     * Site Survey / Solar Mapping round (spec "produce a full site-survey summary for the final
+     * quote/report"): set alongside [roofConstraint] by the same "Use This Roof" flow — see
+     * [SiteSurveySummary]'s own doc for why it's captured once here rather than re-derived from
+     * the live saved site later. Null for every quote not built from a real traced/auto-detected
+     * site (manual entry, or a quote pre-dating this field).
+     */
+    val siteSurveySummary: SiteSurveySummary? = null,
 
     val backupHoursPreset: Int? = 12,
     val backupHoursCustom: Double = 6.0,

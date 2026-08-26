@@ -102,6 +102,60 @@ object QuotePdfGenerator {
 
         canvas.drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, linePaint); y += 16f
 
+        // Site Survey / Solar Mapping round (spec "produce a full site-survey summary for the
+        // final quote/report"): only rendered when this quote actually came from a real traced/
+        // auto-detected roof ("Use This Roof") — see QuoteInputs.siteSurveySummary's own doc for
+        // why every figure below traces back to something the survey actually measured/fetched.
+        inputs.siteSurveySummary?.let { summary ->
+            ensureSpace(16f)
+            canvas.drawText("Site Survey Summary", MARGIN, y, headingPaint); y += 16f
+            ensureSpace(14f)
+            canvas.drawText(
+                "%d roof plane(s) - %.1f m² usable - %d panel(s) - %.2f kW total".format(
+                    summary.roofPlanes.size, summary.totalUsableAreaM2, summary.totalPanelCount, summary.totalCapacityKw
+                ),
+                MARGIN, y, bodyPaint
+            ); y += 14f
+            summary.roofPlanes.forEach { plane ->
+                ensureSpace(13f)
+                canvas.drawText(
+                    "  %s: %.1f m², %d panel(s), %.2f kW - %s".format(
+                        plane.label, plane.usableAreaM2, plane.panelCount, plane.capacityKw, plane.suitability.label
+                    ),
+                    MARGIN, y, mutedPaint
+                ); y += 13f
+            }
+            if (summary.exclusionZones.isNotEmpty()) {
+                ensureSpace(14f)
+                val exclusionLabel = summary.exclusionZones.joinToString(", ") { "${it.type.label} (${it.count})" }
+                canvas.drawText(
+                    "Exclusions marked: $exclusionLabel - %.1f m² excluded".format(summary.totalExclusionAreaM2),
+                    MARGIN, y, bodyPaint
+                ); y += 14f
+            }
+            summary.measurements.forEach { measurement ->
+                ensureSpace(13f)
+                canvas.drawText(
+                    "  %s: %s - %.1f m".format(measurement.kind.label, measurement.label, measurement.distanceMeters),
+                    MARGIN, y, mutedPaint
+                ); y += 13f
+            }
+            summary.groundElevationMeters?.let { elevation ->
+                ensureSpace(14f)
+                canvas.drawText("Ground elevation: %.0f m".format(elevation), MARGIN, y, bodyPaint); y += 14f
+            }
+            y += 2f
+            wrapText(
+                "Site survey data derived from satellite imagery, manual tracing, and/or Google Solar API - a preliminary estimate, not a certified structural or topographic survey. Verify on-site conditions before installation.",
+                mutedPaint, PAGE_WIDTH - 2 * MARGIN
+            ).forEach { line ->
+                ensureSpace(12f)
+                canvas.drawText(line, MARGIN, y, mutedPaint); y += 12f
+            }
+            y += 6f
+            canvas.drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, linePaint); y += 16f
+        }
+
         canvas.drawText("System Summary", MARGIN, y, headingPaint); y += 16f
         canvas.drawText("PV Array: ${result.panelCount} x ${result.panelWatts}W (${"%.2f".format(result.pvKw)} kW)", MARGIN, y, bodyPaint); y += 14f
         canvas.drawText("Inverter: ${result.inverterName}", MARGIN, y, bodyPaint); y += 14f

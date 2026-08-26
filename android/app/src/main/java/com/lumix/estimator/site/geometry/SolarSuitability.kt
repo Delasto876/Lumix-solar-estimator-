@@ -1,14 +1,18 @@
 package com.lumix.estimator.site.geometry
 
 import com.lumix.estimator.site.RoofPlane
+import kotlinx.serialization.Serializable
 
 /**
  * Site Survey / Solar Mapping round (spec "Show roof areas using a clear suitability gradient
  * such as: Excellent / Good / Moderate / Poor / Unsuitable"): a 5-tier label for how good a roof
  * section's own sun exposure is — a narrower, exposure-only concept than [RoofScoreCalculator]'s
  * 100-point overall roof quality score (which also weighs area and usable-space, unrelated to
- * exposure).
+ * exposure). `@Serializable` (added alongside `SiteSurveySummary`) so a roof plane's tier can be
+ * captured into a quote's persisted `QuoteInputs.siteSurveySummary` — purely additive, no
+ * behavioral change to the calculator itself.
  */
+@Serializable
 enum class SolarSuitability(val label: String) {
     EXCELLENT("Excellent"),
     GOOD("Good"),

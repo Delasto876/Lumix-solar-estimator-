@@ -25,6 +25,7 @@ import com.lumix.estimator.LumixApp
 import com.lumix.estimator.domain.RoofConstraint
 import com.lumix.estimator.site.ManualSiteScreen
 import com.lumix.estimator.site.SiteDetailScreen
+import com.lumix.estimator.site.SiteSurveySummary
 import com.lumix.estimator.site.SolarSiteEntryScreen
 import com.lumix.estimator.site.SolarSiteViewModel
 import com.lumix.estimator.site.map.SolarSiteMapScreen
@@ -193,7 +194,11 @@ fun LumixNavHost(app: LumixApp) {
                                 longitude = site?.longitude ?: 0.0
                             ),
                             parish = site?.parish,
-                            town = site?.town
+                            town = site?.town,
+                            // Site Survey / Solar Mapping round (spec "produce a full site-survey
+                            // summary for the final quote/report"): captured once here, from the
+                            // real site as it stands right now — see SiteSurveySummary's own doc.
+                            siteSurveySummary = site?.let { SiteSurveySummary.from(it) }
                         )
                         navController.navigate(ROUTE_WIZARD)
                     },

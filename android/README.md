@@ -9283,3 +9283,50 @@ essentially risk-free — specifically to avoid shipping an unverified guess on 
 was otherwise able to verify end-to-end. Worth a quick Android Studio sync as a sanity check on the
 handful of `Terrain`/`FormatListBulleted`/`Block` icon references before shipping, though all three
 are common, long-standing Material icons.
+
+## A146 — Site Survey / Solar Mapping Phase 7: site-survey summary for the quote/report
+
+Spec's own "Produce a full site-survey summary for the final quote/report." Every prior phase
+(roof geometry, exclusions, suitability, measurements, elevation) built real data — this phase is
+what actually carries a snapshot of it through to the customer-facing quote, on-screen and in the
+exported PDF, rather than leaving it stranded on the map screen.
+
+- **`site/SiteSurveySummary.kt`** (new): `RoofPlaneSurveySummary`, `ExclusionZoneSurveySummary`,
+  `SiteMeasurementSurveySummary`, and the top-level `SiteSurveySummary` — a compact, `@Serializable`
+  snapshot built once via `SiteSurveySummary.from(site)`, aggregating per-plane suitability tier
+  (reusing `SolarSuitabilityCalculator`, verified in A142), exclusion-zone counts/areas grouped by
+  type, saved `SiteMeasurement`s, and ground elevation. Captured as a snapshot rather than a live
+  reference to the `SolarSite` so the report always reflects the survey exactly as it stood when the
+  roof was chosen, even if the underlying saved site is later edited or deleted. `SolarSuitability`
+  gained `@Serializable` (purely additive) so a roof plane's tier can travel inside it.
+- **`QuoteInputs.siteSurveySummary`** (new field, `null` default — fully backward-compatible with
+  every already-saved quote, since `QuoteRepository` already decodes with defaults for missing
+  fields): set alongside the existing `RoofConstraint` by the exact same "Use This Roof" flow
+  (`LumixNavHost`'s `onUseRoof` → `WizardViewModel.startWithRoofConstraint`, which gained an
+  optional `siteSurveySummary` parameter) — the only place a real site currently reaches a quote.
+  Null for manual-entry quotes and any quote pre-dating this field, same as `roofConstraint` always
+  has been.
+- **`QuotePdfGenerator.kt`**: a new "Site Survey Summary" section (roof plane count/area/capacity,
+  per-plane suitability tier, exclusion-zone summary, saved measurements, ground elevation, and the
+  same "preliminary estimate, not a certified survey — verify on-site" disclaimer every other Site
+  Survey feature already carries), rendered only when `siteSurveySummary` is present.
+- **`ResultsScreen.kt`**: a matching on-screen `SiteSurveySummaryCard` (same figures as the PDF
+  section) so the installer sees exactly what the exported quote will contain before generating it,
+  not only after.
+- **Scope note**: this phase wires the summary through the one complete site→quote path that exists
+  today (residential's "Use This Roof"). Commercial/Industrial's own roof-survey capacity check
+  (A140/`roofSurveyConstraints`) stays advisory-numbers-only as designed in that round — it doesn't
+  carry a `sourceSiteId` back to a live `SolarSite`, so there's no live site to snapshot from on that
+  path yet; extending C&I's own UI to select a saved site (rather than manual capacity entry) would
+  be the natural follow-up, not something this phase silently bolted on.
+
+**Verification**: `SiteSurveySummary.kt` (plus `SolarSuitability`'s new `@Serializable`) compiled
+clean via the established standalone kotlinc route, alongside the entire `domain` package (63 files)
+and the `solar` package it transitively depends on through `QuoteInputs` — confirming the new field
+doesn't break that compile. A real diagnostic built a two-roof-plane site (with a chimney + vent
+exclusion, two saved measurements, and a ground elevation) and confirmed every aggregate figure
+(`totalUsableAreaM2`, `totalPanelCount`, `totalCapacityKw`, per-type exclusion counts/areas,
+flattened measurements, suitability tiers) came out exactly as hand-calculated.
+`WizardViewModel.kt`/`LumixNavHost.kt`/`QuotePdfGenerator.kt`/`ResultsScreen.kt` depend on the
+Android SDK/Compose this sandbox can't compile standalone — reviewed by hand and brace/paren-
+balance-checked instead, the same disclosed limitation every UI-layer round carries.
