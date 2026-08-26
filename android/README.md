@@ -9330,3 +9330,60 @@ flattened measurements, suitability tiers) came out exactly as hand-calculated.
 `WizardViewModel.kt`/`LumixNavHost.kt`/`QuotePdfGenerator.kt`/`ResultsScreen.kt` depend on the
 Android SDK/Compose this sandbox can't compile standalone — reviewed by hand and brace/paren-
 balance-checked instead, the same disclosed limitation every UI-layer round carries.
+
+## A147 — Site Survey / Solar Mapping: the three required end-to-end scenarios
+
+The original request's own explicit closing line: "Test the complete flow with: 1. A residential
+house with an irregular roof. 2. A commercial facility with multiple roof sections. 3. An
+industrial facility with multiple roof sections and multiple inverters... The final result must be
+a working Lumix Site Survey/Solar Mapping system, not merely a visual map." Every phase since A140
+built one real piece of that system; this is where all of them get run together, end to end,
+against the actual production engines — not a diagnostic that gets thrown away, but a permanent
+addition to the real JUnit suite: `app/src/test/java/com/lumix/estimator/domain/commercial
+/SiteSurveyEndToEndTest.kt` (3 tests, run via `org.junit.runner.JUnitCore` in this sandbox's
+standalone-kotlinc-plus-JUnit route — no Gradle/Android SDK needed for pure-Kotlin domain code).
+
+- **Scenario 1 (residential, irregular roof)**: a real L-shaped, concave hand-traced polygon (not a
+  rectangle a bounding-box shortcut would get right) — shoelace area verified against the hand
+  calculation (84 m² exactly), a chimney exclusion zone subtracted, a real `PanelLayoutOptimizer`
+  panel-fit computed against the exact outline, a `SiteSurveySummary` built and checked against the
+  same numbers, and finally the roof's own real panel count fed into `SystemCalculator` via a
+  `RoofConstraint` requesting MORE panels than the roof can hold — confirming the system gets capped
+  to the roof's real fit (rounded down to even, the same rule `RoofConstraintTest` already
+  established), not the electricity-driven count.
+- **Scenario 2 (commercial, multiple roof sections)**: two separate real rectangular roof sections
+  (a warehouse + an office), each independently traced and panel-fit, summed into one
+  `totalRoofSurveyCapacityKw` via `CommercialIndustrialDesign.roofSurveyConstraints` (A140's own
+  field). Runs `CommercialIndustrialCalculator` twice — once with a deliberately oversized array
+  (confirms the real `PvExceedsRoofSurveyCapacity` advisory warning fires) and once with an array
+  that fits (confirms it does NOT fire) — proving the Phase 1 advisory check actually behaves
+  correctly at realistic multi-section scale, not just in isolation. `SiteSurveySummary.from(site)`
+  is checked against both sections' real combined capacity.
+- **Scenario 3 (industrial, multiple roof sections AND multiple inverters)**: three real roof
+  sections across three separate buildings (a genuine multi-building industrial site), summing to a
+  real ~143 kW array. `ParallelInverterSizer.suggest` (A140's own inverter-quantity advisory) is run
+  against that real roof-derived target with a 25 kW test inverter — confirming it proposes exactly
+  `ceil(143/25) = 6` units (not capped, since 6 ≤ the fixture's 8 confirmed parallel units), then
+  confirming a tighter fixture (2 confirmed units) correctly reports `cappedByParallelLimit` instead
+  of silently exceeding its own confirmed limit. The suggested design is then run through the full
+  `CommercialIndustrialCalculator` (three-phase load, 90% diversity) end to end, confirming a real
+  summary is produced with no roof-capacity warning (the sizer's own output, by construction, never
+  exceeds the real survey). `SiteSurveySummary.from(site)` is checked against all three sections.
+
+**Verification**: all three tests compile and pass for real — `JUnit version 4.13.2 ... OK (3
+tests)` — against the actual `RoofGeometryEngine`, `PanelLayoutOptimizer`, `SystemCalculator`,
+`CommercialIndustrialCalculator`, `ParallelInverterSizer`, and `SiteSurveySummary` implementations,
+not mocks or hand-substituted expected values standing in for them. One real bug was caught and
+fixed in the test itself along the way: the first attempt assumed 6 confirmed parallel units would
+be enough for the industrial scenario's real roof-derived capacity, but three real building-sized
+roof sections summed to ~143 kW — genuinely needing more inverter capacity than a 15 kW/6-unit
+fixture could supply. That's the sizer correctly refusing to silently exceed a confirmed limit, not
+a defect; the fixture was corrected to a realistic 25 kW/8-unit inverter once the real number was
+known, which is exactly the kind of finding this end-to-end pass exists to surface.
+
+This closes out the Site Survey / Solar Mapping module (A140–A147): real map-based roof tracing,
+Google Solar API auto-detection with honest fallback, a suitability gradient, drawn exclusion zones
+that actually affect panel placement, named saved measurements, real elevation and Street View
+lookups, a site-survey summary that reaches the actual customer-facing quote/report, and now
+end-to-end proof that all of it drives the real residential/commercial/industrial sizing engines
+correctly — not merely a visual map, per the original request's own standard.
