@@ -8961,3 +8961,67 @@ still excluded — a pre-existing, unrelated dependency on the `ui/` package thi
 can't resolve, not something this round touched or needs to fix) from scratch, then ran the complete real
 JUnit suite: **397/397 passing, zero failures** — every one of A138's 14 failures fixed, and nothing else
 newly broken by any of these edits.
+
+## A140 — Site Survey / Solar Mapping: architecture audit + first two backward-design phases
+
+The user's request is a large, multi-phase "Site Survey / Solar Mapping" feature (address search, satellite/
+Street View/3D map modes, roof tracing, Google Solar API, shading, panel placement, electrical measurement,
+sizing-engine integration, report output). Before writing anything, a full audit (Explore agent) of the
+existing "Solar Site" module confirmed it is **not a stub to rebuild** — it's a working, reachable, real
+pipeline: Google Maps Compose satellite tracing or manual typed-dimension entry, multi-polygon roof sections
+per property, real shoelace-formula area/perimeter/azimuth math (`RoofGeometryEngine`), a real rectangle-
+packing panel-fit engine respecting setbacks/exclusions (`PanelLayoutOptimizer`), vertex add/remove/drag with
+separate undo/redo stacks, a 100-point roof score, a manual-checklist shading heuristic, a haversine distance
+tool, and a `RoofConstraint` that already caps panel count in the **residential** sizing pipeline
+(`SystemCalculator`). The real gaps the audit surfaced: no Google Solar API integration exists at all;
+`RoofConstraint` never reached Commercial/Industrial; shading is manual-checklist only; two separate
+`SolarPosition` implementations coexist un-unified; `local.properties` has no `MAPS_API_KEY` (only a stale
+`MAPTILER_API_KEY` remains — the map currently shows its "not configured" banner until a real key is added,
+gitignored, never committed); and this sandbox has no Android SDK/emulator/Google-Maven access, so map-layer
+verification stays domain-level (real compile + diagnostics) rather than an on-device run, exactly the same
+constraint every prior Solar Site round already disclosed.
+
+Working backward from the sizing engine (per the request's own "define the final data the sizing engine
+needs first, then build backward" instruction), this round's two completed phases close the
+**Commercial/Industrial roof-survey gap** specifically:
+
+- **`CommercialIndustrialDesign.roofSurveyConstraints: List<RoofConstraint>`** (new, empty by default):
+  reuses the existing residential `RoofConstraint` type verbatim rather than inventing a parallel model —
+  one entry per surveyed roof section, supporting the spec's own "multiple buildings, multiple roof areas"
+  requirement for C&I (residential only ever has one). `totalRoofSurveyCapacityKw` sums every section's
+  own already-kW-normalized `maxCapacityKw`, valid even across sections traced against different assumed
+  panel wattages. Null (not zero) until a real survey is attached, so no warning fires for any of the
+  hundreds of pre-existing C&I quotes with no site survey at all.
+- **`EngineeringWarning.PvExceedsRoofSurveyCapacity`** + a check in `CommercialIndustrialCalculator`: unlike
+  residential (where `SystemCalculator` silently re-caps the panel count it auto-searched), C&I sizing is
+  entirely installer-entered (`ParallelInverterDesign`) — this warns rather than silently rewrites, matching
+  this calculator's own existing "advisory, never auto-decide" posture for every other C&I check. Verified
+  via a real diagnostic run reusing the request's own worked example (58 panels / 26.68 kW across two roof
+  sections): exactly at capacity → no warning; over capacity → the warning fires with the real numbers; no
+  survey attached → no warning, no crash, `null` summary field.
+- **`ParallelInverterSizer.suggest(targetPvKw, targetAcKw, panelWattage, inverterSpec)`** (new file): the
+  spec's own "if required PV/AC capacity exceeds one inverter, calculate quantity and show PV/string
+  allocation PER INVERTER" — a pure suggestion (never auto-writes `ParallelInverterDesign`, which stays
+  installer-specified/confirmed per its own existing doc). Computes the minimum inverter count for a target
+  AC capacity, correctly declines to exceed a model's real confirmed `maxParallelUnits` (or lack of confirmed
+  parallel support at all) and explains why in a note rather than silently overcommitting, then spreads the
+  target panel count evenly across units and — reusing the existing `MpptStringPlanner` (the same shared
+  string-splitting rule every other panel/inverter topology in this codebase already uses, not a second
+  parallel rule) — across each unit's own MPPT trackers. Real diagnostic runs against the actual catalog
+  Solis S5-GC30K-LV (30kW, 4 MPPT, confirmed parallel support): a 26.68kW target correctly stays at 1 unit
+  (58 panels split 15/15/14/14, `ParallelInverterValidator` confirms fully valid); an 80kW target correctly
+  computes 3 units (173 panels split 58/58/57, every unit independently valid); a no-parallel-support model
+  and a `maxParallelUnits = 2` model each correctly cap at 1 and 2 units respectively with an explanatory
+  note naming the real shortfall.
+- Added `EquipmentSelectionEngine.estimatedOrRealVmpV` — a thin `internal` wrapper exposing that engine's
+  existing private real-or-estimated panel Vmp logic, so `ParallelInverterSizer` reuses the identical
+  estimation `EquipmentSelectionEngine`'s own residential search already relies on rather than duplicating it.
+
+**Verification**: all edits compiled clean against the full 69-file real `domain/`+`solar/` source tree
+(same real kotlinc route as A138/A139), and every new code path was exercised with real standalone
+diagnostic runs (not hand-traced) before being called done — no UI wiring yet, this round is domain-layer
+only. Remaining phases (tracked as open tasks, not yet started): Google Solar API client with graceful
+fallback, shading suitability gradient + visual overlay, expanded exclusion-zone obstruction types,
+measurement-tool extensions (roof dimensions, equipment-to-equipment, electrical-service distance,
+elevation), Street View integration, quote/report export section, and full domain-level residential/
+commercial/industrial workflow verification.

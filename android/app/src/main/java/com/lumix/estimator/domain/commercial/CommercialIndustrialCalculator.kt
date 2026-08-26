@@ -90,6 +90,15 @@ object CommercialIndustrialCalculator {
             }
         }
 
+        // Site Survey / Solar Mapping round: advisory-only check against a real attached roof
+        // survey — never re-caps parallelDesign itself, since every other C&I PV figure here is
+        // installer-entered, not auto-searched (see this calculator's own doc + EngineeringWarning
+        // .PvExceedsRoofSurveyCapacity's own doc for why this warns rather than silently rewrites).
+        val roofSurveyCapacityKw = design.totalRoofSurveyCapacityKw
+        if (roofSurveyCapacityKw != null && parallelDesign != null && parallelDesign.totalPvKw > roofSurveyCapacityKw + 0.01) {
+            warnings += EngineeringWarning.PvExceedsRoofSurveyCapacity(parallelDesign.totalPvKw, roofSurveyCapacityKw)
+        }
+
         val summary = CommercialIndustrialResultSummary(
             connectedLoadKw = design.connectedLoadKw,
             maximumExpectedLoadKw = design.maximumExpectedLoadKw,
@@ -97,7 +106,8 @@ object CommercialIndustrialCalculator {
             connectedApparentPowerKva = design.connectedApparentPowerKva,
             maximumExpectedApparentPowerKva = design.maximumExpectedApparentPowerKva,
             designApparentPowerKva = design.designApparentPowerKva,
-            blendedPowerFactor = design.blendedPowerFactor
+            blendedPowerFactor = design.blendedPowerFactor,
+            roofSurveyCapacityKw = roofSurveyCapacityKw
         )
 
         return QuoteResult(

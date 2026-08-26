@@ -1,5 +1,6 @@
 package com.lumix.estimator.domain.commercial
 
+import com.lumix.estimator.domain.RoofConstraint
 import kotlinx.serialization.Serializable
 import kotlin.math.sqrt
 
@@ -193,8 +194,37 @@ data class CommercialIndustrialDesign(
      */
     val industrialShiftSchedule: IndustrialShiftSchedule = IndustrialShiftSchedule(),
     /** Phase 46 (spec §18): absent (not required) by default — see [Transformer]'s own doc for why this is never auto-enabled. */
-    val transformer: Transformer = Transformer()
+    val transformer: Transformer = Transformer(),
+    /**
+     * Site Survey / Solar Mapping round: real Solar Site roof-plane results, one [RoofConstraint]
+     * per traced/surveyed roof section — unlike residential's single [com.lumix.estimator.domain
+     * .QuoteInputs.roofConstraint], a commercial/industrial site can span multiple roof sections or
+     * even multiple buildings (spec's own "multiple buildings, multiple roof areas" for industrial),
+     * so this is a list rather than a single nullable field. Empty by default (every existing C&I
+     * quote, and any new one that hasn't run a site survey yet) — [totalRoofSurveyCapacityKw]
+     * resolves to null in that case, so [CommercialIndustrialCalculator] adds no roof-capacity
+     * warning at all until a real survey result is attached, exactly mirroring how [RoofConstraint]
+     * itself only gates the residential site-aware simulation path when non-null. Reuses
+     * [RoofConstraint] verbatim rather than inventing a parallel type — the same real geometric
+     * panel-packing result (`PanelLayoutOptimizer`), just plugged into the manual-design C&I flow
+     * (which sizes PV via the installer's own [parallelInverterDesign], not an auto-search) as an
+     * advisory ceiling to warn against, not a value that silently rewrites [parallelInverterDesign]
+     * the way [com.lumix.estimator.domain.SystemCalculator]'s residential auto-search caps its own
+     * panel count.
+     */
+    val roofSurveyConstraints: List<RoofConstraint> = emptyList()
 ) {
+    /**
+     * Sum of every surveyed roof section's own [RoofConstraint.maxCapacityKw] — each section's
+     * figure is already normalized to kW (panel count x that section's own assumed panel wattage /
+     * 1000), so summing across sections that were each traced against a possibly-different assumed
+     * panel size is still a valid aggregate kW ceiling, unlike summing raw panel counts would be.
+     * Null (not zero) when no roof survey has been attached yet, so callers can tell "no ceiling to
+     * check against" apart from "the roof was surveyed and found to hold 0 kW."
+     */
+    val totalRoofSurveyCapacityKw: Double? get() =
+        roofSurveyConstraints.takeIf { it.isNotEmpty() }?.sumOf { it.maxCapacityKw }
+
     /** §5 "Connected Load" — raw nameplate sum, no duty-cycle/simultaneity/diversity reduction. */
     val connectedLoadKw: Double get() = loads.sumOf { it.connectedRealPowerKw }
 

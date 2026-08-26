@@ -85,6 +85,17 @@ sealed class EngineeringWarning {
         override val message get() = "\"$loadLabel\": $field ($value) is missing or outside its valid range — verify against the real nameplate/datasheet."
     }
 
+    /**
+     * Site Survey / Solar Mapping round: the manually-designed PV array ([ParallelInverterDesign
+     * .totalPvKw]) exceeds what the attached roof survey ([CommercialIndustrialDesign
+     * .totalRoofSurveyCapacityKw]) can actually hold — advisory only, since C&I sizing is installer-
+     * entered, not auto-searched (see [CommercialIndustrialCalculator]'s own doc for why this
+     * warns rather than silently re-caps [ParallelInverterDesign] the way residential does).
+     */
+    data class PvExceedsRoofSurveyCapacity(val designPvKw: Double, val roofSurveyCapacityKw: Double) : EngineeringWarning() {
+        override val message get() = "Designed PV array %.2f kW exceeds the surveyed roof's real capacity of %.2f kW — reduce the array or re-survey additional roof area.".format(designPvKw, roofSurveyCapacityKw)
+    }
+
     /** §5 ("Do not silently apply a residential assumption"): the system-level diversity factor is still at its 100% default — an explicit confirmation, not silently accepted as final. */
     data class DiversityFactorNotConfirmed(val currentFraction: Double) : EngineeringWarning() {
         override val message get() = "System-level diversity factor is still at its default (%.0f%%) — confirm the actual simultaneous-use factor for this site before finalizing.".format(currentFraction * 100.0)

@@ -23,5 +23,7 @@ data class CommercialIndustrialResultSummary(
     val connectedApparentPowerKva: Double,
     val maximumExpectedApparentPowerKva: Double,
     val designApparentPowerKva: Double,
-    val blendedPowerFactor: Double
+    val blendedPowerFactor: Double,
+    /** Site Survey round: frozen copy of [CommercialIndustrialDesign.totalRoofSurveyCapacityKw] at calculation time — null when no roof survey has been attached to this design. */
+    val roofSurveyCapacityKw: Double? = null
 )

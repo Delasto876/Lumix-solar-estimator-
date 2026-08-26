@@ -98,6 +98,9 @@ object EquipmentSelectionEngine {
         return PanelElectrical(avgVoc, avgVmp, avgIscPerWatt * watts, avgImpPerWatt * watts, estimated = true)
     }
 
+    /** Site Survey / Solar Mapping round: thin public wrapper around [panelElectricalFor] so [com.lumix.estimator.domain.commercial.ParallelInverterSizer] can plan MPPT string splits (via [MpptStringPlanner]) using the same real-or-estimated Vmp this engine's own residential search already relies on, without duplicating the estimation logic. */
+    internal fun estimatedOrRealVmpV(watts: Int): Double = panelElectricalFor(watts).vmpV
+
     data class PanelChoice(
         val panelWatts: Int,
         val panelCount: Int,
