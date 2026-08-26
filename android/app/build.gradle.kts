@@ -47,6 +47,16 @@ val aiApiKey = localProp("AI_API_KEY")
 // into BuildConfig, purely so GoogleMapsConfig can log a masked presence-check the same way
 // MAPTILER_API_KEY's Part 1 diagnostics did.
 val mapsApiKey = localProp("MAPS_API_KEY")
+// Site Survey / Solar Mapping round: a Google Solar API key (Building Insights REST endpoint,
+// solar.googleapis.com) — a separate API from Maps SDK for Android and billed/quota'd separately,
+// so it gets its own key rather than reusing [mapsApiKey], even though both live in the same
+// Google Cloud project. Unlike the Maps SDK (which reads its key from a manifest placeholder),
+// this is a plain REST call [com.lumix.estimator.site.solarapi.GoogleSolarApiClient] makes itself,
+// so BuildConfig is the only place this needs to land — same "blank by default, build now,
+// activate later" shape as every other credential here. Real coverage for the Solar API is not
+// universal — see that client's own doc for the graceful no-coverage/unavailable handling that
+// applies regardless of whether a key is even configured.
+val solarApiKey = localProp("SOLAR_API_KEY")
 // 2026-08-19 ("do this google sign in/OAuth" — identity-capture only, see GoogleIdentityConfig's
 // own doc): a "Web application" type OAuth 2.0 client ID from Google Cloud Console — NOT the
 // "Android" type client (package name + SHA-1) that also has to exist in the same Cloud project
@@ -76,6 +86,7 @@ android {
         buildConfigField("String", "SOLAR_OF_THINGS_API_KEY", "\"$solarOfThingsApiKey\"")
         buildConfigField("String", "AI_API_KEY", "\"$aiApiKey\"")
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
+        buildConfigField("String", "SOLAR_API_KEY", "\"$solarApiKey\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
         // The Maps SDK itself reads this manifest placeholder (see AndroidManifest.xml's
         // com.google.android.geo.API_KEY meta-data) — a blank value here is a legal-but-useless

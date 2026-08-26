@@ -37,7 +37,9 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.ThreeDRotation
 import androidx.compose.material.icons.filled.Traffic
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -97,7 +99,9 @@ import com.lumix.estimator.site.GeoPoint
 import com.lumix.estimator.site.PanelOrientation
 import com.lumix.estimator.site.ShadeAndExclusionSection
 import com.lumix.estimator.site.SolarCompassBadge
+import com.lumix.estimator.site.SolarApiFetchState
 import com.lumix.estimator.site.SolarSiteViewModel
+import com.lumix.estimator.site.solarapi.GoogleSolarApiClient
 import com.lumix.estimator.site.geometry.PanelLayoutOptimizer
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
 import com.lumix.estimator.site.geometry.ShadeEstimator
@@ -223,6 +227,7 @@ fun SolarSiteMapScreen(
 
     val mapController = remember { MapController() }
     val roofController = remember { RoofDrawingService() }
+    val solarApiClient = remember { GoogleSolarApiClient() }
     val geocodingProvider = remember { AndroidGeocodingProvider(context) }
     val locationManager = remember { DeviceLocationManager(context) }
     val compassManager = remember { CompassManager(context) }
@@ -487,6 +492,7 @@ fun SolarSiteMapScreen(
             if (!GoogleMapsConfig.isConfigured) {
                 MapKeyMissingBanner()
             }
+            SolarApiFetchBanner(state.solarApiFetchState)
             MapTypeSwitcher(
                 selectedMapType = selectedMapType,
                 onSelect = { selectedMapType = it }
@@ -549,6 +555,23 @@ fun SolarSiteMapScreen(
                 contentDescription = "Measure distance",
                 active = measureModeActive
             ) { Icon(Icons.Default.Straighten, contentDescription = null) }
+            // Site Survey / Solar Mapping round (spec "Automatically detect/use available building
+            // and roof information when Google Solar API data is available"): reuses
+            // RoofConfirmForm's own default panel assumption (2.278m x 1.134m, 600W) since Solar
+            // API auto-detect has no per-roof form step of its own to collect a different one —
+            // every added roof plane's panel layout stays fully re-editable afterward regardless.
+            MapControlButton(
+                onClick = {
+                    scope.launch {
+                        viewModel.fetchAutoRoofFromSolarApi(
+                            client = solarApiClient,
+                            panelWidthM = 2.278, panelHeightM = 1.134, panelWattage = 600.0
+                        )
+                    }
+                },
+                contentDescription = "Auto-detect roof (Solar API)",
+                active = state.solarApiFetchState is SolarApiFetchState.Loading
+            ) { Icon(Icons.Default.WbSunny, contentDescription = null) }
         }
 
         if (compassManager.isAvailable) {
@@ -796,6 +819,58 @@ private fun MapKeyMissingBanner() {
                 style = MaterialTheme.typography.labelSmall,
                 color = palette.textSecondary
             )
+        }
+    }
+}
+
+/**
+ * Site Survey / Solar Mapping round (spec "If Solar API data is unavailable: fall back gracefully
+ * to manual roof polygon drawing... Never fabricate roof geometry, shading or solar data"): one
+ * banner per [SolarApiFetchState] branch — [SolarApiFetchState.NoCoverage] and [SolarApiFetchState
+ * .Failed] both prompt manual tracing, but with different wording (a real coverage gap vs. an
+ * operational problem the installer might be able to fix), never a silent failure or a fabricated
+ * roof plane either way. [SolarApiFetchState.Idle] renders nothing.
+ */
+@Composable
+private fun SolarApiFetchBanner(fetchState: SolarApiFetchState) {
+    val palette = LocalLumixPalette.current
+    when (fetchState) {
+        is SolarApiFetchState.Idle -> Unit
+        is SolarApiFetchState.Loading -> GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Text("Checking Google Solar API for this roof…", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            }
+        }
+        is SolarApiFetchState.Succeeded -> GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+            Text(
+                "Auto-detected ${fetchState.segmentsAdded} roof section${if (fetchState.segmentsAdded == 1) "" else "s"} from Google Solar API — review and edit vertices/exclusions below before saving.",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textSecondary,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)
+            )
+        }
+        is SolarApiFetchState.NoCoverage -> GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text("No Solar API data for this roof.", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+                Text(fetchState.message, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            }
+        }
+        is SolarApiFetchState.Failed -> GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text("Solar API auto-detect failed.", style = MaterialTheme.typography.labelSmall, color = palette.warningRedText)
+                Text(fetchState.reason, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            }
         }
     }
 }

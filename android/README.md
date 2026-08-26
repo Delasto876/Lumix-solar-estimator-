@@ -9025,3 +9025,66 @@ fallback, shading suitability gradient + visual overlay, expanded exclusion-zone
 measurement-tool extensions (roof dimensions, equipment-to-equipment, electrical-service distance,
 elevation), Street View integration, quote/report export section, and full domain-level residential/
 commercial/industrial workflow verification.
+
+## A141 — Site Survey / Solar Mapping Phase 2: Google Solar API integration (Building Insights)
+
+This phase closes the biggest genuine gap A140's audit found: no Google Solar API integration existed
+anywhere in this codebase. Built end to end — data model, HTTP client, response parser, and real
+wiring into `SolarSiteViewModel`/`SolarSiteMapScreen` — not a stub.
+
+- **`site/solarapi/SolarApiModels.kt`**: `SolarApiRoofSegment` (pitch, azimuth, area, sunshine
+  quantiles, bounding box) and `SolarApiBuildingInsights` (the full per-building result), plus a
+  three-way `SolarApiResult` (`Available`/`NoCoverage`/`Unavailable`) — deliberately not a plain
+  nullable, since "no coverage at this real location" (Google's Solar API coverage is far from
+  universal) and "couldn't reach the service" call for different UI messaging, per the spec's own
+  "Do NOT assume Solar API coverage exists everywhere... fall back gracefully... never fabricate."
+- **`site/solarapi/SolarApiResponseParser.kt`**: pure JSON → domain-model mapping, kept separate
+  from the HTTP call so it's testable without a network dependency — `ignoreUnknownKeys = true`
+  (this codebase's established `Json` convention, see `data/QuoteRepository.kt`) is load-bearing
+  here, since Google's real response has many more fields (financial analyses, panel configs, etc.)
+  than this app models.
+- **`site/solarapi/SolarApiClient.kt`** (`GoogleSolarApiClient`): a plain `HttpURLConnection` GET
+  against `solar.googleapis.com`'s `buildingInsights:findClosest` (the current, documented REST
+  endpoint) — no new HTTP-client dependency added, since this is the app's first and only outbound
+  REST call so far. HTTP 404 maps to `NoCoverage` (a real, common, expected outcome, not an error);
+  any other failure (no key, network error, malformed response) maps to `Unavailable` with a real
+  reason string; nothing is ever fabricated as a substitute.
+- **`site/solarapi/GoogleSolarApiConfig.kt`** + `build.gradle.kts`/`LumixApp.kt` wiring: a new
+  `SOLAR_API_KEY` in `android/local.properties` (separate key/quota from `MAPS_API_KEY`, same
+  project), following this app's existing "blank by default, build now, activate later" credential
+  pattern exactly (`localProp` → `BuildConfig` → `configure()` at startup, never hardcoded, never
+  committed — same shape as every other credential in this file).
+- **`SolarSiteViewModel.fetchAutoRoofFromSolarApi`**: on `Available`, adds every real roof segment
+  as a `RoofPlane` — the segment's real bounding-box rectangle as initial vertices (still fully
+  editable afterward with the exact same vertex tools a hand-traced roof already has), and its real,
+  non-ambiguous azimuth/pitch passed straight through as already-confirmed values (skipping the
+  180°-ambiguous geometry-only guess a hand-traced polygon alone requires). Adds a
+  `RoofPlane.solarApiAnnualSunshineHours` field (additive, null for every existing/manual roof
+  plane) carrying the segment's real median sunshine-hours figure through for a later shading-
+  suitability phase to consume. `SiteUiState.solarApiFetchState` (`Idle`/`Loading`/`Succeeded`/
+  `NoCoverage`/`Failed`) drives a new "Auto-detect roof (Solar API)" map control button and a
+  `SolarApiFetchBanner` in `SolarSiteMapScreen.kt`, reusing `RoofConfirmForm`'s own default panel
+  assumption (2.278m × 1.134m, 600W) since auto-detect has no per-roof form step of its own.
+
+**Verification and a real methodology gap this phase found and fixed**: the new `solarapi` package
+(pure Kotlin, no Android SDK dependency) compiled clean via this project's established standalone
+kotlinc route, and a real diagnostic run against a realistic sample Building Insights JSON payload
+(matching Google's documented schema, including the exact `ROOF SECTION A`/`ROOF SECTION B` example
+figures from the original request — 142.6 m²/187°/18° and 76.2 m²/274°/8°) initially returned `null`
+from every field — not a parser bug, but a real gap in this session's own verification methodology:
+every prior domain diagnostic this whole project compiled `@Serializable` classes without ever
+actually invoking `Json.decodeFromString`/`encodeToString` at runtime, so the missing kotlinx-
+serialization *compiler plugin* (`-Xplugin=.../kotlin-serialization-compiler-plugin-embeddable-2.0.21.jar`,
+required to generate real `KSerializer` implementations — without it, `Json.decodeFromString` throws
+`SerializationException: Serializer for class 'X' is not found`) was never caught before now. Located
+the plugin jar in the same Gradle cache already used for every other standalone compile this session,
+re-ran with it enabled, and confirmed the parser correctly extracts every field, correctly rejects
+malformed JSON (returns `null`), and the real client code never even reaches the parser for a 404
+response (branches on HTTP status first). `SolarSiteViewModel.kt`/`SolarSiteMapScreen.kt`'s own edits
+depend on the Android SDK (`androidx.lifecycle`, Compose, Google Maps Compose) this sandbox cannot
+compile standalone — reviewed carefully by hand and brace/paren-balance-checked instead, the same
+disclosed limitation every Solar Site map-layer round since §A90 has carried.
+
+**Still needed before this is live**: a real `SOLAR_API_KEY` in `android/local.properties` (the user
+must supply one from their own Google Cloud project, with the Solar API enabled — separate from and
+in addition to `MAPS_API_KEY`'s own Maps SDK for Android).

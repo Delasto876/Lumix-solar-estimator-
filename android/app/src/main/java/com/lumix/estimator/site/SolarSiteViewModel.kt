@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.lumix.estimator.site.geometry.PanelLayoutOptimizer
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
+import com.lumix.estimator.site.solarapi.SolarApiClient
+import com.lumix.estimator.site.solarapi.SolarApiResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,9 +24,25 @@ data class SiteUiState(
     val draftParish: String? = null,
     val draftTown: String? = null,
     val roofPlanes: List<RoofPlane> = emptyList(),
-    val savedSiteId: String? = null
+    val savedSiteId: String? = null,
+    /** Site Survey / Solar Mapping round: the current/last outcome of a Solar API auto-detect attempt for this site — see [SolarApiFetchState]'s own doc. */
+    val solarApiFetchState: SolarApiFetchState = SolarApiFetchState.Idle
 ) {
     val hasLocation: Boolean get() = draftLatitude != null && draftLongitude != null
+}
+
+/**
+ * Site Survey / Solar Mapping round: UI-facing status for "Auto-detect roof (Solar API)" — a
+ * distinct state per [SolarApiResult] branch (plus [Loading]) so the map screen can show the right
+ * message (a spinner, "no coverage here — trace manually," or a real error) rather than collapsing
+ * everything into a single boolean.
+ */
+sealed class SolarApiFetchState {
+    data object Idle : SolarApiFetchState()
+    data object Loading : SolarApiFetchState()
+    data class Succeeded(val segmentsAdded: Int) : SolarApiFetchState()
+    data class NoCoverage(val message: String) : SolarApiFetchState()
+    data class Failed(val reason: String) : SolarApiFetchState()
 }
 
 /**
@@ -166,7 +184,8 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
         panelWattage: Double,
         setbackMeters: Double,
         excludedAreaM2: Double = 0.0,
-        shadingFactor: Double = 1.0
+        shadingFactor: Double = 1.0,
+        solarApiAnnualSunshineHours: Double? = null
     ) {
         val label = "Roof ${('A' + _state.value.roofPlanes.size)}"
         val horizontalArea = RoofGeometryEngine.horizontalAreaM2(vertices)
@@ -198,9 +217,56 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
             pitchDegrees = pitchDegrees,
             setbackMeters = setbackMeters,
             shadingFactor = shadingFactor,
-            panelLayout = panelLayout
+            panelLayout = panelLayout,
+            solarApiAnnualSunshineHours = solarApiAnnualSunshineHours
         )
         _state.update { it.copy(roofPlanes = it.roofPlanes + roofPlane) }
+    }
+
+    /**
+     * Site Survey / Solar Mapping round (spec "Automatically detect/use available building and
+     * roof information when Google Solar API data is available... Allow the user to manually
+     * override anything detected automatically"): calls [client] for the current draft location,
+     * and on [SolarApiResult.Available] adds every real roof segment Google returned — each
+     * segment's real bounding-box rectangle as this plane's initial vertices (editable afterward
+     * with the exact same vertex tools a hand-traced roof already has), its real (non-ambiguous)
+     * azimuth and pitch passed straight through as already-confirmed values (never re-guessed by
+     * [RoofGeometryEngine.suggestAzimuthCandidates] the way a traced polygon's ambiguous azimuth
+     * is), and its real median sunshine-hours figure carried onto the resulting [RoofPlane].
+     * [SolarApiResult.NoCoverage]/[SolarApiResult.Unavailable] add nothing and update
+     * [SiteUiState.solarApiFetchState] so the map screen can prompt manual tracing instead —
+     * never a fabricated roof plane either way, per the spec's own "never fabricate roof geometry"
+     * requirement.
+     */
+    suspend fun fetchAutoRoofFromSolarApi(
+        client: SolarApiClient,
+        panelWidthM: Double,
+        panelHeightM: Double,
+        panelWattage: Double,
+        setbackMeters: Double = 0.5
+    ) {
+        val lat = _state.value.draftLatitude ?: return
+        val lon = _state.value.draftLongitude ?: return
+        _state.update { it.copy(solarApiFetchState = SolarApiFetchState.Loading) }
+        when (val result = client.fetchBuildingInsights(lat, lon)) {
+            is SolarApiResult.Available -> {
+                result.insights.roofSegments.forEach { segment ->
+                    appendRoofPlane(
+                        vertices = segment.boundingBoxVertices,
+                        pitchDegrees = segment.pitchDegrees,
+                        confirmedAzimuthDegrees = segment.azimuthDegrees,
+                        panelWidthM = panelWidthM,
+                        panelHeightM = panelHeightM,
+                        panelWattage = panelWattage,
+                        setbackMeters = setbackMeters,
+                        solarApiAnnualSunshineHours = segment.medianAnnualSunshineHours
+                    )
+                }
+                _state.update { it.copy(solarApiFetchState = SolarApiFetchState.Succeeded(result.insights.roofSegments.size)) }
+            }
+            is SolarApiResult.NoCoverage -> _state.update { it.copy(solarApiFetchState = SolarApiFetchState.NoCoverage(result.message)) }
+            is SolarApiResult.Unavailable -> _state.update { it.copy(solarApiFetchState = SolarApiFetchState.Failed(result.reason)) }
+        }
     }
 
     companion object {

@@ -28,5 +28,16 @@ data class RoofPlane(
     val setbackMeters: Double = 0.5,
     val exclusionZones: List<List<GeoPoint>> = emptyList(),
     val shadingFactor: Double = 1.0,
-    val panelLayout: PanelLayout? = null
+    val panelLayout: PanelLayout? = null,
+    /**
+     * Site Survey / Solar Mapping round: a real annual sunshine-hours figure from Google's Solar
+     * API for this segment (see [com.lumix.estimator.site.solarapi.SolarApiRoofSegment
+     * .medianAnnualSunshineHours]'s own doc) — null for every hand-traced or manually-entered roof
+     * plane (the vast majority of existing/future roof planes), since that data only exists when
+     * this plane came from a real Solar API roof segment. Purely additive/informational so far;
+     * not yet consumed by [shadingFactor] or [com.lumix.estimator.site.geometry.RoofScoreCalculator]
+     * — a later phase turns this into the spec's own Excellent/Good/Moderate/Poor/Unsuitable
+     * suitability gradient.
+     */
+    val solarApiAnnualSunshineHours: Double? = null
 )

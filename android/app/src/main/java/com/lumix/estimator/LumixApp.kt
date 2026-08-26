@@ -15,6 +15,7 @@ import com.lumix.estimator.domain.monitoring.MonitoringConfig
 import com.lumix.estimator.domain.monitoring.MonitoringCredentials
 import com.lumix.estimator.map.GoogleMapsConfig
 import com.lumix.estimator.site.SiteRepository
+import com.lumix.estimator.site.solarapi.GoogleSolarApiConfig
 
 class LumixApp : Application() {
     lateinit var quoteRepository: QuoteRepository
@@ -76,6 +77,9 @@ class LumixApp : Application() {
         // own doc for why this value is ALSO baked into AndroidManifest.xml as a separate manifest
         // placeholder (the Maps SDK reads the manifest directly, not BuildConfig).
         GoogleMapsConfig.configure(BuildConfig.MAPS_API_KEY)
+        // Site Survey / Solar Mapping round: same read-once pattern — see GoogleSolarApiConfig's
+        // own doc for why this is a separate key from MAPS_API_KEY.
+        GoogleSolarApiConfig.configure(BuildConfig.SOLAR_API_KEY)
         // 2026-08-19 map diagnostics: length + first 4 chars only, NEVER the full key, so this is
         // safe to leave in even if Logcat output is ever pasted somewhere. `adb logcat -s
         // LumixMapDiag` filters to just this line on a real device/emulator.
