@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
 import com.lumix.estimator.site.geometry.RoofScoreCalculator
+import com.lumix.estimator.site.geometry.SolarSuitabilityCalculator
 import com.lumix.estimator.ui.components.LumixPrimaryButton
 import com.lumix.estimator.ui.components.SectionCard
 import com.lumix.estimator.ui.theme.LocalLumixPalette
@@ -46,6 +47,10 @@ fun SolarPotentialCard(
             shadingFactor = plane.shadingFactor
         )
     }
+    // Site Survey / Solar Mapping round (spec "Show roof areas using a clear suitability gradient
+    // such as: Excellent/Good/Moderate/Poor/Unsuitable"): a narrower, exposure-only companion to
+    // the Roof Score above — see SolarSuitabilityCalculator's own doc for the two computation paths.
+    val suitability = remember(plane, latitude) { SolarSuitabilityCalculator.evaluate(plane, latitude) }
 
     SectionCard(title = "Solar Potential — ${plane.label}", modifier = modifier) {
         RoofPlaneDiagram(plane = plane, modifier = Modifier.padding(vertical = 4.dp))
@@ -65,7 +70,8 @@ fun SolarPotentialCard(
             "Pitch",
             plane.pitchDegrees?.let { "${it.toInt()}°" } ?: "Not provided"
         )
-        StatRow("Solar Exposure", "${(plane.shadingFactor * 100).toInt()}%", "", "")
+        StatRow("Solar Exposure", suitability.tier.label, "Exposure Score", "${(suitability.score0to1 * 100).toInt()}%")
+        Text(suitability.disclaimer, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
 
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("SUN PATH", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = palette.textSecondary)

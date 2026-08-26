@@ -185,7 +185,8 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
         setbackMeters: Double,
         excludedAreaM2: Double = 0.0,
         shadingFactor: Double = 1.0,
-        solarApiAnnualSunshineHours: Double? = null
+        solarApiAnnualSunshineHours: Double? = null,
+        solarApiBuildingMaxSunshineHoursPerYear: Double? = null
     ) {
         val label = "Roof ${('A' + _state.value.roofPlanes.size)}"
         val horizontalArea = RoofGeometryEngine.horizontalAreaM2(vertices)
@@ -218,7 +219,8 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
             setbackMeters = setbackMeters,
             shadingFactor = shadingFactor,
             panelLayout = panelLayout,
-            solarApiAnnualSunshineHours = solarApiAnnualSunshineHours
+            solarApiAnnualSunshineHours = solarApiAnnualSunshineHours,
+            solarApiBuildingMaxSunshineHoursPerYear = solarApiBuildingMaxSunshineHoursPerYear
         )
         _state.update { it.copy(roofPlanes = it.roofPlanes + roofPlane) }
     }
@@ -259,7 +261,8 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
                         panelHeightM = panelHeightM,
                         panelWattage = panelWattage,
                         setbackMeters = setbackMeters,
-                        solarApiAnnualSunshineHours = segment.medianAnnualSunshineHours
+                        solarApiAnnualSunshineHours = segment.medianAnnualSunshineHours,
+                        solarApiBuildingMaxSunshineHoursPerYear = result.insights.maxSunshineHoursPerYear
                     )
                 }
                 _state.update { it.copy(solarApiFetchState = SolarApiFetchState.Succeeded(result.insights.roofSegments.size)) }

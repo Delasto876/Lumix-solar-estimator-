@@ -39,5 +39,15 @@ data class RoofPlane(
      * — a later phase turns this into the spec's own Excellent/Good/Moderate/Poor/Unsuitable
      * suitability gradient.
      */
-    val solarApiAnnualSunshineHours: Double? = null
+    val solarApiAnnualSunshineHours: Double? = null,
+    /**
+     * Site Survey / Solar Mapping round: the containing building's own best-segment annual
+     * sunshine hours (Google Solar API's `solarPotential.maxSunshineHoursPerYear`), carried onto
+     * each of that building's segments so [com.lumix.estimator.site.geometry
+     * .SolarSuitabilityCalculator.evaluate] can compute a location-independent suitability
+     * fraction (this segment's sunshine relative to the best Google found on the SAME roof)
+     * without needing to re-thread building-level data at display time. Null for every manual/
+     * hand-traced roof plane, same as [solarApiAnnualSunshineHours].
+     */
+    val solarApiBuildingMaxSunshineHoursPerYear: Double? = null
 )

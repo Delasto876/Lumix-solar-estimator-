@@ -9088,3 +9088,46 @@ disclosed limitation every Solar Site map-layer round since §A90 has carried.
 **Still needed before this is live**: a real `SOLAR_API_KEY` in `android/local.properties` (the user
 must supply one from their own Google Cloud project, with the Solar API enabled — separate from and
 in addition to `MAPS_API_KEY`'s own Maps SDK for Android).
+
+## A142 — Site Survey / Solar Mapping Phase 3: solar suitability gradient + map overlay
+
+Spec's own "Show roof areas using a clear suitability gradient such as: Excellent / Good / Moderate /
+Poor / Unsuitable" — a narrower, exposure-only concept than `RoofScoreCalculator`'s existing 100-point
+overall roof score (which also weighs area/usable-space, unrelated to exposure).
+
+- **`site/geometry/SolarSuitability.kt`** (new): `SolarSuitability` enum (5 tiers) +
+  `SolarSuitabilityCalculator` with two computation paths and one entry point (`evaluate(plane,
+  latitude)`) that picks between them automatically:
+  - **Real Solar API path** (`fromSolarApi`): a segment's own real annual sunshine hours relative to
+    the *same building's* best segment (Google's own `maxSunshineHoursPerYear`) — a location-
+    independent fraction, since an absolute-hours cutoff would unfairly rate every roof in a cloudier
+    climate "worse" regardless of its own real relative exposure. Reuses A141's new `RoofPlane
+    .solarApiAnnualSunshineHours` field plus a new sibling `RoofPlane
+    .solarApiBuildingMaxSunshineHoursPerYear` (additive, threaded through
+    `fetchAutoRoofFromSolarApi`) so the ratio is self-contained per plane, no extra plumbing needed
+    at display time.
+  - **Manual/hand-traced fallback** (`fromRoofScore`): reuses `RoofScoreCalculator`'s own
+    orientation/pitch/shading components (the exposure-relevant 60 of its 100 points) rather than a
+    second, parallel scoring rule — always flagged `isImageryDerived = false`, surfacing the spec's
+    own required "Estimated shading — verify on site" disclaimer.
+  - Verified with a real diagnostic reproducing the original request's own worked "ROOF SECTION A/B"
+    example figures (142.6 m²/187°/18° and 76.2 m²/274°/8°) plus manual-path south-facing/shaded
+    cases — every tier came out exactly as expected (the two Solar API segments landed GOOD and
+    EXCELLENT; a well-oriented unshaded manual roof at this latitude landed EXCELLENT; a poorly-
+    oriented 50%-shaded one landed POOR).
+- **Map overlay** (`SolarSiteMapScreen.kt`): every already-confirmed roof plane's polygon fill/stroke
+  now tracks its own real suitability tier (a 5-step green→yellow→red heat-map built from this app's
+  existing 3-color semantic palette — energyGreen/solarYellow/warningRed — rather than new raw hex
+  values), replacing the previous single fixed green for every plane regardless of how good that
+  plane's own exposure actually was. A new `SolarSuitabilityLegend` renders whenever at least one
+  roof plane exists, so the color-coding is actually interpretable.
+- **`SolarPotentialCard.kt`**: the existing flat "Solar Exposure: X%" stat is now the real tier label
+  (with the underlying score kept alongside as "Exposure Score"), plus the tier's own disclaimer text
+  underneath.
+
+**Verification**: the new pure-Kotlin `SolarSuitability.kt` plus its dependents (`RoofPlane`,
+`RoofScoreCalculator`, `ShadeEstimator`, `PanelLayoutOptimizer`, the `solarapi` package) all compiled
+clean via the established standalone kotlinc route, and the calculator itself was exercised with real
+diagnostic runs (not hand-traced) as described above. `SolarSiteMapScreen.kt`/`SolarPotentialCard.kt`'s
+own edits depend on the Android SDK/Compose this sandbox can't compile standalone — reviewed by hand
+and brace/paren-balance-checked instead, the same disclosed limitation every map-layer round carries.

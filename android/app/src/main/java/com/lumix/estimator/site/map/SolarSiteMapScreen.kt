@@ -101,6 +101,8 @@ import com.lumix.estimator.site.ShadeAndExclusionSection
 import com.lumix.estimator.site.SolarCompassBadge
 import com.lumix.estimator.site.SolarApiFetchState
 import com.lumix.estimator.site.SolarSiteViewModel
+import com.lumix.estimator.site.geometry.SolarSuitability
+import com.lumix.estimator.site.geometry.SolarSuitabilityCalculator
 import com.lumix.estimator.site.solarapi.GoogleSolarApiClient
 import com.lumix.estimator.site.geometry.PanelLayoutOptimizer
 import com.lumix.estimator.site.geometry.RoofGeometryEngine
@@ -358,12 +360,16 @@ fun SolarSiteMapScreen(
                 StaticGeoMarker(point = loc, icon = markerIcons.selectedLocation)
             }
 
-            // Already-confirmed roof planes (from this session or an earlier one).
+            // Already-confirmed roof planes (from this session or an earlier one). Site Survey /
+            // Solar Mapping round (spec "Show shading/sun exposure visually on the roof/map"):
+            // fill/stroke color now tracks each plane's own real SolarSuitability tier instead of
+            // one fixed green for every plane, regardless of how good that plane's own exposure is.
             state.roofPlanes.filter { it.vertices.size >= 3 }.forEach { plane ->
+                val suitability = SolarSuitabilityCalculator.evaluate(plane, state.draftLatitude ?: 0.0).tier
                 Polygon(
                     points = plane.vertices.map { it.toLatLng() },
-                    fillColor = Color(0x3363E6A5),
-                    strokeColor = Color(0xFF63E6A5),
+                    fillColor = suitabilityFillColor(suitability),
+                    strokeColor = suitabilityStrokeColor(suitability),
                     strokeWidth = 3f
                 )
             }
@@ -493,6 +499,9 @@ fun SolarSiteMapScreen(
                 MapKeyMissingBanner()
             }
             SolarApiFetchBanner(state.solarApiFetchState)
+            if (state.roofPlanes.any { it.vertices.size >= 3 }) {
+                SolarSuitabilityLegend()
+            }
             MapTypeSwitcher(
                 selectedMapType = selectedMapType,
                 onSelect = { selectedMapType = it }
@@ -819,6 +828,54 @@ private fun MapKeyMissingBanner() {
                 style = MaterialTheme.typography.labelSmall,
                 color = palette.textSecondary
             )
+        }
+    }
+}
+
+/**
+ * Site Survey / Solar Mapping round: a 5-step green→yellow→red heat-map matching this app's own
+ * existing 3-color semantic vocabulary (energyGreen/solarYellow/warningRed — see `Color.kt`'s own
+ * "restrained... a handful of quiet, deliberate hues" doc) rather than introducing new raw hex
+ * values for this gradient. Map overlay colors in this screen are already raw hex (not palette-
+ * routed, e.g. the roof-tracing/measurement colors above) since [Polygon]'s fill/stroke need a
+ * concrete [Color] regardless of theme — this follows that same existing convention.
+ */
+private fun suitabilityFillColor(tier: SolarSuitability): Color = when (tier) {
+    SolarSuitability.EXCELLENT -> Color(0x665FCFA0)
+    SolarSuitability.GOOD -> Color(0x668FCF7A)
+    SolarSuitability.MODERATE -> Color(0x66E8B04D)
+    SolarSuitability.POOR -> Color(0x66E8935A)
+    SolarSuitability.UNSUITABLE -> Color(0x66D9695F)
+}
+
+private fun suitabilityStrokeColor(tier: SolarSuitability): Color = when (tier) {
+    SolarSuitability.EXCELLENT -> Color(0xFF5FCFA0)
+    SolarSuitability.GOOD -> Color(0xFF8FCF7A)
+    SolarSuitability.MODERATE -> Color(0xFFE8B04D)
+    SolarSuitability.POOR -> Color(0xFFE8935A)
+    SolarSuitability.UNSUITABLE -> Color(0xFFD9695F)
+}
+
+/** A compact key for the roof-plane suitability colors above, shown only once at least one roof has been added — otherwise there's nothing on the map yet for it to explain. */
+@Composable
+private fun SolarSuitabilityLegend() {
+    val palette = LocalLumixPalette.current
+    GlassSurface(shape = RoundedCornerShape(LumixRadius.md)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            SolarSuitability.entries.forEach { tier ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(suitabilityStrokeColor(tier))
+                    )
+                    Text(tier.label, style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+                }
+            }
         }
     }
 }
