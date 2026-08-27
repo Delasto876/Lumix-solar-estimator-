@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.lumix.estimator.domain.SavingsCalculator
@@ -58,6 +59,21 @@ class SettingsRepository(private val context: Context) {
     private val customCommercialFacilityNamesKey = stringPreferencesKey("custom_commercial_facility_names")
     private val customIndustrialFacilityNamesKey = stringPreferencesKey("custom_industrial_facility_names")
 
+    // A149 (Deye integration round): the installer's DeyeCloud "App" credentials + account email,
+    // persisted so a successful "Connect Deye Account" survives an app restart without asking them
+    // to log in again every launch. Deliberately NOT the account password — this app never
+    // persists it (see MonitoringCredentials.Deye's own doc); only the freshly-obtained access
+    // token is kept, which a real login can always replace, unlike a leaked persisted password.
+    // Stored in this same unencrypted DataStore as every other Settings value in this file — see
+    // README A149 for the explicit disclosure that this is NOT Keystore-backed encryption, and
+    // why that's a real tradeoff worth hardening later rather than a silently-assumed protection.
+    private val deyeAppIdKey = stringPreferencesKey("deye_app_id")
+    private val deyeAppSecretKey = stringPreferencesKey("deye_app_secret")
+    private val deyeEmailKey = stringPreferencesKey("deye_email")
+    private val deyeCompanyIdKey = stringPreferencesKey("deye_company_id")
+    private val deyeAccessTokenKey = stringPreferencesKey("deye_access_token")
+    private val deyeTokenExpiresAtKey = longPreferencesKey("deye_token_expires_at")
+
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
         prefs[themeModeKey]?.let { raw -> runCatching { ThemeMode.valueOf(raw) }.getOrNull() } ?: ThemeMode.SYSTEM
     }
@@ -93,6 +109,13 @@ class SettingsRepository(private val context: Context) {
 
     val customCommercialFacilityNames: Flow<List<String>> = context.settingsDataStore.data.map { decodeNameList(it[customCommercialFacilityNamesKey]) }
     val customIndustrialFacilityNames: Flow<List<String>> = context.settingsDataStore.data.map { decodeNameList(it[customIndustrialFacilityNamesKey]) }
+
+    val deyeAppId: Flow<String> = context.settingsDataStore.data.map { it[deyeAppIdKey] ?: "" }
+    val deyeAppSecret: Flow<String> = context.settingsDataStore.data.map { it[deyeAppSecretKey] ?: "" }
+    val deyeEmail: Flow<String> = context.settingsDataStore.data.map { it[deyeEmailKey] ?: "" }
+    val deyeCompanyId: Flow<String> = context.settingsDataStore.data.map { it[deyeCompanyIdKey] ?: "0" }
+    val deyeAccessToken: Flow<String> = context.settingsDataStore.data.map { it[deyeAccessTokenKey] ?: "" }
+    val deyeTokenExpiresAtMillis: Flow<Long?> = context.settingsDataStore.data.map { it[deyeTokenExpiresAtKey] }
 
     suspend fun setThemeMode(mode: ThemeMode) {
         context.settingsDataStore.edit { it[themeModeKey] = mode.name }
@@ -170,4 +193,28 @@ class SettingsRepository(private val context: Context) {
 
     private fun decodeNameList(raw: String?): List<String> = raw?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
     private fun encodeNameList(names: List<String>): String = names.joinToString("\n")
+
+    /** A149: called once after a successful DeyeCloud login — persists everything needed to skip re-entering the password on the next app launch (the token itself, not the password — see this class's own doc). */
+    suspend fun setDeyeConnection(appId: String, appSecret: String, email: String, companyId: String, accessToken: String, expiresAtMillis: Long?) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[deyeAppIdKey] = appId
+            prefs[deyeAppSecretKey] = appSecret
+            prefs[deyeEmailKey] = email
+            prefs[deyeCompanyIdKey] = companyId
+            prefs[deyeAccessTokenKey] = accessToken
+            if (expiresAtMillis != null) prefs[deyeTokenExpiresAtKey] = expiresAtMillis else prefs.remove(deyeTokenExpiresAtKey)
+        }
+    }
+
+    /** A149: "Disconnect" in Settings — clears everything, including the cached token (a fresh login is required afterward; the password was never stored to begin with). */
+    suspend fun clearDeyeConnection() {
+        context.settingsDataStore.edit { prefs ->
+            prefs.remove(deyeAppIdKey)
+            prefs.remove(deyeAppSecretKey)
+            prefs.remove(deyeEmailKey)
+            prefs.remove(deyeCompanyIdKey)
+            prefs.remove(deyeAccessTokenKey)
+            prefs.remove(deyeTokenExpiresAtKey)
+        }
+    }
 }

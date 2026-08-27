@@ -59,21 +59,48 @@ sealed class MonitoringResult {
 }
 
 /**
+ * A149 (Deye integration round): one entry in "the devices/plants I manage" — the piece
+ * [MonitoringProvider.fetchLatest] always assumed the caller already had (it takes a [deviceId]
+ * with no way to discover one). [id] is the value a subsequent [MonitoringProvider.fetchLatest]
+ * call expects back; [plantName] is the station/site grouping a real account can have multiple
+ * devices under (null when a provider has no such concept, e.g. the mock/simulated providers).
+ */
+data class DeviceSummary(
+    val id: String,
+    val label: String,
+    val manufacturer: MonitoringManufacturer?,
+    val plantName: String? = null
+)
+
+/** Result of asking a [MonitoringProvider] to enumerate the devices/plants it can see — the same three-way shape as [MonitoringResult], for the same reason (never a fabricated device list). */
+sealed class DeviceListResult {
+    data class Available(val devices: List<DeviceSummary>) : DeviceListResult()
+    data object NotConfigured : DeviceListResult()
+    data class Error(val message: String) : DeviceListResult()
+}
+
+/**
  * A83: the contract a real manufacturer integration would implement — translate that
  * manufacturer's own proprietary API/protocol into one [DeviceTelemetry] snapshot. Per the spec's
  * own "prepare the architecture... but do not make monitoring the priority until the design/
  * sizing/simulation engine is stable": no real Deye/LuxPower/Growatt/SOLARMAN/Solar of Things
- * client exists yet. No API credentials or documented endpoint contracts were provided to build
- * against, and writing plausible-looking HTTP calls to real commercial services without either
- * would mean inventing behavior this app has no way to verify — exactly what this codebase's own
- * "don't invent data" discipline (already applied to equipment specs, business content, and
- * electrical-code citations) forbids. [SimulatedMonitoringProvider] is the one implementation that
- * exists today, deriving a real snapshot from this app's own already-computed simulation rather
- * than a live device — always clearly labeled as such, never presented as a real telemetry feed.
+ * client existed at first. No API credentials or documented endpoint contracts were provided to
+ * build against, and writing plausible-looking HTTP calls to real commercial services without
+ * either would mean inventing behavior this app has no way to verify — exactly what this
+ * codebase's own "don't invent data" discipline (already applied to equipment specs, business
+ * content, and electrical-code citations) forbids. [SimulatedMonitoringProvider] is the one
+ * implementation that existed from the start, deriving a real snapshot from this app's own
+ * already-computed simulation rather than a live device — always clearly labeled as such, never
+ * presented as a real telemetry feed. A149 adds the first genuine live client
+ * ([com.lumix.estimator.domain.monitoring.deye.RealDeyeProvider]) once DeyeCloud's own sample
+ * code (not full docs — see that file's own doc for exactly what is and isn't confirmed) gave
+ * something real to build against.
  */
 interface MonitoringProvider {
     val manufacturer: MonitoringManufacturer?
     suspend fun fetchLatest(deviceId: String): MonitoringResult
+    /** Enumerates the devices/plants this provider can currently see — see [DeviceSummary]'s own doc. */
+    suspend fun listDevices(): DeviceListResult
 }
 
 /**
@@ -83,7 +110,9 @@ interface MonitoringProvider {
  */
 enum class MonitoringIntegrationStatus(val label: String) {
     MOCK_DATA("Mock data — ready for future activation"),
-    CREDENTIALS_SET_NO_CLIENT("Credentials set — real client not yet implemented")
+    CREDENTIALS_SET_NO_CLIENT("Credentials set — real client not yet implemented"),
+    /** A149: Deye specifically now has a real client — this is the "simulated by default, live once reachable" state, not a settled "definitely working" claim (a real call can still fail — see [FallbackMonitoringProvider]'s own doc). */
+    REAL_CLIENT_CONNECTED("Connected — live data when online, simulated otherwise")
 }
 
 /**
@@ -101,27 +130,48 @@ enum class MonitoringIntegrationStatus(val label: String) {
  * any UI reading through this registry) needs to change when that happens.
  */
 object MonitoringProviderRegistry {
-    fun providerFor(manufacturer: MonitoringManufacturer): MonitoringProvider {
+    /**
+     * [isOnline] defaults to always-true so every existing call site (Settings' status list,
+     * which only ever needed [statusFor] anyway) keeps compiling unchanged — a caller that
+     * actually wants the real "fall back to mock while offline" behavior (A149's new Devices
+     * screen) passes a real connectivity check, typically backed by
+     * [com.lumix.estimator.network.NetworkConnectivityObserver.isOnline].
+     */
+    fun providerFor(manufacturer: MonitoringManufacturer, isOnline: () -> Boolean = { true }): MonitoringProvider {
         val credentials = MonitoringConfig.credentialsFor(manufacturer)
+        if (manufacturer == MonitoringManufacturer.DEYE) {
+            // A149: Deye now has a real client — see FallbackMonitoringProvider's own doc for why
+            // the mock/live decision happens per-call here, not once at construction.
+            val deyeCredentials = credentials as MonitoringCredentials.Deye
+            return FallbackMonitoringProvider(
+                real = com.lumix.estimator.domain.monitoring.deye.RealDeyeProvider(deyeCredentials),
+                mock = MockMonitoringProvider(manufacturer),
+                isOnline = isOnline
+            )
+        }
         return if (!credentials.isConfigured) {
             MockMonitoringProvider(manufacturer)
         } else {
             // READY FOR FUTURE ACTIVATION: credentials exist, but no manufacturer network client
             // has been implemented yet (no documented endpoint contract to build against — same
-            // "don't invent data" reasoning as A83's original doc). Replace this branch with a real
-            // provider (e.g. `RealDeyeProvider(credentials)`) once one is implemented for
-            // `manufacturer`; every caller of this registry is unaffected by that swap.
+            // "don't invent data" reasoning as A83's original doc, and the same reasoning that
+            // applied to Deye before A149 gave it something real to build against). Replace this
+            // branch with a real provider once one is implemented for `manufacturer`; every caller
+            // of this registry is unaffected by that swap — exactly what happened for Deye.
             object : MonitoringProvider {
                 override val manufacturer: MonitoringManufacturer = manufacturer
                 override suspend fun fetchLatest(deviceId: String): MonitoringResult = MonitoringResult.NotConfigured
+                override suspend fun listDevices(): DeviceListResult = DeviceListResult.NotConfigured
             }
         }
     }
 
-    fun statusFor(manufacturer: MonitoringManufacturer): MonitoringIntegrationStatus =
-        if (MonitoringConfig.credentialsFor(manufacturer).isConfigured) {
-            MonitoringIntegrationStatus.CREDENTIALS_SET_NO_CLIENT
-        } else {
-            MonitoringIntegrationStatus.MOCK_DATA
+    fun statusFor(manufacturer: MonitoringManufacturer): MonitoringIntegrationStatus {
+        val configured = MonitoringConfig.credentialsFor(manufacturer).isConfigured
+        return when {
+            !configured -> MonitoringIntegrationStatus.MOCK_DATA
+            manufacturer == MonitoringManufacturer.DEYE -> MonitoringIntegrationStatus.REAL_CLIENT_CONNECTED
+            else -> MonitoringIntegrationStatus.CREDENTIALS_SET_NO_CLIENT
         }
+    }
 }

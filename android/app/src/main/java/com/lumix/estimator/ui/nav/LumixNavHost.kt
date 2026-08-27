@@ -34,6 +34,7 @@ import com.lumix.estimator.ui.components.NavTab
 import com.lumix.estimator.ui.estimate.EstimateLandingScreen
 import com.lumix.estimator.ui.history.HistoryScreen
 import com.lumix.estimator.ui.home.HomeScreen
+import com.lumix.estimator.ui.monitoring.DevicesScreen
 import com.lumix.estimator.ui.results.ResultsScreen
 import com.lumix.estimator.ui.results.SystemResultScreen
 import com.lumix.estimator.ui.savings.SavingsScreen
@@ -52,6 +53,9 @@ private const val ROUTE_SIMULATION = "simulation/{quoteId}"
 private const val ROUTE_SYSTEMS = "systems"
 private const val ROUTE_SAVINGS = "savings"
 private const val ROUTE_SETTINGS = "settings"
+// A149 (Deye integration round): pushed (not a bottom-nav tab), reached from Settings' "Device
+// Monitoring" section — see DevicesScreen's own doc for why.
+private const val ROUTE_DEVICES = "devices"
 // A81 (Phase 18, restored): not bottom-nav tabs (see EstimateLandingScreen's own doc for why) —
 // pushed routes reached from the Estimate tab's "Open Solar Site" entry instead.
 private const val ROUTE_SITE = "site"
@@ -322,8 +326,13 @@ fun LumixNavHost(app: LumixApp) {
                     priceRepository = app.priceRepository,
                     settingsRepository = app.settingsRepository,
                     quoteRepository = app.quoteRepository,
-                    codeStandardRepository = app.codeStandardRepository
+                    codeStandardRepository = app.codeStandardRepository,
+                    onOpenDevices = { navController.navigate(ROUTE_DEVICES) }
                 )
+            }
+
+            composable(ROUTE_DEVICES) {
+                DevicesScreen(onBack = { navController.popBackStack() })
             }
         }
     }

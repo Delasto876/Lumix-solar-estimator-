@@ -9447,3 +9447,82 @@ balance-checked, since this sandbox cannot compile Android/Compose code directly
 to the Google Maven plugin repository `gradlew` needs). This sandbox cannot runtime-test against
 the user's real key either way — the fix is grounded in Google's own documented Android-app-key
 requirement, not a live-verified round-trip, and that gap is disclosed rather than papered over.
+
+## A149 — Deye integration: real client, mock-by-default with auto-switch, and a Devices screen
+
+The user's second request (researched and proposed first, then built once they said to continue):
+"Deye ... provides free API access for monitoring inverters/plants I manage ... App works with
+simulated/demo data by default. Automatically switches to live Deye data once the device has an
+internet connection and the API is reachable. Add a dedicated system tab/screen showing connected
+Deye devices, where I can watch live data ... for each inverter/plant I manage."
+
+**What Deye's API actually offers** (from DeyeCloudDevelopers' own public sample-code repo and
+third-party wrappers — `developer.deyecloud.com` itself is blocked from this sandbox's network
+egress, so this is real but not exhaustive): a free Open Platform where a registered "App"
+(`appId`/`appSecret`) plus the installer's own DeyeCloud account email/password (SHA-256-hashed
+client-side) exchange for a session token at `POST {baseUrl}/account/token?appId=...`, then
+paginated device listing and batch real-time telemetry (`{key, value, unit}` metrics per device —
+PV power, battery charge, grid power, temperature, an operating-mode string, a timestamp) behind
+that token. That auth shape — account login, not a scoped API key — is the one piece of this whole
+integration confirmed straight from Deye's own sample code; the rest (response envelopes, endpoint
+paths, exact metric key names) is inferred from a third-party wrapper's description of its own
+already-transformed output, not from Deye's raw wire format, and is flagged as such everywhere it
+matters (see `DeyeApiModels.kt`'s own doc for the full confidence breakdown).
+
+**What already existed, unchanged**: A83/A85's monitoring architecture — `MonitoringProvider`,
+`MonitoringResult` (Connected/NotConfigured/Error), `DeviceTelemetry`, `MockMonitoringProvider` +
+`MockMonitoringData`, `SimulatedMonitoringProvider`, `MonitoringProviderRegistry` — was already
+almost exactly the "simulated by default" architecture this request needed; Deye credentials being
+unconfigured already routed every screen to mock data automatically. The only real gap was that the
+"real client" branch was a deliberate stub, because no real API details existed to build against
+until now.
+
+**What's new**:
+- `MonitoringProvider` gained `listDevices(): DeviceListResult` (a real `DeviceSummary` list, three-
+  way result like everything else in this file) — the "which devices do I manage" capability
+  nothing here had before, implemented on `MockMonitoringProvider` (one labeled mock device),
+  `SimulatedMonitoringProvider` (one "This system" entry), and the new real client below.
+- `MonitoringCredentials.Deye` was rebuilt from a guessed (apiKey/clientId/clientSecret) shape to
+  the real one: `appId`, `appSecret`, `email`, `password`, `companyId`, plus `accessToken`/
+  `tokenExpiresAtMillis` for a restored session. The account password is never persisted to disk —
+  only the token that logging in with it produces.
+- `com.lumix.estimator.domain.monitoring.deye`: `DeyeApiModels` (wire shapes, confidence-annotated),
+  `DeyeAuthClient` (the confirmed login request, SHA-256 password hash, JDK `HttpURLConnection` —
+  same pure-Kotlin, no-extra-HTTP-library pattern as the Google Solar/Elevation/Street View
+  clients), and `RealDeyeProvider` (the first real, non-mock `MonitoringProvider` this app has
+  ever had — every failure path resolves to a real `Error`, never fabricated telemetry).
+- `FallbackMonitoringProvider`: the actual "auto-switch to live once reachable" logic. Wraps a real
+  provider + mock, deciding per POLL (not once at app start) which answers — offline or genuinely
+  unconfigured → mock; online and configured → real, and a real failure (wrong password, DeyeCloud
+  down) surfaces as a real error rather than being quietly hidden behind fake "everything's fine"
+  data, which would be a worse, more deceptive outcome than just showing the problem.
+- Settings' existing "Device Monitoring" section gained a "Connect Deye Account" flow (App ID/App
+  Secret/email/Company ID/password fields, a real login attempt, persisted connection state via
+  `SettingsRepository` — DataStore, same as every other Settings value, NOT Keystore-encrypted, a
+  real disclosed tradeoff worth hardening later given this holds a live account's App Secret and
+  session token) plus a "View live devices" entry point once connected.
+- A new `DevicesScreen`/`DevicesViewModel` — the requested dedicated screen: lists the account's
+  real devices, polls each one's telemetry every 45s via `FallbackMonitoringProvider`, shows
+  current PV/battery/load/grid figures and a Live/Simulated badge per device. Reached from Settings
+  (and from wherever `onOpenDevices` gets wired next), not a 6th bottom-nav tab — this app's
+  `FloatingBottomNav` divides its width evenly with no scroll, and A16 already had to fix a cramped-
+  label regression once before at a lower tab count than a 6th icon would produce.
+- `LumixApp.onCreate` no longer configures Deye from `BuildConfig` (that BuildConfig field still
+  exists but is now dead — Deye's real auth doesn't fit the "static key baked into the APK" pattern
+  the other four manufacturers use); instead it restores a previously-connected session from
+  `SettingsRepository` in a background coroutine, so a real connection survives an app restart.
+
+**Verification**: the entire domain layer (`domain/`, `domain/monitoring/`, `domain/monitoring/
+deye/`, plus their `solar`/`site/geometry` dependencies — 67+ files) compiled cleanly through this
+sandbox's standalone-kotlinc route with zero errors. Seven new JUnit tests
+(`DeyeMonitoringTest.kt`) cover the credential-shape logic and `FallbackMonitoringProvider`'s
+routing (using local test-double providers, not a live DeyeCloud call — same reasoning the other
+real REST clients in this app already document for why their live HTTP paths have no unit test)
+and pass alongside the existing monitoring suite — `JUnit version 4.13.2 ... OK (17 tests)`. Every
+Android/Compose file touched (`SettingsRepository.kt`, `LumixApp.kt`, `SettingsScreen.kt`,
+`LumixNavHost.kt`, `DevicesScreen.kt`, `DevicesViewModel.kt`) was brace/paren balance-checked, since
+this sandbox has no route to a live Gradle/Android build. This sandbox has no DeyeCloud account to
+test a real login against either — the auth request itself is grounded in Deye's own sample code,
+but the device-list/telemetry response parsing is honestly inferred, not verified, and flagged that
+way in the code (`RealDeyeProvider`'s own doc names exactly what to check first if a real account
+connects but telemetry calls keep failing). That gap is disclosed rather than claimed away.

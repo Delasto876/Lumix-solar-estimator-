@@ -16,6 +16,10 @@ import com.lumix.estimator.domain.monitoring.MonitoringCredentials
 import com.lumix.estimator.map.GoogleMapsConfig
 import com.lumix.estimator.site.SiteRepository
 import com.lumix.estimator.site.solarapi.GoogleSolarApiConfig
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class LumixApp : Application() {
     lateinit var quoteRepository: QuoteRepository
@@ -62,13 +66,37 @@ class LumixApp : Application() {
         // sourced from android/local.properties, blank by default — see app/build.gradle.kts)
         // gets read into the pure-Kotlin domain layer's config objects, so MonitoringConfig/
         // AiConfig stay testable without depending on a generated Android class themselves.
+        // Deye is no longer among these — A149 moved it to runtime-entered credentials (see
+        // MonitoringConfig.updateDeye's own doc); it's restored from settingsRepository below.
         MonitoringConfig.configure(
-            deye = MonitoringCredentials.Deye(BuildConfig.DEYE_API_KEY, BuildConfig.DEYE_CLIENT_ID, BuildConfig.DEYE_CLIENT_SECRET),
             luxPower = MonitoringCredentials.LuxPower(BuildConfig.LUXPOWER_API_KEY),
             growatt = MonitoringCredentials.Growatt(BuildConfig.GROWATT_API_KEY),
             solarman = MonitoringCredentials.Solarman(BuildConfig.SOLARMAN_APP_ID, BuildConfig.SOLARMAN_APP_SECRET),
             solarOfThings = MonitoringCredentials.SolarOfThings(BuildConfig.SOLAR_OF_THINGS_API_KEY)
         )
+        // A149: restores a previously-connected Deye session (no password persisted — see
+        // SettingsRepository's own doc) so a real connection survives an app restart without
+        // forcing the installer to reconnect on every launch. No-op (stays the default blank/
+        // simulated MonitoringCredentials.Deye) until a first successful "Connect Deye Account" in
+        // Settings has ever persisted anything. Uses a plain background coroutine (this
+        // Application class has no lifecycle-scoped one of its own) since DataStore reads are
+        // suspend-only; MonitoringConfig.deye starts blank either way, so every screen already
+        // renders correctly (simulated data) for the brief window before this completes.
+        CoroutineScope(Dispatchers.IO).launch {
+            val appId = settingsRepository.deyeAppId.first()
+            if (appId.isNotBlank()) {
+                MonitoringConfig.updateDeye(
+                    MonitoringCredentials.Deye(
+                        appId = appId,
+                        appSecret = settingsRepository.deyeAppSecret.first(),
+                        email = settingsRepository.deyeEmail.first(),
+                        companyId = settingsRepository.deyeCompanyId.first(),
+                        accessToken = settingsRepository.deyeAccessToken.first().takeIf { it.isNotBlank() },
+                        tokenExpiresAtMillis = settingsRepository.deyeTokenExpiresAtMillis.first()
+                    )
+                )
+            }
+        }
         AiConfig.configure(BuildConfig.AI_API_KEY)
         // 2026-08-19 ("do this google sign in/OAuth"): same read-once pattern — see
         // GoogleIdentityConfig's own doc for why this is a Web (not Android) client ID.

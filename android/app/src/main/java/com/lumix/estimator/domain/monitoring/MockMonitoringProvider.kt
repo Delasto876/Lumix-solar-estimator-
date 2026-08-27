@@ -11,4 +11,13 @@ package com.lumix.estimator.domain.monitoring
 class MockMonitoringProvider(override val manufacturer: MonitoringManufacturer) : MonitoringProvider {
     override suspend fun fetchLatest(deviceId: String): MonitoringResult =
         MonitoringResult.Connected(MockMonitoringData.generate(manufacturer))
+
+    /** A149: one clearly-labeled mock device per manufacturer — [fetchLatest] already ignores [deviceId] and returns the same generated curve regardless, so [MOCK_DEVICE_ID] is a fixed, documented placeholder rather than a real serial number. */
+    override suspend fun listDevices(): DeviceListResult = DeviceListResult.Available(
+        listOf(DeviceSummary(id = MOCK_DEVICE_ID, label = "${manufacturer.label} Demo Inverter (mock)", manufacturer = manufacturer))
+    )
+
+    companion object {
+        const val MOCK_DEVICE_ID = "mock"
+    }
 }

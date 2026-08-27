@@ -34,7 +34,14 @@ class SimulatedMonitoringProvider(
         return MonitoringResult.Connected(toDeviceTelemetry(readout, frame))
     }
 
+    /** A149: this provider only ever represents the one quote/system it was constructed for — a single fixed-ID entry, not a real multi-device directory. */
+    override suspend fun listDevices(): DeviceListResult = DeviceListResult.Available(
+        listOf(DeviceSummary(id = THIS_SYSTEM_DEVICE_ID, label = "This system (simulated)", manufacturer = null))
+    )
+
     companion object {
+        const val THIS_SYSTEM_DEVICE_ID = "this-system"
+
         /** Pure mapping, exposed separately so it's directly unit-testable without constructing a whole provider. */
         fun toDeviceTelemetry(
             readout: TechnicalReadout,

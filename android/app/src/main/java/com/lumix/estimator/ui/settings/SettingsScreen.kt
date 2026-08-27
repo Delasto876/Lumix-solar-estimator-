@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Contrast
@@ -39,6 +40,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +52,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.lumix.estimator.auth.GoogleIdentityConfig
@@ -64,8 +68,12 @@ import com.lumix.estimator.domain.CodeRequirementReference
 import com.lumix.estimator.domain.CodeStandard
 import com.lumix.estimator.domain.ai.AiConfig
 import com.lumix.estimator.domain.mcp.McpConfig
+import com.lumix.estimator.domain.monitoring.MonitoringConfig
+import com.lumix.estimator.domain.monitoring.MonitoringCredentials
 import com.lumix.estimator.domain.monitoring.MonitoringManufacturer
 import com.lumix.estimator.domain.monitoring.MonitoringProviderRegistry
+import com.lumix.estimator.domain.monitoring.deye.DeyeAuthClient
+import com.lumix.estimator.domain.monitoring.deye.DeyeAuthResult
 import com.lumix.estimator.domain.PriceFields
 import com.lumix.estimator.domain.PriceList
 import com.lumix.estimator.domain.SavingsCalculator
@@ -102,7 +110,9 @@ fun SettingsScreen(
     priceRepository: PriceRepository,
     settingsRepository: SettingsRepository,
     quoteRepository: QuoteRepository,
-    codeStandardRepository: CodeStandardRepository
+    codeStandardRepository: CodeStandardRepository,
+    /** A149 (Deye integration round): opens the new Devices screen — null hides the "View live devices" entry point entirely (this screen stays usable without it). */
+    onOpenDevices: (() -> Unit)? = null
 ) {
     val palette = LocalLumixPalette.current
     val scope = rememberCoroutineScope()
@@ -130,6 +140,19 @@ fun SettingsScreen(
     // applicationContext the way e.g. DeviceLocationManager is, since that one needs no UI.
     val context = LocalContext.current
     val googleSignInManager = remember(context) { GoogleSignInManager(context) }
+
+    // A149 (Deye integration round): "Connected" is defined by a persisted access token existing —
+    // matches MonitoringProviderRegistry's own real/mock decision (see RealDeyeProvider's own doc).
+    val deyeEmail by settingsRepository.deyeEmail.collectAsState(initial = "")
+    val deyeAccessToken by settingsRepository.deyeAccessToken.collectAsState(initial = "")
+    val deyeConnected = deyeAccessToken.isNotBlank()
+    var deyeAppIdInput by remember { mutableStateOf("") }
+    var deyeAppSecretInput by remember { mutableStateOf("") }
+    var deyeEmailInput by remember { mutableStateOf("") }
+    var deyeCompanyIdInput by remember { mutableStateOf("0") }
+    var deyePasswordInput by remember { mutableStateOf("") }
+    var deyeConnecting by remember { mutableStateOf(false) }
+    var deyeConnectError by remember { mutableStateOf<String?>(null) }
     val googleSignedInName by settingsRepository.googleSignedInName.collectAsState(initial = "")
     val googleSignedInEmail by settingsRepository.googleSignedInEmail.collectAsState(initial = "")
     var googleSignInInProgress by remember { mutableStateOf(false) }
@@ -472,6 +495,109 @@ fun SettingsScreen(
                                 color = palette.textSecondary,
                                 textAlign = TextAlign.End,
                                 modifier = Modifier.weight(1f, fill = false)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = palette.outline)
+
+                    // A149 (Deye integration round): the only manufacturer above with a real
+                    // client — see RealDeyeProvider's own doc for what's confirmed vs. inferred
+                    // about DeyeCloud's wire format. Deliberately account-login-based, not a
+                    // pasted API key (see MonitoringCredentials.Deye's own doc for why) — this is
+                    // the one place that login actually happens.
+                    Text("Deye — connect your account", style = MaterialTheme.typography.titleSmall, color = palette.textPrimary, modifier = Modifier.padding(bottom = 6.dp))
+                    if (deyeConnected) {
+                        SettingsRow(icon = Icons.Default.AccountCircle, title = "Connected", subtitle = deyeEmail.ifBlank { "DeyeCloud account" }) {}
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (onOpenDevices != null) {
+                                LumixPrimaryButton(text = "View live devices", onClick = onOpenDevices, modifier = Modifier.weight(1f))
+                            }
+                            LumixSecondaryButton(
+                                text = "Disconnect",
+                                onClick = {
+                                    scope.launch {
+                                        settingsRepository.clearDeyeConnection()
+                                        MonitoringConfig.updateDeye(MonitoringCredentials.Deye())
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    } else {
+                        Text(
+                            "Requires a free DeyeCloud developer \"App\" (appId/appSecret from developer.deyecloud.com) plus your normal DeyeCloud account email and password. Your password is used once to sign in and is never stored by this app — only the resulting session token is kept.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.textSecondary,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        OutlinedTextField(
+                            value = deyeAppIdInput, onValueChange = { deyeAppIdInput = it },
+                            label = { Text("App ID") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        )
+                        OutlinedTextField(
+                            value = deyeAppSecretInput, onValueChange = { deyeAppSecretInput = it },
+                            label = { Text("App Secret") }, singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        )
+                        OutlinedTextField(
+                            value = deyeEmailInput, onValueChange = { deyeEmailInput = it },
+                            label = { Text("Account email") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        )
+                        OutlinedTextField(
+                            value = deyeCompanyIdInput, onValueChange = { deyeCompanyIdInput = it },
+                            label = { Text("Company ID (leave \"0\" for a personal account)") }, singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        )
+                        OutlinedTextField(
+                            value = deyePasswordInput, onValueChange = { deyePasswordInput = it },
+                            label = { Text("Account password") }, singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        )
+                        LumixPrimaryButton(
+                            text = if (deyeConnecting) "Connecting…" else "Connect",
+                            enabled = !deyeConnecting && deyeAppIdInput.isNotBlank() && deyeAppSecretInput.isNotBlank() && deyeEmailInput.isNotBlank() && deyePasswordInput.isNotBlank(),
+                            onClick = {
+                                deyeConnectError = null
+                                deyeConnecting = true
+                                val credentials = MonitoringCredentials.Deye(
+                                    appId = deyeAppIdInput.trim(),
+                                    appSecret = deyeAppSecretInput.trim(),
+                                    email = deyeEmailInput.trim(),
+                                    password = deyePasswordInput,
+                                    companyId = deyeCompanyIdInput.trim().ifBlank { "0" }
+                                )
+                                scope.launch {
+                                    when (val result = DeyeAuthClient().login(credentials)) {
+                                        is DeyeAuthResult.Authenticated -> {
+                                            settingsRepository.setDeyeConnection(
+                                                appId = credentials.appId, appSecret = credentials.appSecret,
+                                                email = credentials.email, companyId = credentials.companyId,
+                                                accessToken = result.accessToken, expiresAtMillis = result.expiresAtMillis
+                                            )
+                                            MonitoringConfig.updateDeye(
+                                                credentials.copy(accessToken = result.accessToken, tokenExpiresAtMillis = result.expiresAtMillis)
+                                            )
+                                            deyePasswordInput = ""
+                                        }
+                                        is DeyeAuthResult.Failed -> deyeConnectError = result.reason
+                                    }
+                                    deyeConnecting = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (deyeConnectError != null) {
+                            Text(
+                                deyeConnectError.orEmpty(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.warningRedText,
+                                modifier = Modifier.padding(top = 8.dp)
                             )
                         }
                     }
