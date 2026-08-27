@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lumix Solar Simulator – Full Stack Brief Builder</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>Lumix Solar Simulator</h1>
+        <p class="subtitle">Full-stack brief builder for the training simulator</p>
+      </div>
+      <div class="status">
+        <span class="pill" id="runtime-pill">Runtime: Offline</span>
+        <span class="pill" id="mode-pill">Mode: Sandbox</span>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>Simulator Requirement Logger</h2>
+      <p class="muted">
+        Capture simulator goals, configuration scope, and generate a complete build prompt using the backend API.
+      </p>
+
+      <form id="brief-form">
+        <div class="grid">
+          <label>
+            Primary goal
+            <input type="text" name="goal" id="goal" required />
+          </label>
+          <label>
+            Target users
+            <input type="text" name="users" id="users" required />
+          </label>
+          <label>
+            Key constraints
+            <input type="text" name="constraints" id="constraints" required />
+          </label>
+          <label class="full">
+            Notes / extra details
+            <textarea name="notes" id="notes" rows="2"></textarea>
+          </label>
+        </div>
+
+        <div class="grid">
+          <label>
+            Runtime preference
+            <select name="runtime" id="runtime">
+              <option value="offline">Start offline (browser-based)</option>
+              <option value="online">Cloud-connected (sync later)</option>
+            </select>
+          </label>
+          <label>
+            Simulator mode
+            <select name="mode" id="mode">
+              <option value="sandbox">Freeform sandbox</option>
+              <option value="guided">Guided training scenarios</option>
+            </select>
+          </label>
+          <label>
+            Physics depth
+            <select name="physics" id="physics">
+              <option value="simplified">Simplified electrical rules</option>
+              <option value="standards">Standards-based calculations</option>
+            </select>
+          </label>
+          <label>
+            Visual style
+            <select name="visualStyle" id="visualStyle">
+              <option value="schematic">Schematic-style blocks with terminals</option>
+              <option value="realistic">Realistic component renders</option>
+            </select>
+          </label>
+          <label>
+            Brand UI approach
+            <select name="brandUI" id="brandUI">
+              <option value="false">Start generic, leave room for expansion</option>
+              <option value="true">Match specific inverter brand UIs</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button type="submit">Generate Brief</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="summary-grid" id="summary-grid">
+      <div class="card">
+        <h3>Understanding</h3>
+        <ul id="understanding"></ul>
+      </div>
+      <div class="card">
+        <h3>Recommendations</h3>
+        <ul id="recommendations"></ul>
+      </div>
+      <div class="card">
+        <h3>Follow-up questions</h3>
+        <ul id="questions"></ul>
+      </div>
+      <div class="card">
+        <h3>AI prompt draft</h3>
+        <pre id="prompt"></pre>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
