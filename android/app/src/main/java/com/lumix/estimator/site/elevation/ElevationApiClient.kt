@@ -18,7 +18,7 @@ import java.net.URLEncoder
  * .SolarApiClient]'s own testability split.
  */
 interface ElevationApiClient {
-    suspend fun elevationAt(point: GeoPoint): ElevationResult
+    suspend fun elevationAt(point: GeoPoint, extraHeaders: Map<String, String> = emptyMap()): ElevationResult
 }
 
 /**
@@ -35,7 +35,7 @@ interface ElevationApiClient {
  */
 class GoogleElevationApiClient : ElevationApiClient {
 
-    override suspend fun elevationAt(point: GeoPoint): ElevationResult {
+    override suspend fun elevationAt(point: GeoPoint, extraHeaders: Map<String, String>): ElevationResult {
         if (!GoogleSolarApiConfig.isConfigured) {
             return ElevationResult.Unavailable("No Google API key configured — add SOLAR_API_KEY to local.properties to enable elevation lookups.")
         }
@@ -47,6 +47,7 @@ class GoogleElevationApiClient : ElevationApiClient {
                     requestMethod = "GET"
                     connectTimeout = 10_000
                     readTimeout = 10_000
+                    extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                 }
                 val code = connection.responseCode
                 if (code != HttpURLConnection.HTTP_OK) {

@@ -17,7 +17,7 @@ import java.net.URLEncoder
  * .monitoring.MonitoringProvider]'s own real-vs-mock split for the exact same testability reason.
  */
 interface SolarApiClient {
-    suspend fun fetchBuildingInsights(latitude: Double, longitude: Double): SolarApiResult
+    suspend fun fetchBuildingInsights(latitude: Double, longitude: Double, extraHeaders: Map<String, String> = emptyMap()): SolarApiResult
 }
 
 /**
@@ -35,7 +35,7 @@ interface SolarApiClient {
  */
 class GoogleSolarApiClient : SolarApiClient {
 
-    override suspend fun fetchBuildingInsights(latitude: Double, longitude: Double): SolarApiResult {
+    override suspend fun fetchBuildingInsights(latitude: Double, longitude: Double, extraHeaders: Map<String, String>): SolarApiResult {
         if (!GoogleSolarApiConfig.isConfigured) {
             return SolarApiResult.Unavailable("No Google Solar API key configured — add SOLAR_API_KEY to local.properties to enable automatic roof detection.")
         }
@@ -47,6 +47,7 @@ class GoogleSolarApiClient : SolarApiClient {
                     requestMethod = "GET"
                     connectTimeout = 10_000
                     readTimeout = 10_000
+                    extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                 }
                 val code = connection.responseCode
                 when (code) {

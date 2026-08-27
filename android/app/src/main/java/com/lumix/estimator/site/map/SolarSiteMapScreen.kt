@@ -119,6 +119,7 @@ import com.lumix.estimator.site.elevation.GoogleElevationApiClient
 import com.lumix.estimator.site.geometry.DistanceCalculator
 import com.lumix.estimator.site.geometry.SolarSuitability
 import com.lumix.estimator.site.geometry.SolarSuitabilityCalculator
+import com.lumix.estimator.network.GoogleRestHeaders
 import com.lumix.estimator.site.solarapi.GoogleSolarApiClient
 import com.lumix.estimator.site.streetview.GoogleStreetViewClient
 import com.lumix.estimator.site.geometry.PanelLayoutOptimizer
@@ -233,6 +234,8 @@ fun SolarSiteMapScreen(
     val solarApiClient = remember { GoogleSolarApiClient() }
     val elevationClient = remember { GoogleElevationApiClient() }
     val streetViewClient = remember { GoogleStreetViewClient() }
+    /** Site Survey / Solar Mapping round, real-key follow-up: see [GoogleRestHeaders]'s own doc for why every direct REST call to a Google Maps Platform endpoint needs these. */
+    val googleRestHeaders = remember(context) { GoogleRestHeaders.forContext(context) }
     val geocodingProvider = remember { AndroidGeocodingProvider(context) }
     val locationManager = remember { DeviceLocationManager(context) }
     val compassManager = remember { CompassManager(context) }
@@ -636,14 +639,14 @@ fun SolarSiteMapScreen(
             }
             if (state.hasLocation) {
                 MapControlButton(
-                    onClick = { scope.launch { viewModel.fetchElevation(elevationClient) } },
+                    onClick = { scope.launch { viewModel.fetchElevation(elevationClient, googleRestHeaders) } },
                     contentDescription = "Ground elevation",
                     active = state.elevationFetchState is ElevationFetchState.Loading
                 ) { Icon(Icons.Default.Terrain, contentDescription = null) }
                 MapControlButton(
                     onClick = {
                         showStreetViewSheet = true
-                        scope.launch { viewModel.fetchStreetView(streetViewClient) }
+                        scope.launch { viewModel.fetchStreetView(streetViewClient, extraHeaders = googleRestHeaders) }
                     },
                     contentDescription = "Street View site verification",
                     active = state.streetViewFetchState is StreetViewFetchState.Loading
@@ -659,7 +662,8 @@ fun SolarSiteMapScreen(
                     scope.launch {
                         viewModel.fetchAutoRoofFromSolarApi(
                             client = solarApiClient,
-                            panelWidthM = 2.278, panelHeightM = 1.134, panelWattage = 600.0
+                            panelWidthM = 2.278, panelHeightM = 1.134, panelWattage = 600.0,
+                            extraHeaders = googleRestHeaders
                         )
                     }
                 },

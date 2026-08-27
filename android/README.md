@@ -9387,3 +9387,63 @@ that actually affect panel placement, named saved measurements, real elevation a
 lookups, a site-survey summary that reaches the actual customer-facing quote/report, and now
 end-to-end proof that all of it drives the real residential/commercial/industrial sizing engines
 correctly — not merely a visual map, per the original request's own standard.
+
+## A148 — Real-key follow-up: `X-Android-Package`/`X-Android-Cert` headers for the three Google REST clients
+
+The user added their real Google Maps Platform key (restricted in Cloud Console to 35 APIs,
+covering both Maps SDK for Android and the Solar API) to `local.properties` as `MAPS_API_KEY` and
+`SOLAR_API_KEY`, and asked for two things: confirm `BuildConfig` picks up both correctly, and check
+the map/solar integration code for anything that would only surface with a real, restricted
+production key.
+
+**BuildConfig wiring**: verified correct, unchanged. `app/build.gradle.kts`'s `localProp()` helper
+reads both keys from `local.properties`; each gets its own `buildConfigField`, and `MAPS_API_KEY`
+is additionally wired into `manifestPlaceholders["MAPS_API_KEY"]` because the Maps SDK reads its
+key from the manifest's `com.google.android.geo.API_KEY` meta-data at runtime, not from
+`BuildConfig` — that dual-wiring already existed and is correct. This sandbox's own
+`local.properties` doesn't carry the user's real key values (only a stale, unrelated
+`MAPTILER_API_KEY` line survives here from an earlier, reversed round), so this is a code-path
+review, not a live round-trip against the user's actual key — disclosed rather than overstated.
+
+**The real bug**: this app's own setup instructions (A107) told the user to restrict their Maps
+key in Cloud Console to "Android apps" — package name + SHA-1 signing fingerprint. Google enforces
+that restriction only against two HTTP headers, `X-Android-Package` and `X-Android-Cert`, which a
+genuine Maps SDK view sends automatically. But `GoogleSolarApiClient`, `GoogleElevationApiClient`,
+and `GoogleStreetViewClient` (all built during A140–A147) are plain `HttpURLConnection` REST calls
+— not the SDK — and none of them sent those headers. Against the blank/unconfigured-key path this
+module was built and tested against throughout A140–A147, that was invisible; against the user's
+real, Android-app-restricted key it would make every direct REST call (Solar API building-insights
+lookups, Elevation API, Street View Static API) fail with an authorization error, regardless of how
+correctly the key itself was configured.
+
+**The fix**: a new `GoogleRestHeaders` object
+(`app/src/main/java/com/lumix/estimator/network/GoogleRestHeaders.kt`) computes
+`{"X-Android-Package": context.packageName, "X-Android-Cert": <SHA-1 of the app's own signing
+certificate, 40 uppercase hex chars, no colons>}` once per process and caches it — reading the
+signing certificate via `PackageManager.GET_SIGNING_CERTIFICATES` on API 28+ (this app's
+`compileSdk`/`targetSdk`) and falling back to the deprecated-but-still-functional
+`GET_SIGNATURES` down to `minSdk` 26. Sending these headers is harmless on a key that isn't
+Android-app-restricted (Google ignores them), so every call site adds them unconditionally rather
+than first detecting the configured key's restriction type. The three client interfaces
+(`SolarApiClient.fetchBuildingInsights`, `ElevationApiClient.elevationAt`,
+`StreetViewClient.fetchPanoramaImage`) each gained an `extraHeaders: Map<String, String> =
+emptyMap()` parameter, applied via `connection.setRequestProperty(...)` — deliberately keeping all
+three clients pure Kotlin with zero `android.*` imports, so the standalone-kotlinc verification
+route and the real `SiteSurveyEndToEndTest` suite keep working unmodified.
+`SolarSiteViewModel`'s three fetch functions (`fetchAutoRoofFromSolarApi`, `fetchElevation`,
+`fetchStreetView`) thread the same optional parameter through; `SolarSiteMapScreen` (which already
+holds `LocalContext.current`) computes the header map once via `remember(context) {
+GoogleRestHeaders.forContext(context) }` and passes it to all three floating-button call sites —
+the "Auto-detect roof," "Ground elevation," and "Street View" actions this app's own A141/A144/A145
+work already built.
+
+**Verification**: the three modified client files plus their existing model/parser dependencies
+were compiled cleanly through this sandbox's standalone-kotlinc route (`kotlin-compiler-embeddable
+2.0.21` against the project's real `kotlin-stdlib`, `kotlinx-coroutines-core`, and
+`kotlinx-serialization-json` jars) — 67 class files produced, zero errors, confirming the new
+`extraHeaders` parameter and its call sites type-check correctly. Every Android/Compose file
+touched (`GoogleRestHeaders.kt`, `SolarSiteViewModel.kt`, `SolarSiteMapScreen.kt`) was brace/paren
+balance-checked, since this sandbox cannot compile Android/Compose code directly (no network route
+to the Google Maven plugin repository `gradlew` needs). This sandbox cannot runtime-test against
+the user's real key either way — the fix is grounded in Google's own documented Android-app-key
+requirement, not a live-verified round-trip, and that gap is disclosed rather than papered over.

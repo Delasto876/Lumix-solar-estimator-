@@ -31,34 +31,36 @@ interface StreetViewClient {
         point: GeoPoint,
         headingDegrees: Double? = null,
         widthPx: Int = 640,
-        heightPx: Int = 400
+        heightPx: Int = 400,
+        extraHeaders: Map<String, String> = emptyMap()
     ): StreetViewResult
 }
 
 /** The real implementation — plain [HttpURLConnection] GETs, same "no extra HTTP client library for one more endpoint" reasoning [com.lumix.estimator.site.solarapi.GoogleSolarApiClient] already documents. */
 class GoogleStreetViewClient : StreetViewClient {
 
-    override suspend fun fetchPanoramaImage(point: GeoPoint, headingDegrees: Double?, widthPx: Int, heightPx: Int): StreetViewResult {
+    override suspend fun fetchPanoramaImage(point: GeoPoint, headingDegrees: Double?, widthPx: Int, heightPx: Int, extraHeaders: Map<String, String>): StreetViewResult {
         if (!GoogleSolarApiConfig.isConfigured) {
             return StreetViewResult.Unavailable("No Google API key configured — add SOLAR_API_KEY to local.properties to enable Street View.")
         }
         return withContext(Dispatchers.IO) {
-            when (val status = fetchMetadataStatus(point)) {
+            when (val status = fetchMetadataStatus(point, extraHeaders)) {
                 null -> StreetViewResult.Unavailable("Could not reach Street View — check your internet connection.")
-                "OK" -> fetchImage(point, headingDegrees, widthPx, heightPx)
+                "OK" -> fetchImage(point, headingDegrees, widthPx, heightPx, extraHeaders)
                 "ZERO_RESULTS" -> StreetViewResult.NoCoverage("No Street View imagery is available at this location.")
                 else -> StreetViewResult.Unavailable("Street View metadata returned status $status.")
             }
         }
     }
 
-    private fun fetchMetadataStatus(point: GeoPoint): String? {
+    private fun fetchMetadataStatus(point: GeoPoint, extraHeaders: Map<String, String>): String? {
         var connection: HttpURLConnection? = null
         return try {
             connection = (buildMetadataUrl(point).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 10_000
                 readTimeout = 10_000
+                extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
             }
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             StreetViewMetadataParser.parseStatus(body)
@@ -69,13 +71,14 @@ class GoogleStreetViewClient : StreetViewClient {
         }
     }
 
-    private fun fetchImage(point: GeoPoint, headingDegrees: Double?, widthPx: Int, heightPx: Int): StreetViewResult {
+    private fun fetchImage(point: GeoPoint, headingDegrees: Double?, widthPx: Int, heightPx: Int, extraHeaders: Map<String, String>): StreetViewResult {
         var connection: HttpURLConnection? = null
         return try {
             connection = (buildImageUrl(point, headingDegrees, widthPx, heightPx).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 10_000
                 readTimeout = 10_000
+                extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
             }
             val code = connection.responseCode
             if (code != HttpURLConnection.HTTP_OK) {

@@ -357,12 +357,13 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
         panelWidthM: Double,
         panelHeightM: Double,
         panelWattage: Double,
-        setbackMeters: Double = 0.5
+        setbackMeters: Double = 0.5,
+        extraHeaders: Map<String, String> = emptyMap()
     ) {
         val lat = _state.value.draftLatitude ?: return
         val lon = _state.value.draftLongitude ?: return
         _state.update { it.copy(solarApiFetchState = SolarApiFetchState.Loading) }
-        when (val result = client.fetchBuildingInsights(lat, lon)) {
+        when (val result = client.fetchBuildingInsights(lat, lon, extraHeaders)) {
             is SolarApiResult.Available -> {
                 result.insights.roofSegments.forEach { segment ->
                     appendRoofPlane(
@@ -400,11 +401,11 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
      * at the draft site location via [client] — a genuine three-way outcome (see
      * [ElevationFetchState]'s own doc), never a fabricated number when the API has no data or fails.
      */
-    suspend fun fetchElevation(client: ElevationApiClient) {
+    suspend fun fetchElevation(client: ElevationApiClient, extraHeaders: Map<String, String> = emptyMap()) {
         val lat = _state.value.draftLatitude ?: return
         val lon = _state.value.draftLongitude ?: return
         _state.update { it.copy(elevationFetchState = ElevationFetchState.Loading) }
-        when (val result = client.elevationAt(GeoPoint(lat, lon))) {
+        when (val result = client.elevationAt(GeoPoint(lat, lon), extraHeaders)) {
             is ElevationResult.Available -> _state.update {
                 it.copy(elevationFetchState = ElevationFetchState.Succeeded(result.reading.elevationMeters, result.reading.resolutionMeters))
             }
@@ -419,11 +420,11 @@ class SolarSiteViewModel(private val repository: SiteRepository) : ViewModel() {
      * a genuine three-way outcome (see [StreetViewFetchState]'s own doc), never a fabricated or
      * placeholder image when the API has no coverage or fails.
      */
-    suspend fun fetchStreetView(client: StreetViewClient, headingDegrees: Double? = null) {
+    suspend fun fetchStreetView(client: StreetViewClient, headingDegrees: Double? = null, extraHeaders: Map<String, String> = emptyMap()) {
         val lat = _state.value.draftLatitude ?: return
         val lon = _state.value.draftLongitude ?: return
         _state.update { it.copy(streetViewFetchState = StreetViewFetchState.Loading) }
-        when (val result = client.fetchPanoramaImage(GeoPoint(lat, lon), headingDegrees)) {
+        when (val result = client.fetchPanoramaImage(GeoPoint(lat, lon), headingDegrees, extraHeaders = extraHeaders)) {
             is StreetViewResult.Available -> _state.update { it.copy(streetViewFetchState = StreetViewFetchState.Succeeded(result.imageBytes)) }
             is StreetViewResult.NoCoverage -> _state.update { it.copy(streetViewFetchState = StreetViewFetchState.NoCoverage(result.message)) }
             is StreetViewResult.Unavailable -> _state.update { it.copy(streetViewFetchState = StreetViewFetchState.Failed(result.reason)) }
